@@ -54,8 +54,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     // ── 运行时状态 ──
     private bool _isProcessing;          // 防并发：上一帧没处理完，新触发直接跳过
     private int _totalOk, _totalNg;      // 累计统计
-    private int _fpsCounter;             // FPS 计数器
-    private DateTime _lastFpsReset = DateTime.Now;
 
     // ═══════════════════════════════════════════════════════════
     //  构造函数 —— DI 注入所有依赖，连线触发信号
@@ -99,14 +97,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _logger.LogInformation("VisionStation 启动 - 相机:{Cam} 标定:{Px}px/mm",
             _camera.IsAvailable, _calib.PixelPerMillimeter);
 
-        // FPS 定时刷新（每 2 秒统计一次）
-        var t = new System.Timers.Timer(2000);
-        t.Elapsed += (_, _) => Application.Current?.Dispatcher.Invoke(() =>
-        {
-            var ts = (DateTime.Now - _lastFpsReset).TotalSeconds;
-            if (ts > 0) { /* FPS 统计在后续版本实现 */ }
-        });
-        t.Start();
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -147,8 +137,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 WeakReferenceMessenger.Default.Send(new LogMessage("无图像", LogMsgLevel.Warning));
                 return;
             }
-
-            _fpsCounter++;
 
             // ── 2. 记录采图尺寸 ──
             _logger.LogInformation("[采图尺寸] 原始图像: {W}x{H} px, 通道数:{C}, 文件:{F}",

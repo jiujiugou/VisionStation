@@ -1,55 +1,47 @@
 using System.Windows;
+using VisionStation.Core.Geometry;
 
 namespace VisionStation.App.Services.Coordinates;
 
 /// <summary>
-/// 坐标双向映射器 —— 屏幕 ↔ 图像
+/// 坐标双向映射器 —— 屏幕 ↔ 图像（App 层 WPF 薄封装）
 ///
-/// 职责：
-///   1. 持有当前布局参数（容器尺寸、图像渲染尺寸、像素尺寸、缩放级别）
-///   2. 提供 ScreenToImage / ImageToScreen 双向换算
-///   3. 处理 Uniform 拉伸的居中偏移 + Zoom 额外缩放
+/// 换算核心算法在 Core 层 <see cref="CoordinateMath"/>（纯数学，可独立单测），
+/// 本类只负责两件事：
+///   1. 委托：布局更新、缩放、Screen↔Image 双向换算全部转发给 CoordinateMath
+///   2. UI 类型适配：提供 Point / Rect / ScreenCoordinate / ImageCoordinate 便捷重载
 ///
-/// 纯数学类，零外部依赖，可独立单元测试。
+/// 架构约定（ADR-003）：不在这里写任何换算公式，避免 UI 层与算法耦合。
 /// 全局单例注入，所有需要坐标换算的地方共用。
-///
-/// 换算公式：
-///   imageX = (screenX - OffsetX) / (ScaleFactor * Zoom)
-///   screenX = imageX * ScaleFactor * Zoom + OffsetX
 /// </summary>
 public class CoordinateMapper
 {
-    // ═══════════════════════════════════════════════════
-    //  布局参数
-    // ═══════════════════════════════════════════════════
+    // 核心算法（纯数学，可独立单测）
+    private readonly CoordinateMath _math = new();
 
     /// <summary>图像的原始像素宽度</summary>
-    public double ImagePixelWidth { get; private set; }
+    public double ImagePixelWidth => _math.ImagePixelWidth;
 
     /// <summary>图像的原始像素高度</summary>
-    public double ImagePixelHeight { get; private set; }
+    public double ImagePixelHeight => _math.ImagePixelHeight;
 
     /// <summary>外层容器的渲染宽度</summary>
-    public double ContainerWidth { get; private set; }
+    public double ContainerWidth => _math.ContainerWidth;
 
     /// <summary>外层容器的高度</summary>
-    public double ContainerHeight { get; private set; }
+    public double ContainerHeight => _math.ContainerHeight;
 
     /// <summary>Uniform 拉伸比例 = 图像渲染宽度 ÷ 原始像素宽度</summary>
-    public double ScaleFactor { get; private set; } = 1.0;
+    public double ScaleFactor => _math.ScaleFactor;
 
     /// <summary>图像在容器中的水平偏移（Uniform 拉伸后的黑边宽度）</summary>
-    public double OffsetX { get; private set; }
+    public double OffsetX => _math.OffsetX;
 
     /// <summary>图像在容器中的垂直偏移（Uniform 拉伸后的黑边高度）</summary>
-    public double OffsetY { get; private set; }
+    public double OffsetY => _math.OffsetY;
 
     /// <summary>用户手动缩放级别（滚轮调），1.0 = 无额外缩放</summary>
-    public double Zoom { get; private set; } = 1.0;
-
-    // ═══════════════════════════════════════════════════
-    //  布局更新
-    // ═══════════════════════════════════════════════════
+    public double Zoom => _math.Zoom;
 
     /// <summary>
     /// 完整参数更新。
@@ -58,50 +50,21 @@ public class CoordinateMapper
     /// pixelW/pixelH = 图像原始像素尺寸
     /// </summary>
     public void UpdateLayout(double containerW, double containerH,
-                              double imageRenderW, double imageRenderH,
-                              double pixelW, double pixelH)
-    {
-        ContainerWidth   = containerW;
-        ContainerHeight  = containerH;
-        ImagePixelWidth  = pixelW;
-        ImagePixelHeight = pixelH;
+        double imageRenderW, double imageRenderH, double pixelW, double pixelH)
+        => _math.UpdateLayout(containerW, containerH, imageRenderW, imageRenderH, pixelW, pixelH);
 
-        if (pixelW <= 0 || pixelH <= 0 || imageRenderW <= 0 || imageRenderH <= 0)
-            return;
-
-        ScaleFactor = imageRenderW / pixelW;
-        OffsetX     = (containerW - imageRenderW) / 2.0;
-        OffsetY     = (containerH - imageRenderH) / 2.0;
-    }
-
-    /// <summary>
-    /// 仅知像素尺寸时，自动计算 Uniform 参数
-    /// </summary>
+    /// <summary>仅知像素尺寸时，自动计算 Uniform 参数</summary>
     public void UpdateLayout(double containerW, double containerH, double pixelW, double pixelH)
-    {
-        double s = Math.Min(containerW / pixelW, containerH / pixelH);
-        UpdateLayout(containerW, containerH, pixelW * s, pixelH * s, pixelW, pixelH);
-    }
-
-    // ═══════════════════════════════════════════════════
-    //  Zoom（滚轮缩放）
-    // ═══════════════════════════════════════════════════
+        => _math.UpdateLayout(containerW, containerH, pixelW, pixelH);
 
     /// <summary>设置缩放级别（1.0=原始, 最大值20倍）</summary>
-    public void SetZoom(double zoom) => Zoom = Math.Max(0.05, Math.Min(20.0, zoom));
-
-    // ═══════════════════════════════════════════════════
-    //  坐标换算
-    // ═══════════════════════════════════════════════════
+    public void SetZoom(double zoom) => _math.SetZoom(zoom);
 
     /// <summary>屏幕坐标 → 图像坐标（鼠标回调用）</summary>
     public ImageCoordinate ScreenToImage(ScreenCoordinate screen)
     {
-        double totalScale = ScaleFactor * Zoom;
-        if (totalScale <= 0) return new ImageCoordinate(0, 0);
-        return new ImageCoordinate(
-            (screen.X - OffsetX) / totalScale,
-            (screen.Y - OffsetY) / totalScale);
+        var (x, y) = _math.ScreenToImage(screen.X, screen.Y);
+        return new ImageCoordinate(x, y);
     }
 
     /// <summary>屏幕 Point → 图像坐标（便捷重载）</summary>
@@ -111,30 +74,22 @@ public class CoordinateMapper
     /// <summary>图像坐标 → 屏幕坐标（渲染 ROI 矩形用）</summary>
     public ScreenCoordinate ImageToScreen(ImageCoordinate image)
     {
-        double totalScale = ScaleFactor * Zoom;
-        return new ScreenCoordinate(
-            image.X * totalScale + OffsetX,
-            image.Y * totalScale + OffsetY);
+        var (x, y) = _math.ImageToScreen(image.X, image.Y);
+        return new ScreenCoordinate(x, y);
     }
 
     /// <summary>图像坐标 → 屏幕 Point（便捷重载）</summary>
     public Point ImageToScreenPoint(ImageCoordinate image)
     {
-        double totalScale = ScaleFactor * Zoom;
-        return new Point(
-            image.X * totalScale + OffsetX,
-            image.Y * totalScale + OffsetY);
+        var (x, y) = _math.ImageToScreen(image.X, image.Y);
+        return new Point(x, y);
     }
 
     /// <summary>图像矩形 → 屏幕矩形（渲染用）</summary>
     public Rect ImageRectToScreen(double imageX, double imageY,
-                                   double imageW, double imageH)
+        double imageW, double imageH)
     {
-        double totalScale = ScaleFactor * Zoom;
-        return new Rect(
-            imageX * totalScale + OffsetX,
-            imageY * totalScale + OffsetY,
-            imageW * totalScale,
-            imageH * totalScale);
+        var (x, y) = _math.ImageToScreen(imageX, imageY);
+        return new Rect(x, y, imageW * _math.ScaleFactor * _math.Zoom, imageH * _math.ScaleFactor * _math.Zoom);
     }
 }

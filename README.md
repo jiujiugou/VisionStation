@@ -173,5 +173,5 @@ dotnet publish VisionStation.App -c Release -r win-x64 --self-contained -o publi
 - [x] Serilog 文件日志 + UI 告警面板
 - [x] 并发保护（_isProcessing 锁）
 - [x] 全链路端到端测试（合成图）
-- [x] 单元测试（8 个，全部通过）
+- [x] 单元测试（12 个，全部通过）
 - [x] 部署打包验证（`dotnet publish -c Release -r win-x64 --self-contained`）

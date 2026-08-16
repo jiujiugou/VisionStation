@@ -28,9 +28,9 @@ public partial class StatusBarViewModel : ObservableObject
     [ObservableProperty]
     private bool _cameraOnline;
 
-    /// <summary>每秒处理帧数</summary>
+    /// <summary>每秒处理帧数（实时吞吐，EMA 平滑，如 "0.5"；无帧时为 "--"）</summary>
     [ObservableProperty]
-    private int _fps;
+    private string _fps = "--";
 
     /// <summary>单帧处理周期（毫秒）</summary>
     [ObservableProperty]

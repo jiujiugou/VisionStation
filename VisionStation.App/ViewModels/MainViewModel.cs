@@ -33,7 +33,8 @@ namespace VisionStation.App.ViewModels;
 ///   - Pipeline：执行检测算法
 ///   - InspectionRepository：存数据库
 ///   - ImageStoreService：存图片文件
-///   - ImagePanelVM：直接赋值图像（像素转换在此，属于UI层职责）
+    ///   - ImagePanelVM：直接赋值图像（像素转换在此，属于UI层职责）
+    ///   - StatusBarVM：直接推送 FPS / Cycle / OK / NG（性能考虑，不走消息）
 /// </summary>
 public partial class MainViewModel : ObservableObject, IDisposable
 {
@@ -47,6 +48,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ILogger<MainViewModel> _logger;
     private readonly ImagePanelViewModel _imagePanel;
     private readonly RecipeConfig _recipe;
+    private readonly StatusBarViewModel _statusBar;
 
     // ── 检测区域：来自配方文件 ──
     private List<RoiRegion> _rois;
@@ -54,6 +56,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     // ── 运行时状态 ──
     private bool _isProcessing;          // 防并发：上一帧没处理完，新触发直接跳过
     private int _totalOk, _totalNg;      // 累计统计
+    private double _emaCycleMs;          // 单帧耗时指数滑动平均（FPS 平滑，抗抖动）
 
     // ═══════════════════════════════════════════════════════════
     //  构造函数 —— DI 注入所有依赖，连线触发信号
@@ -62,12 +65,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ITriggerSource trigger, ICamera camera, Pipeline pipeline,
         InspectionRepository repo, ImageStoreService imageStore,
         CalibrationConfig calib, ILogger<MainViewModel> logger,
-        ImagePanelViewModel imagePanel, RecipeConfig recipe)
+        ImagePanelViewModel imagePanel, StatusBarViewModel statusBar, RecipeConfig recipe)
     {
         _trigger = trigger; _camera = camera; _pipeline = pipeline;
         _repo = repo; _imageStore = imageStore;
         _calib = calib; _logger = logger;
         _imagePanel = imagePanel;
+        _statusBar = statusBar;
         _recipe = recipe;
 
         // 从配方文件取 ROI
@@ -162,6 +166,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             // ── 6. 累计统计 ──
             if (report.IsOk) _totalOk++; else _totalNg++;
+
+            // ── 6.1 状态栏实时指标：OK/NG 累计 + 单帧耗时 + EMA 平滑 FPS ──
+            _statusBar.OkCount = _totalOk;
+            _statusBar.NgCount = _totalNg;
+            var cycleMs = sw.ElapsedMilliseconds;
+            _statusBar.CycleTime = $"{cycleMs} ms";
+            _emaCycleMs = _emaCycleMs == 0 ? cycleMs : _emaCycleMs * 0.7 + cycleMs * 0.3;
+            _statusBar.Fps = $"{1000.0 / _emaCycleMs:0.0}";
 
             // ── 7. 发消息 → 订阅者各自更新 ──
             WeakReferenceMessenger.Default.Send(new InspectionResultMessage(report));

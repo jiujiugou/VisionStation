@@ -63,9 +63,14 @@ public class ToolFactory
                     _recipe.Calibration.DimensionToleranceMm);
 
             case "Defect":
-                return new DefectTool(
+                var dt = new DefectTool(
                     tc.Params.GetValueOrDefault("areaMin", 50),
                     tc.Params.GetValueOrDefault("thresholdValue", 128));
+                // 孔排除圆（图像坐标）：零件固有孔（如垫圈中心孔）不判缺陷
+                dt.ExcludeCenterX = tc.Params.GetValueOrDefault("excludeX", -1);
+                dt.ExcludeCenterY = tc.Params.GetValueOrDefault("excludeY", -1);
+                dt.ExcludeRadius = tc.Params.GetValueOrDefault("excludeRadius", 0);
+                return dt;
 
             // 将来：
             // case "OCR": return new OcrTool(...)

@@ -27,7 +27,13 @@
       "type": "Defect",
       "enabled": true,
       "roi": "Defect",
-      "params": { "areaMin": 50, "thresholdValue": 128 }
+      "params": {
+        "areaMin": 50,
+        "thresholdValue": 128,
+        "excludeX": 150.0,
+        "excludeY": 150.0,
+        "excludeRadius": 28.0
+      }
     }
   ]
 }

@@ -123,4 +123,87 @@ public class ToolTests
 
         img.Dispose();
     }
+
+    // ── DefectTool：垫圈表面（背景 + 固有孔 不应误报）──
+    // ADR-002 回归：合格垫圈（亮盘 + 暗孔 + 暗背景）必须判 OK，
+    // 背景（贴 ROI 边界）与中心孔（孔排除圆）都不能算缺陷。
+
+    /// <summary>构造 300x300 垫圈图：灰底 + 亮盘 +（可选）中心孔 +（可选）划痕</summary>
+    private static Mat CreateWasherImage(bool hasHole, int holeRadius = 20,
+        List<(int y, int x0, int x1, int amp)>? scratches = null)
+    {
+        var img = new Mat(300, 300, MatType.CV_8UC3, new Scalar(30, 30, 30));
+        Cv2.Circle(img, 150, 150, 120, new Scalar(160, 160, 160), -1);
+        if (hasHole)
+            Cv2.Circle(img, 150, 150, holeRadius, new Scalar(25, 25, 25), -1);
+
+        if (scratches != null)
+        {
+            foreach (var (y, x0, x1, amp) in scratches)
+                for (int x = x0; x <= x1; x++)
+                {
+                    int yy = y + (int)(Math.Sin(x * 0.05) * amp);
+                    for (int dy = -2; dy <= 2; dy++)
+                        img.Set(yy + dy, x, new Vec3b(45, 45, 45));
+                }
+        }
+        return img;
+    }
+
+    [Fact]
+    public void DefectTool_WasherSurfaceWithHoleExclusion_ReturnsOK()
+    {
+        var tool = new DefectTool(areaMin: 20, thresholdValue: 128);
+        tool.ExcludeCenterX = 150;
+        tool.ExcludeCenterY = 150;
+        tool.ExcludeRadius = 28;
+
+        using var img = CreateWasherImage(hasHole: true, holeRadius: 20);
+        using var gray = new Mat();
+        Cv2.CvtColor(img, gray, ColorConversionCodes.BGR2GRAY);
+
+        // ROI 覆盖整个圆盘（含背景角 + 中心孔），两者都必须被排除
+        var roi = new RoiRegion { X = 30, Y = 30, Width = 240, Height = 240 };
+        var result = tool.Execute(gray, roi);
+
+        Assert.True(result.IsOk);
+        Assert.Empty(result.Overlays);
+    }
+
+    [Fact]
+    public void DefectTool_WasherSurfaceWithoutHoleExclusion_ReturnsNG()
+    {
+        // 不加孔排除圆：背景被贴边剔除，但中心孔仍被误报 → NG（证明排除机制的必要性）
+        var tool = new DefectTool(areaMin: 20, thresholdValue: 128);
+
+        using var img = CreateWasherImage(hasHole: true, holeRadius: 20);
+        using var gray = new Mat();
+        Cv2.CvtColor(img, gray, ColorConversionCodes.BGR2GRAY);
+
+        var roi = new RoiRegion { X = 30, Y = 30, Width = 240, Height = 240 };
+        var result = tool.Execute(gray, roi);
+
+        Assert.False(result.IsOk);
+    }
+
+    [Fact]
+    public void DefectTool_WasherScratchOnSurface_ReturnsNG()
+    {
+        var tool = new DefectTool(areaMin: 20, thresholdValue: 128);
+        tool.ExcludeCenterX = 150;
+        tool.ExcludeCenterY = 150;
+        tool.ExcludeRadius = 28;
+
+        // 合格件 + 一条贯穿表面的划痕
+        using var img = CreateWasherImage(hasHole: true, holeRadius: 20,
+            scratches: new() { (70, 100, 220, 5) });
+        using var gray = new Mat();
+        Cv2.CvtColor(img, gray, ColorConversionCodes.BGR2GRAY);
+
+        var roi = new RoiRegion { X = 30, Y = 30, Width = 240, Height = 240 };
+        var result = tool.Execute(gray, roi);
+
+        Assert.False(result.IsOk);
+        Assert.NotEmpty(result.Overlays);
+    }
 }

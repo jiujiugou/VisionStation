@@ -47,6 +47,9 @@ var presTool = new PresenceTool(0.70);
 presTool.LoadTemplate(template);
 var dimTool = new DimensionTool(calibration, calibConfig.DesignedDiameterMm, calibConfig.DimensionToleranceMm);
 var defTool = new DefectTool(20, 128);
+defTool.ExcludeCenterX = 150;  // 孔排除圆（图像坐标）：垫圈中心孔不判缺陷
+defTool.ExcludeCenterY = 150;
+defTool.ExcludeRadius = 28;
 var pipeline = new Pipeline(new List<IVisionTool> { presTool, dimTool, defTool });
 
 var rois = new List<RoiRegion>

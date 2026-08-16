@@ -149,7 +149,11 @@ public partial class App : Application
             {
                 new() { Type = "Presence", Enabled = true, Roi = "Presence", Params = new() { ["threshold"] = 0.70 } },
                 new() { Type = "Dimension", Enabled = true, Roi = "Dimension", Params = new() { ["tolerance"] = 0.50 } },
-                new() { Type = "Defect", Enabled = true, Roi = "Defect", Params = new() { ["areaMin"] = 50, ["thresholdValue"] = 128 } }
+                new() { Type = "Defect", Enabled = true, Roi = "Defect",
+                    Params = new() {
+                        ["areaMin"] = 50, ["thresholdValue"] = 128,
+                        ["excludeX"] = 150.0, ["excludeY"] = 150.0, ["excludeRadius"] = 28.0
+                    } }
             }
         };
     }

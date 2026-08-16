@@ -1,0 +1,10 @@
+<Solution>
+  <Project Path="VisionStation.App/VisionStation.App.csproj" />
+  <Project Path="VisionStation.Core/VisionStation.Core.csproj" />
+  <Project Path="VisionStation.Devices/VisionStation.Devices.csproj" />
+  <Project Path="VisionStation.Service/VisionStation.Service.csproj" />
+  <Project Path="VisionStation.Storage/VisionStation.Storage.csproj" />
+  <Project Path="VisionStation.Test/VisionStation.Test.csproj" />
+  <Project Path="VisionStation.UnitTests/VisionStation.UnitTests.csproj" />
+  <Project Path="VisionStation.Watchdog/VisionStation.Watchdog.csproj" />
+</Solution>

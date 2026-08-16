@@ -1,0 +1,89 @@
+<UserControl x:Class="VisionStation.App.Views.ResultPanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             xmlns:conv="clr-namespace:VisionStation.App.Converters">
+    <UserControl.Resources>
+        <conv:StringToColorConverter x:Key="StringToColor" />
+    </UserControl.Resources>
+    <Border Background="White" BorderBrush="#E1E1E1" BorderThickness="1"
+            CornerRadius="4" Padding="10,10">
+        <StackPanel>
+            <!-- 标题 -->
+            <TextBlock Text="检测结果" FontSize="12" FontWeight="SemiBold"
+                       Foreground="#1E1E1E" Margin="0,0,0,6" />
+
+            <!-- 元数据行 -->
+            <TextBlock FontSize="10" Foreground="#888" Margin="0,0,0,6">
+                <Run Text="{Binding TimestampText, Mode=OneWay}" />
+                <Run Text="  |  " Foreground="#CCC" />
+                <Run Text="{Binding TriggerInfoText, Mode=OneWay}" />
+            </TextBlock>
+
+            <!-- 表格头 -->
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="5*" />
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="3*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="检测项" FontSize="10" FontWeight="Medium"
+                           Foreground="#888" Margin="6,0" />
+                <TextBlock Grid.Column="1" Text="结果" FontSize="10" FontWeight="Medium"
+                           Foreground="#888" />
+                <TextBlock Grid.Column="2" Text="数值" FontSize="10" FontWeight="Medium"
+                           Foreground="#888" TextAlignment="Right" Margin="6,0" />
+            </Grid>
+
+            <!-- 表格行 -->
+            <Border Background="#F5F5F5" CornerRadius="2" Padding="2">
+                <ItemsControl ItemsSource="{Binding Rows}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="5*" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="3*" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0" Text="{Binding Item}"
+                                           FontSize="11" FontWeight="Medium"
+                                           Foreground="#1E1E1E" Margin="6,5" />
+
+                                <!-- OK/NG 标签 -->
+                                <Border Grid.Column="1" CornerRadius="2" Padding="5,2"
+                                        HorizontalAlignment="Left" VerticalAlignment="Center">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Background" Value="#DFF6DD" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsOk}" Value="False">
+                                                    <Setter Property="Background" Value="#FDE7E9" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="{Binding StatusText}" FontSize="10"
+                                               FontWeight="SemiBold"
+                                               Foreground="{Binding StatusColor, Converter={StaticResource StringToColor}}" />
+                                </Border>
+
+                                <TextBlock Grid.Column="2" Text="{Binding Value}" FontSize="11"
+                                           Foreground="#555" TextAlignment="Right"
+                                           Margin="6,5" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <!-- 总判定条 -->
+            <Border CornerRadius="4" Padding="10,8" Margin="0,8,0,0"
+                    Background="{Binding VerdictColor, Converter={StaticResource StringToColor}}">
+                <TextBlock Text="{Binding VerdictText}" FontSize="15" FontWeight="Bold"
+                           Foreground="White" HorizontalAlignment="Center" />
+            </Border>
+        </StackPanel>
+    </Border>
+</UserControl>

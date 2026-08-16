@@ -1,0 +1,33 @@
+{
+  "name": "金属垫圈检测",
+  "calibration": {
+    "pixelPerMillimeter": 15.0,
+    "designedDiameterMm": 2.67,
+    "dimensionToleranceMm": 0.50
+  },
+  "rois": [
+    { "name": "Presence",  "x": 120, "y": 120, "width": 80, "height": 80 },
+    { "name": "Dimension", "x": 120, "y": 120, "width": 80, "height": 80 },
+    { "name": "Defect",    "x": 30,  "y": 30,  "width": 240, "height": 240 }
+  ],
+  "tools": [
+    {
+      "type": "Presence",
+      "enabled": true,
+      "roi": "Presence",
+      "params": { "threshold": 0.70 }
+    },
+    {
+      "type": "Dimension",
+      "enabled": true,
+      "roi": "Dimension",
+      "params": { "tolerance": 0.50 }
+    },
+    {
+      "type": "Defect",
+      "enabled": true,
+      "roi": "Defect",
+      "params": { "areaMin": 50, "thresholdValue": 128 }
+    }
+  ]
+}

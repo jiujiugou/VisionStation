@@ -1,0 +1,31 @@
+# Build outputs
+bin/
+obj/
+publish/
+*.user
+
+# Visual Studio
+.vs/
+
+# Runtime data (created on first run)
+visionstation.db
+visionstation.db-shm
+visionstation.db-wal
+test_visionstation.db
+test_visionstation.db-shm
+test_visionstation.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+Logs/
+InspectedImages/
+
+# Crash / diagnostic logs
+crash*.log
+crash_task.log
+crash_domain.log
+crash_recipe.log
+crash_startup.log
+diag.log
+watchdog.log

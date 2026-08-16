@@ -1,0 +1,107 @@
+<UserControl x:Class="VisionStation.App.Views.ImagePanelView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             Focusable="True" KeyDown="OnKeyDown">
+    <UserControl.Resources>
+        <Style x:Key="ImageTabStyle" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="14,5" />
+                        <Setter Property="FontSize" Value="11" />
+                        <Setter Property="FontWeight" Value="Medium" />
+                        <Setter Property="Foreground" Value="#555" />
+                        <Setter Property="Background" Value="#EAEAEA" />
+                        <Setter Property="BorderBrush" Value="#E1E1E1" />
+                        <Setter Property="BorderThickness" Value="1,1,1,0" />
+                        <Setter Property="Margin" Value="-1,0,0,0" />
+                        <Setter Property="Cursor" Value="Hand" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <Border x:Name="bd"
+                                            Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="{TemplateBinding BorderThickness}"
+                                            CornerRadius="4,4,0,0"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="White" />
+                                            <Setter Property="Foreground" Value="#1E1E1E" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                        </Trigger>
+                                        <MultiTrigger>
+                                            <MultiTrigger.Conditions>
+                                                <Condition Property="IsSelected" Value="False" />
+                                                <Condition Property="IsMouseOver" Value="True" />
+                                            </MultiTrigger.Conditions>
+                                            <Setter TargetName="bd" Property="Background" Value="#E0E0E0" />
+                                        </MultiTrigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Tab 栏 -->
+        <ListBox Grid.Row="0" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}"
+                 Style="{StaticResource ImageTabStyle}">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Label}" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <!-- 图像显示区：支持缩放+平移 -->
+        <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#E1E1E1"
+                BorderThickness="1" CornerRadius="0,4,4,4"
+                ClipToBounds="True"
+                MouseWheel="OnMouseWheel"
+                MouseLeftButtonDown="OnMouseDown"
+                MouseMove="OnMouseMove"
+                MouseLeftButtonUp="OnMouseUp">
+            <Grid x:Name="ImageHost">
+                <Image x:Name="ImageDisplay" Source="{Binding CurrentImage}"
+                       Stretch="Uniform"
+                       RenderTransformOrigin="0.5,0.5">
+                    <Image.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1" />
+                            <TranslateTransform x:Name="PanTransform" X="0" Y="0" />
+                        </TransformGroup>
+                    </Image.RenderTransform>
+                </Image>
+
+                <!-- 鼠标坐标 + 缩放级别（左下角浮层） -->
+                <Border Background="#BB000000" CornerRadius="3" Padding="8,3"
+                        HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                        Margin="6,0,0,6" Panel.ZIndex="99">
+                    <TextBlock x:Name="CoordLabel" Foreground="#CCC" FontSize="10"
+                               FontFamily="Consolas" Text="(0,0) px | 1.0x" />
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

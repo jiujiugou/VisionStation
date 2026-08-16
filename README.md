@@ -11,7 +11,7 @@ VisionStation.sln
 │
 ├── VisionStation.App/          WPF 桌面应用（MVVM + Messenger）
 │   ├── Views/                  界面（ImagePanel / ResultPanel / LogPanel / ControlPanel / StatusBar）
-│   ├── ViewModels/             7 个 ViewModel，Messenger 解耦
+│   ├── ViewModels/             9 个 ViewModel，Messenger 解耦
 │   ├── Services/
 │   │   ├── DeviceManager.cs    设备管理器（IDevice 集合）
 │   │   ├── HealthChecker.cs    启动自检（相机/数据库/存储/模板/配方）
@@ -20,7 +20,7 @@ VisionStation.sln
 │   │       ├── ScreenCoordinate.cs    屏幕坐标（dp）
 │   │       └── ImageCoordinate.cs     图像坐标（px）
 │   ├── Converters/             值转换器
-│   ├── Messages.cs             5 种 Messenger 消息类型
+│   ├── Messages.cs             6 种 Messenger 消息类型
 │   └── Config/recipes/         配方文件
 │
 ├── VisionStation.Core/         纯算法，零 UI 依赖
@@ -173,5 +173,5 @@ dotnet publish VisionStation.App -c Release -r win-x64 --self-contained -o publi
 - [x] Serilog 文件日志 + UI 告警面板
 - [x] 并发保护（_isProcessing 锁）
 - [x] 全链路端到端测试（合成图）
-- [x] 单元测试（12 个，全部通过）
+- [x] 单元测试（22 个，全部通过）
 - [x] 部署打包验证（`dotnet publish -c Release -r win-x64 --self-contained`）

@@ -7,7 +7,7 @@ public class InspectionDbContext : DbContext
 {
     public DbSet<InspectionRecord> InspectionRecords => Set<InspectionRecord>();
 
-    private readonly string _dbPath;
+    private readonly string _dbPath = string.Empty;
 
     public InspectionDbContext(string dbPath = "visionstation.db")
     {

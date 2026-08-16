@@ -18,7 +18,6 @@ public class HikCamera : ICamera, IDisposable
     private int _frameCount;
     private Thread? _grabThread;
     private IntPtr _imageBuffer = IntPtr.Zero;
-    private uint _imageBufferSize;
     private readonly object _lock = new();
 
     // 最新帧数据（由采图线程写入，Capture() 读取）

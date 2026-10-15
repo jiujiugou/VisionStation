@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\VisionStation.Core\VisionStation.Core.csproj" />
-    <ProjectReference Include="..\VisionStation.Storage\VisionStation.Storage.csproj" />
-    <ProjectReference Include="..\VisionStation.Devices\VisionStation.Devices.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Core\VisionStation.Core.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Storage\VisionStation.Storage.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Devices\VisionStation.Devices.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -84,20 +84,20 @@ InspectionReport → SQLite + 图片文件
 
 - **环境**：Windows 10/11 x64，安装 .NET 8 SDK（`dotnet --version` 确认版本 ≥ 8.0）。
 - **无摄像头也能跑**：默认 `Camera:Mode=File`，直接从仓库内的 `TestImages/` 读取演示图，启动自检 5 项全过。
-- **开箱即用**：克隆后直接 `dotnet run --project VisionStation.App` 即可，无需先跑 Test 生成图片（`TestImages/` 已随仓库提交）。
+- **开箱即用**：克隆后直接 `dotnet run --project src/VisionStation.App` 即可，无需先跑 Test 生成图片（`TestImages/` 已随仓库提交）。
 - **首次运行自动生成**：`visionstation.db`、`Logs/`、`InspectedImages/` 会在项目根目录自动创建（已加入 `.gitignore`，不影响仓库）。
 
 ## 运行
 
 ```bash
 # 1. 生成测试图像 + 跑全链路
-dotnet run --project VisionStation.Test
+dotnet run --project tests/VisionStation.Test
 
 # 2. 启动 WPF 桌面应用
-dotnet run --project VisionStation.App
+dotnet run --project src/VisionStation.App
 
 # 3. 打包发布（自包含，不依赖 .NET 运行时）
-dotnet publish VisionStation.App -c Release -r win-x64 --self-contained -o publish
+dotnet publish src/VisionStation.App -c Release -r win-x64 --self-contained -o publish
 ```
 
 ## 配方文件

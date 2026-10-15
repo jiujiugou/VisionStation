@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\VisionStation.Core\VisionStation.Core.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Core\VisionStation.Core.csproj" />
   </ItemGroup>
 
 </Project>

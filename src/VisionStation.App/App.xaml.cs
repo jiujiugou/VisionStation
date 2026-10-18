@@ -29,6 +29,8 @@ public partial class App : Application
 
         DispatcherUnhandledException += (_, args) =>
         {
+            // 崩溃路径也要尽力释放设备，否则相机会话挂死、下次启动报占用
+            (Services as IDisposable)?.Dispose();
             File.WriteAllText("crash.log", args.Exception.ToString());
             MessageBox.Show(args.Exception.Message, "UI线程异常", MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = false;
@@ -44,6 +46,8 @@ public partial class App : Application
         {
             if (args.ExceptionObject is Exception ex)
             {
+                // 非 UI 线程崩溃 = 进程即将终止，最后的机会释放相机
+                (Services as IDisposable)?.Dispose();
                 File.WriteAllText("crash_domain.log", ex.ToString());
                 MessageBox.Show(ex.Message, "非UI线程异常", MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -174,5 +178,12 @@ public partial class App : Application
         catch { /* 看门狗启动失败不影响主程序 */ }
     }
 
-    protected override void OnExit(ExitEventArgs e) { Log.CloseAndFlush(); base.OnExit(e); }
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // 释放 DI 容器持有的 IDisposable（HikCamera 等）——
+        // 不释放会占用相机句柄，下次启动 MV_CC_OpenDevice 报"设备被占用"
+        (Services as IDisposable)?.Dispose();
+        Log.CloseAndFlush();
+        base.OnExit(e);
+    }
 }

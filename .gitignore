@@ -29,3 +29,8 @@ crash_recipe.log
 crash_startup.log
 diag.log
 watchdog.log
+
+# Local-only
+.workbuddy/
+TestImages/VirtualCamera/
+notes/

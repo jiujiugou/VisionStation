@@ -38,13 +38,21 @@ public partial class RoiEditorViewModel : ObservableObject
     // ── 拖拽状态 ──
     private bool _isDrawing;
     private Point _drawStart;       // 画矩形起点（图像坐标）
+    private Point _drawStartScreen; // 画矩形起点（屏幕坐标，用于点击/拖拽判定）
     private EditableRoi? _drawingRoi;
+    private bool _drawAdded;        // 新框是否已加入列表（拖出阈值才加入，防止点击误建框）
     private bool _isDragging;
     private Point _dragStart;       // 拖拽起点（屏幕坐标）
     private double _dragStartX, _dragStartY;  // 拖拽前 ROI 的图像坐标
     private bool _isResizing;
     private Point _resizeStart;
     private double _resizeStartW, _resizeStartH;
+
+    // ── 交互参数 ──
+    // 按下后移动超过此距离（屏幕 dp）才算画框，纯点击只取消选中
+    private const double DrawStartThresholdPx = 4.0;
+    // 新画的框小于此尺寸（图像像素）视为误触，松手即丢弃
+    private const double MinRoiSizePx = 8.0;
 
     public RoiEditorViewModel(CoordinateMapper mapper, RecipeConfig recipe, AppPaths paths)
     {
@@ -125,10 +133,13 @@ public partial class RoiEditorViewModel : ObservableObject
             return;
         }
 
-        // 空白处 → 开始画新矩形
+        // 空白处 → 准备画新矩形（先不入列，拖出阈值才真正建框）
         SelectedRoi = null;
+        foreach (var roi in Rois) roi.IsSelected = false;
         _isDrawing = true;
         _drawStart = imgPt;
+        _drawStartScreen = screenPoint;
+        _drawAdded = false;
 
         _drawingRoi = new EditableRoi
         {
@@ -138,8 +149,6 @@ public partial class RoiEditorViewModel : ObservableObject
             ImageWidth = 0,
             ImageHeight = 0
         };
-        RefreshDisplay(_drawingRoi);
-        Rois.Add(_drawingRoi);
     }
 
     public void MouseMove(Point screenPoint)
@@ -148,6 +157,19 @@ public partial class RoiEditorViewModel : ObservableObject
 
         if (_isDrawing && _drawingRoi != null)
         {
+            // 点击/拖拽分离：按下后移动距离超过阈值才真正建框
+            if (!_drawAdded)
+            {
+                double dxs = screenPoint.X - _drawStartScreen.X;
+                double dys = screenPoint.Y - _drawStartScreen.Y;
+                if (Math.Sqrt(dxs * dxs + dys * dys) < DrawStartThresholdPx)
+                    return; // 还在阈值内 → 视为普通点击，不画框
+
+                RefreshDisplay(_drawingRoi);
+                Rois.Add(_drawingRoi);
+                _drawAdded = true;
+            }
+
             double x = Math.Min(_drawStart.X, imgPt.X);
             double y = Math.Min(_drawStart.Y, imgPt.Y);
             double w = Math.Abs(imgPt.X - _drawStart.X);
@@ -178,14 +200,24 @@ public partial class RoiEditorViewModel : ObservableObject
 
     public void MouseUp()
     {
+        // ── 画框结束：误触/过小框丢弃，正常框选中 ──
+        if (_isDrawing && _drawingRoi != null)
+        {
+            bool tooSmall = _drawingRoi.ImageWidth < MinRoiSizePx || _drawingRoi.ImageHeight < MinRoiSizePx;
+            if (!_drawAdded || tooSmall)
+            {
+                Rois.Remove(_drawingRoi);   // 未入列时 Remove 是安全的空操作
+                SelectedRoi = null;
+            }
+            else
+            {
+                SelectRoi(_drawingRoi);     // 画完自动选中，方便马上改名/微调
+            }
+        }
+
         _isDrawing = false; _isDragging = false; _isResizing = false;
         _drawingRoi = null;
-
-        if (SelectedRoi != null && SelectedRoi.ImageWidth < 3 && SelectedRoi.ImageHeight < 3)
-        {
-            Rois.Remove(SelectedRoi);
-            SelectedRoi = null;
-        }
+        _drawAdded = false;
     }
 
     private void SelectRoi(EditableRoi r)
@@ -199,8 +231,11 @@ public partial class RoiEditorViewModel : ObservableObject
         for (int i = Rois.Count - 1; i >= 0; i--)
         {
             var r = Rois[i];
-            if (screenPoint.X >= r.DisplayX && screenPoint.X <= r.DisplayX + r.DisplayWidth &&
-                screenPoint.Y >= r.DisplayY && screenPoint.Y <= r.DisplayY + r.DisplayHeight)
+            // 过小的框（历史误触产物）扩大 6dp 命中范围，否则窄于点击容差的框永远选不中
+            double inflateX = r.DisplayWidth < 8 ? 6 : 0;
+            double inflateY = r.DisplayHeight < 8 ? 6 : 0;
+            if (screenPoint.X >= r.DisplayX - inflateX && screenPoint.X <= r.DisplayX + r.DisplayWidth + inflateX &&
+                screenPoint.Y >= r.DisplayY - inflateY && screenPoint.Y <= r.DisplayY + r.DisplayHeight + inflateY)
                 return r;
         }
         return null;

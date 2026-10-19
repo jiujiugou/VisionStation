@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VisionStation.Core.Models;
+using VisionStation.Core.Tools;
 using VisionStation.Storage.Entities;
 
 namespace VisionStation.Storage;
@@ -34,6 +36,31 @@ public class InspectionRepository : IInspectionRepository
     private readonly Func<(InspectionDbContext Db, bool Owned)> _newContext;
     private readonly ILogger<InspectionRepository>? _logger;
 
+    // JsonSerializerOptions 每次 new 都会有反射元数据开销（CA1869），提到静态。
+    private static readonly JsonSerializerOptions ToolJsonOptions = new() { WriteIndented = false };
+
+    /// <summary>
+    /// 把全部工具结果压成 JSON 快照。
+    /// 不存 Overlays：那是画标注用的图形指令（DrawRect/DrawCircle 等派生类型），
+    /// 存下来也无法反序列化回具体类型，且体积远大于结论本身。
+    /// </summary>
+    private static string SerializeToolResults(Dictionary<string, ToolResult>? results)
+    {
+        if (results is null || results.Count == 0) return "{}";
+
+        var snapshot = new Dictionary<string, object>(results.Count, StringComparer.Ordinal);
+        foreach (var kv in results)
+        {
+            snapshot[kv.Key] = new
+            {
+                kv.Value.IsOk,
+                kv.Value.Summary,
+                kv.Value.Metrics
+            };
+        }
+        return JsonSerializer.Serialize(snapshot, ToolJsonOptions);
+    }
+
     /// <summary>生产用：每次操作独立 context，可并发调用</summary>
     public InspectionRepository(string dbPath, ILogger<InspectionRepository>? logger = null)
     {
@@ -64,8 +91,13 @@ public class InspectionRepository : IInspectionRepository
     /// <summary>确保数据库和表已创建（SQLite 文件不存在 → 自动创建）</summary>
     public Task EnsureCreatedAsync() => RunAsync(async db =>
     {
-        await db.Database.EnsureCreatedAsync().ConfigureAwait(false);
-        _logger?.LogInformation("[DB] 数据库初始化完成");
+        // 不能只调 EnsureCreated：它对已存在的库不做 ALTER TABLE，
+        // 加一列后现场老库会在第一条保存时抛 "no such column"。
+        var (journal, added) = await StorageSchema.EnsureUpToDateAsync(db).ConfigureAwait(false);
+
+        if (added.Count > 0)
+            _logger?.LogWarning("[DB] 结构升级：补充缺失列 {Columns}", string.Join(", ", added));
+        _logger?.LogInformation("[DB] 数据库初始化完成（journal={Journal}）", journal);
         return true;
     });
 
@@ -103,6 +135,12 @@ public class InspectionRepository : IInspectionRepository
             NotchCount = (int)f.Metrics.GetValueOrDefault("NotchCount", 0),
 
             OverallVerdict = report.OverallVerdict,
+
+            // 三组硬编码列只是旧 UI 的投影；真正的全集在这里。
+            // 不加这一列的话，配方里第四个工具的结论根本不进库，
+            // 而 OverallVerdict 却把它算进去 —— 出现「总判定 NG、三个子项全 OK」的不可解释记录。
+            ToolResultsJson = SerializeToolResults(report.Results),
+
             CreatedAt = DateTime.Now
         };
 

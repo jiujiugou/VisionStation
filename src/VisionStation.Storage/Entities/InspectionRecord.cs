@@ -42,5 +42,12 @@ public class InspectionRecord
     [MaxLength(10)]
     public string OverallVerdict { get; set; } = string.Empty;   // "OK" | "NG"
 
+    /// <summary>
+    /// 全部工具结果的快照（JSON）。三组硬编码列只保留给旧 UI 读，
+    /// 真正的「这次检测都有哪些结论」在这里 —— 否则加第四个工具时，
+    /// 它的 NG 会让 OverallVerdict=NG，但库里三个子项全 OK，复盘无法解释 NG 从哪来。
+    /// </summary>
+    public string ToolResultsJson { get; set; } = "{}";
+
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 }

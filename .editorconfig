@@ -57,3 +57,13 @@ dotnet_diagnostic.S108.severity = warning
 
 # 代码风格规则（IDE00xx）暂不进构建，等 CA/Sonar 清零后再开
 dotnet_analyzer_diagnostic.category-Style.severity = silent
+
+# ============================================================
+# 文件级豁免（每条都要写清为什么）
+# ============================================================
+
+# DDL 与 PRAGMA 不支持参数化占位符（表名/列名不能是 SQL 参数），
+# 而这里的表名与列名都来自 EF 模型元数据，不接受外部输入。
+# 换成 CompositeFormat 是为了消掉 CA1863（缓存格式串），不改变这条豁免的理由。
+[src/VisionStation.Storage/StorageSchema.cs]
+dotnet_diagnostic.S2077.severity = none

@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenCvSharp;
 using VisionStation.Core.Models;
 
@@ -65,10 +66,31 @@ public class ImageStoreService
     }
 
     /// <summary>设置存储模式和抽样比例</summary>
+    /// <exception cref="ArgumentOutOfRangeException">samplingRate &lt; 1</exception>
     public void SetMode(ImageStoreMode mode, int samplingRate = 10)
     {
+        // 0 会让 Sampling 分支的 `% _samplingRate` 抛 DivideByZeroException，
+        // 而这个异常在 ShouldSave 里、在 try 之外 —— 会冒到调用方，把整帧检测结果一起带走。
+        // 在配置入口就拦下来，故障发生在启动而不是生产中途，代价差一个数量级。
+        if (samplingRate < 1)
+            throw new ArgumentOutOfRangeException(nameof(samplingRate), samplingRate,
+                "抽样比例必须 ≥ 1；0 会在取模时除零，把整帧检测结果一起带走");
+
         _mode = mode;
         _samplingRate = samplingRate;
+    }
+
+    /// <summary>
+    /// 生成存储文件名。抽成纯函数是为了可测「同一毫秒两次保存是否碰撞」——
+    /// 用 DateTime.Now 造不出同毫秒场景，但纯函数可以直接固定时间。
+    /// </summary>
+    public static string BuildFileName(DateTime at, string verdict, string baseName, Guid reportId)
+    {
+        // 只靠 HHmmssfff 的话，同一毫秒内的两次保存会生成同一个路径，后者直接覆盖前者。
+        // 加报告 ID 的前 8 位：同一份报告重存得到同名文件（幂等），不同报告永不碰撞。
+        var tag = reportId.ToString("N", CultureInfo.InvariantCulture)[..8];
+        return string.Format(CultureInfo.InvariantCulture,
+            "{0:HHmmssfff}_{1}_{2}_{3}.png", at, verdict, baseName, tag);
     }
 
     /// <summary>保存检测图像（根据模式判断是否保存）</summary>
@@ -88,7 +110,7 @@ public class ImageStoreService
         try
         {
             // 按日期分文件夹
-            var dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
+            var dateFolder = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             var folder = Path.Combine(_baseFolder, dateFolder);
             Directory.CreateDirectory(folder);
 
@@ -96,7 +118,7 @@ public class ImageStoreService
             var baseName = Path.GetFileNameWithoutExtension(frame.FilePath);
             if (string.IsNullOrEmpty(baseName)) baseName = "capture";
 
-            var fileName = $"{DateTime.Now:HHmmssfff}_{report.OverallVerdict}_{baseName}.png";
+            var fileName = BuildFileName(DateTime.Now, report.OverallVerdict, baseName, report.Id);
             fullPath = Path.Combine(folder, fileName);
 
             // 写入磁盘。
@@ -105,6 +127,12 @@ public class ImageStoreService
             if (!Cv2.ImWrite(fullPath, frame.Image))
                 return new ImageSaveResult(ImageSaveOutcome.Failed, null,
                     $"ImWrite 返回 false（磁盘满？路径不可写？）：{fullPath}");
+
+            // 存图方负责告诉报告"证据图在哪"。
+            // 不回写的话，记录里的 ImagePath 会一直是 frame.FilePath ——
+            // 海康相机下那是 "HikCamera_Frame_12" 这种占位名，文件根本不存在；
+            // 结果是质检记录与图像证据永久脱钩，复盘时没有现场影像。
+            report.ImagePath = fullPath;
 
             return new ImageSaveResult(ImageSaveOutcome.Saved, fullPath, null);
         }
@@ -121,7 +149,8 @@ public class ImageStoreService
         {
             ImageStoreMode.All => true,
             ImageStoreMode.NGOnly => !report.IsOk,
-            ImageStoreMode.Sampling => report.IsOk ? (++_okCounter % _samplingRate == 0) : true,
+            // NG 必存；OK 才按抽样计数（写成 || 而不是 ? : true，避免被当成冗余布尔）
+            ImageStoreMode.Sampling => !report.IsOk || (++_okCounter % _samplingRate == 0),
             _ => true
         };
     }

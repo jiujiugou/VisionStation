@@ -1,6 +1,6 @@
 {
   "comment": "core-main 切片验收报告。历史不覆盖：红记录保留，修复后追加 retry。",
-  "revision": "2026-10-19 · 三步失效分析法 v2.1 · 切片 U01-U07 + E01/E02/E03/E04/E21（108 格）",
+  "revision": "2026-10-19 · 三步失效分析法 v3 · 切片 U01-U07 + E01/E02/E03/E04/E21（108 格），含判定段变异第二批",
   "results": [
     {
       "id": "V-201",
@@ -162,14 +162,38 @@
       "status": "PASS",
       "evidence": "audit/artifacts-core/evidence/V2_mutation.txt",
       "note": "MUTATION_TEST：Calibration.cs 14/14 全杀（100%）；CoordinateMath.cs 50 杀 / 5 存活 / 1 未覆盖，合并得分 91.43%（门槛 90%）。三轮 74.29%→88.57%→91.43%，5 个存活均为等价变异，裁决理由见证据文件"
+    },
+    {
+      "id": "V-211",
+      "req": "R-312",
+      "subject": "判定段变异测试（第二批）",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V3_mutation.txt",
+      "note": "MUTATION_TEST：三工具判定段 170 个变异体参与；四轮 58.86%→77.14%→89.71%→89.71%（末轮为删除 F-C11 死参数后复跑，结果稳定）。13 条存活逐条裁决：4 条数学等价、3 条浮点边界不可构造、4 条不可观测（其中 DefectTool:114 的越界读是真实隐患，防线为代码审查）、2 条超时视为已检测。影响 NG/OK 的变异已全部杀死"
+    },
+    {
+      "id": "V-212",
+      "req": "R-310",
+      "subject": "F-C10",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V3_mutation.txt",
+      "note": "UNIT_TEST：PresenceTool_NaNThreshold_MustThrow 断言构造期抛 ArgumentOutOfRangeException；Mutation 复核显示 PresenceTool:135 的 `>=`→`>` 属浮点不可构造边界，已在测试注释写明由代码审查保证"
+    },
+    {
+      "id": "V-213",
+      "req": "R-311",
+      "subject": "F-C11",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V3_mutation.txt",
+      "note": "UNIT_TEST：删除 NotchCircularityMax 后，DefectTool_CircularBlob_TreatedLikeSquare_NotchByAspectOnly 以圆形/方形同判缺口锁定「只看长宽比」的契约；全量 152/152 通过"
     }
   ],
   "tally": {
-    "PASS": 10,
+    "PASS": 13,
     "FAIL": 9,
     "UNVERIFIED": 0,
     "NOT_RUN": 0,
-    "note": "9 条 FAIL 是修复前的历史记录，保留不覆盖；10 条 PASS = 9 条 retry + 1 条变异测试"
+    "note": "9 条 FAIL 是修复前的历史记录，保留不覆盖；13 条 PASS = 9 条 retry + 1 条第一批变异 + 3 条第二批（变异/两个新缺陷）"
   },
   "unpaid": [
     {
@@ -177,12 +201,6 @@
       "reason": "外层守卫被内层完整校验掩盖、scale 非正仅下溢可达、totalScale 不可能为 0；已裁决为等价，不需要补测试",
       "owner": "分析者",
       "reopen": "若五参守卫被放宽，或 Zoom 钳制范围改为允许 0，这三处重新变成可观测缺陷"
-    },
-    {
-      "item": "变异测试第二批：DefectTool / DimensionTool / PresenceTool 的判定段",
-      "reason": "需要为 OpenCV 判定构造可区分图像（阈值边界、贴边、多圆），成本高于纯数学类；本轮先交付纯数学批次",
-      "owner": "分析者",
-      "reopen": "判定阈值/分类逻辑变更时"
     },
     {
       "item": "OnnxYoloTool 未进变异范围",
@@ -194,6 +212,7 @@
   "notes": [
     "5 条 OBSERVATION（O-C1..O-C5）按方法定义不进入 MAIN 清单，也不要求约束；它们保留在 FailureCatalog 中供后续复核",
     "覆盖声明：App 层 Dispatcher 调度未在范围内，因此 Core 的\"并发 Execute\"不可由代码证实，O-C2 按 CONSTRUCTIBLE 处理而非 REACHABLE",
-    "本切片的 108 格全部有归属（FOUND / N/A / 类级豁免），但 9 类失效不是故障全集：本切片未覆盖 WPF 渲染、配方反序列化、触发层调度"
+    "本切片的 108 格全部有归属（FOUND / N/A / 类级豁免），但 9 类失效不是故障全集：本切片未覆盖 WPF 渲染、配方反序列化、触发层调度",
+    "第二批变异（2026-10-19）：靶点为三个工具的判定段，起因是第一批只覆盖了纯换算代码，而规程要求靶点是「判定即产品」。本轮同时发现并修复两条新缺陷 F-C10（NaN 阈值致全线 NG）与 F-C11（NotchCircularityMax 死参数），它们分别推翻了原 N-C08 与 N-C05 的判断，两条 N/A 已删除、语义并入对应 FOUND。"
   ]
 }

@@ -9,10 +9,13 @@ namespace VisionStation.Core.Tools;
 /// 参数（构造注入）：
 ///   AreaMin — 最小缺陷面积（像素），小于此值忽略
 ///   ThresholdValue — 二值化阈值
-///   ScratchAspectRatioMin — 划痕长宽比判定阈值
-///   NotchCircularityMax — 缺口圆形度判定阈值
+///   ScratchAspectRatioMin — 划痕长宽比判定阈值（≥ 此值判划痕，否则判缺口）
 ///   ExcludeCenterX / ExcludeCenterY / ExcludeRadius — 孔排除圆（图像坐标）。
 ///     零件固有孔（如垫圈中心孔）不是缺陷，落入排除圆内的连通域一律跳过。
+///
+/// 注意（F-C11）：本工具**没有**圆形度判定。曾经公开过一个 NotchCircularityMax 属性，
+/// 注释宣称"缺口圆形度阈值"，但代码从未读取它、配方也未暴露它——调了没有任何效果。
+/// 该属性已删除。缺口与划痕的区分完全依据外接矩形长宽比，见 Execute 第 6 步。
 /// </summary>
 public class DefectTool : IVisionTool
 {
@@ -24,9 +27,6 @@ public class DefectTool : IVisionTool
 
     /// <summary>划痕判定：长宽比 > 此值</summary>
     public double ScratchAspectRatioMin { get; set; } = 3.0;
-
-    /// <summary>缺口判定：圆形度 < 此值</summary>
-    public double NotchCircularityMax { get; set; } = 0.6;
 
     /// <summary>孔排除圆圆心 X（图像坐标），默认 -1 = 未启用</summary>
     public double ExcludeCenterX { get; set; } = -1;

@@ -128,6 +128,49 @@
       "criterion": "四种非法配置均抛 ArgumentOutOfRangeException（构造或属性赋值时）；默认构造仍可正常推理",
       "verification_method": "UNIT_TEST",
       "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CoreInputGuardTests"
+    },
+    {
+      "id": "R-310",
+      "from": [
+        "F-C10"
+      ],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "匹配度阈值必须是有限数：NaN 不得被钳制「放过」，必须当场拒绝",
+      "scope": "PresenceTool.Threshold 的 setter 与构造函数",
+      "trigger": "以 NaN 构造工具或给 Threshold 赋值",
+      "criterion": "new PresenceTool(double.NaN) 抛 ArgumentOutOfRangeException 且消息含「阈值」；±∞ 仍被钳到 [0,1]，不抛",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~PresenceTool_NaNThreshold_MustThrow"
+    },
+    {
+      "id": "R-311",
+      "from": [
+        "F-C11"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "不得存在无人读取的公开配置项：每个对外暴露的参数都必须有代码消费它，或从 API 上消失",
+      "scope": "DefectTool 的公开参数集合",
+      "trigger": "新增/审阅工具类参数时",
+      "criterion": "grep -rn NotchCircularityMax src/ 无结果；圆形团块与方形团块（长宽比同为 1:1）必须同样判为缺口，证明分类只依赖长宽比",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~DefectTool_CircularBlob_TreatedLikeSquare_NotchByAspectOnly"
+    },
+    {
+      "id": "R-312",
+      "from": [
+        "F-C06",
+        "F-C07"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "DETECT",
+      "statement": "三个判定工具的判定段必须经变异测试检验，存活变异逐条裁决，得分不低于 85%",
+      "scope": "DefectTool / DimensionTool / PresenceTool 的判定与过滤逻辑",
+      "trigger": "判定逻辑、阈值比较、参数校验发生变更时",
+      "criterion": "Stryker 对三个工具文件得分 ≥85%；每条存活变异给出等价/浮点不可构造/不可观测之一的裁决理由，并留证据文件",
+      "verification_method": "MUTATION_TEST",
+      "command": "dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj -tp tests/VisionStation.UnitTests/VisionStation.UnitTests.csproj -m \"**/Tools/DefectTool.cs\" -m \"**/Tools/DimensionTool.cs\" -m \"**/Tools/PresenceTool.cs\" -b 0"
     }
   ]
 }

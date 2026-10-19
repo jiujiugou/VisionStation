@@ -26,7 +26,17 @@ public class PresenceTool : IVisionTool
     public double Threshold
     {
         get => _threshold;
-        set => _threshold = Math.Clamp(value, 0.0, 1.0);
+        set
+        {
+            // F-C10：Math.Clamp(NaN, 0, 1) 返回的仍是 NaN，而 `score >= NaN` 恒为 false——
+            // 配方里一旦出现 NaN，每个零件都会判"特征缺失"，产线全停却看不到参数线索。
+            // NaN 不是"越界值"，是非法输入，必须当场拒绝（±∞ 仍走钳制，属合理降级）。
+            if (double.IsNaN(value))
+                throw new ArgumentOutOfRangeException(nameof(Threshold), value,
+                    "匹配度阈值不能是 NaN（NaN 会让每次判定都为 false）");
+
+            _threshold = Math.Clamp(value, 0.0, 1.0);
+        }
     }
 
     public PresenceTool(double threshold = 0.70)

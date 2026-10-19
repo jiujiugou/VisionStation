@@ -159,6 +159,34 @@
       "disposition": "FIXED 2026-10-19, 见 V-209-retry：四个参数改为带校验属性，越界赋值即抛"
     },
     {
+      "id": "F-C10",
+      "target": "U06 PresenceTool",
+      "category": "失败",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "code_ref": "src/VisionStation.Core/Tools/PresenceTool.cs:38@Math.Clamp(value, 0.0, 1.0)",
+      "reachability": "REACHABLE",
+      "danger_level": "S2",
+      "trigger": "阈值通道被喂进 NaN：配方反序列化异常、外部脚本写配置、UI 数值框留空后转换失败",
+      "impact": "Math.Clamp(NaN, 0, 1) 返回的仍是 NaN，而 `maxVal >= NaN` 恒为 false —— 每一个零件都判「特征缺失」。产线全停，日志只有「匹配度不足」，没有任何线索指向阈值非法。原 N-C08 判断「模板加载失败不产生假 OK」成立，但那只覆盖了模板通道，阈值通道完全没查",
+      "instances": [],
+      "disposition": "FIXED 2026-10-19, 见 V-212：Threshold 的 setter 对 NaN 抛 ArgumentOutOfRangeException；±∞ 仍走钳制（合理降级）"
+    },
+    {
+      "id": "F-C11",
+      "target": "U04 DefectTool",
+      "category": "无效",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "code_ref": "src/VisionStation.Core/Tools/DefectTool.cs:16@本工具**没有**圆形度判定",
+      "reachability": "REACHABLE",
+      "danger_level": "S2",
+      "trigger": "任何试图调整「缺口圆形度阈值」的操作（改属性或改配方）",
+      "impact": "公开属性 NotchCircularityMax 的注释宣称「缺口圆形度判定阈值」，但全仓没有任何代码读取它，ToolFactory 也未从配方参数映射它 —— 调了完全无效。缺口与划痕的实际区分只靠外接矩形长宽比。操作员以为调高圆形度阈值能压误报，实际什么都没变，属于「配置项撒谎」，会把人引向错误的调参方向。原 N-C05 判断「AreaMin/Threshold 越界只导致误报、方向 fail-safe」成立，但漏了这个死参数",
+      "instances": [],
+      "disposition": "FIXED 2026-10-19, 见 V-213：删除该属性并修正类注释，明确「无圆形度判定，分类只看长宽比」"
+    },
+    {
       "id": "O-C1",
       "target": "U01 Pipeline",
       "category": "阻塞",
@@ -257,13 +285,6 @@
       "na_reason": "首次布局前 ScaleFactor=1.0、Offset=0，换算退化为恒等映射，不会产生异常值"
     },
     {
-      "id": "N-C05",
-      "target": "U04 DefectTool",
-      "category": "无效",
-      "status": "N/A",
-      "na_reason": "ROI 无效时显式判 NG；AreaMin/Threshold 越界只会把噪点算成缺陷（误报 NG），方向是 fail-safe，不会漏检"
-    },
-    {
       "id": "N-C06",
       "target": "U06 PresenceTool",
       "category": "缺失",
@@ -276,13 +297,6 @@
       "category": "重复",
       "status": "N/A",
       "na_reason": "模板加载后只读，Execute 不写任何状态，同一输入重复执行结果确定"
-    },
-    {
-      "id": "N-C08",
-      "target": "U06 PresenceTool",
-      "category": "失败",
-      "status": "N/A",
-      "na_reason": "模板加载失败表现为 null 或空 Mat，Execute 判 NG 或抛异常由 Pipeline 捕获，不产生假 OK"
     },
     {
       "id": "N-C09",

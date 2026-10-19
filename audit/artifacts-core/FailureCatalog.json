@@ -34,7 +34,9 @@
           "category": "缺失"
         }
       ],
-      "disposition": "FIXED 2026-10-19, 见 V-201-retry：IsOk 要求结果集非空"
+      "disposition": "FIXED 2026-10-19, 见 V-201-retry：IsOk 要求结果集非空",
+      "observable": "配方里禁用所有工具后启动检测，界面每帧显示 OK、合格计数持续增长，点开报告详情一条工具结果都没有。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
     },
     {
       "id": "F-C02",
@@ -53,7 +55,9 @@
           "category": "重复"
         }
       ],
-      "disposition": "FIXED 2026-10-19, 见 V-202-retry：构造期重名即抛，检测开始前失败"
+      "disposition": "FIXED 2026-10-19, 见 V-202-retry：构造期重名即抛，检测开始前失败",
+      "observable": "配方里加两个 Presence 工具（两个孔位），第二个孔位有缺陷时结果仍显示 OK，报告里只剩一个 Presence 条目。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
     },
     {
       "id": "F-C03",
@@ -197,7 +201,10 @@
       "danger_level": "S3",
       "trigger": "宿主在 UI 线程同步调用 Run（MainViewModel.cs:171 即如此），单帧耗时 = 各工具计算时间之和，YOLO 推理 50~300ms",
       "impact": "推理期间界面冻结，操作员无法停止；Core 不提供异步或 CancellationToken 入口，串行性完全依赖宿主自律。属设计缺口而非当前缺陷，故列观察项",
-      "instances": []
+      "instances": [],
+      "next_action": "DEFERRED",
+      "deferred_reason": "Core 不提供异步/取消入口是设计缺口，不是当前缺陷；补 CancellationToken 会改 Pipeline 与全部工具签名",
+      "review_condition": "若引入长耗时模型、或需要「停止」按钮在推理过程中生效，必须补 CancellationToken 并从宿主一路传入"
     },
     {
       "id": "O-C2",
@@ -215,7 +222,10 @@
           "target": "E04",
           "category": "崩溃"
         }
-      ]
+      ],
+      "next_action": "DEFERRED",
+      "deferred_reason": "当前宿主启动期建工具、退出期 Dispose，两条路径不重叠，故为可构造而非可达",
+      "review_condition": "若引入配方热重载、换模型、或运行期重建工具，必须保证 Dispose 与 Infer 互斥（引用计数或读写锁）"
     },
     {
       "id": "O-C3",
@@ -228,7 +238,10 @@
       "danger_level": "S3",
       "trigger": "FillTensor 抛异常（通道拆分失败/尺寸不匹配），此时 padded 尚未 Dispose",
       "impact": "每帧泄漏一块 640×640×3 的非托管 Mat（约 1.2MB），长时间运行内存持续上涨。当前输入恒为 3 通道，FillTensor 实际不抛，故列为观察项",
-      "instances": []
+      "instances": [],
+      "next_action": "DEFERRED",
+      "deferred_reason": "每帧泄漏 1.2MB Mat 的前提是 FillTensor 抛异常，而当前输入恒为 3 通道不会抛",
+      "review_condition": "若支持非 3 通道输入（Mono16/BGRA）、或长时运行出现内存单调上涨，必须把 Mat 释放移入 finally"
     },
     {
       "id": "O-C4",
@@ -241,7 +254,10 @@
       "danger_level": "S3",
       "trigger": "配方 ROI 越界或宽高为 0/负数（手工编辑 JSON、图像尺寸变更后沿用旧配方）",
       "impact": "Crop 抛 OpenCV 异常，被 Pipeline 逐工具捕获转 NG，报告里只有 \"<工具>异常: OpenCVException...\"，不指出是哪个 ROI、越界多少。判定方向 fail-safe，损失是可诊断性",
-      "instances": []
+      "instances": [],
+      "next_action": "DEFERRED",
+      "deferred_reason": "Crop 越界已被 Pipeline 转为 NG（fail-safe），损失只是报错不指明哪个 ROI，属可诊断性",
+      "review_condition": "若现场频发 NG 却无法定位是哪个 ROI，必须在异常信息里带上 ROI 序号与越界量"
     },
     {
       "id": "O-C5",
@@ -254,7 +270,10 @@
       "danger_level": "S3",
       "trigger": "一个 ROI 内存在多个圆（多孔零件、或 ROI 画大带入相邻孔），目标孔不是半径最大的那个",
       "impact": "按\"最大半径\"选目标，测到的是另一个孔，实测值与设计值的差刚好落在公差内时判 OK——测错孔却合格。当前配方约定一 ROI 一孔，违反约定才触发，故列观察项",
-      "instances": []
+      "instances": [],
+      "next_action": "DEFERRED",
+      "deferred_reason": "按最大半径选目标依赖「一 ROI 一孔」的配方约定，违反约定才触发。分级存疑：测错孔却判 OK 属 §4 判据②静默错判，更接近 S1/S2，本轮按原定级 DEFERRED，待人工复核",
+      "review_condition": "若出现一 ROI 多孔、或现场报「测错孔却判合格」，立即提升为 S1 必修并改为按 ROI 关联目标"
     },
     {
       "id": "N-C01",

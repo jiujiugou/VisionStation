@@ -22,25 +22,25 @@
       "id": "V-D03",
       "req": "R-D03",
       "subject": "F-D03 失败路径不销毁句柄",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "evidence": "audit/artifacts-devices/evidence/V-D03_teardown.txt",
-      "note": "CODE_REVIEW：grep 显示 TeardownDevice() 出现在步骤4失败(132)、步骤6失败(158)、open() 重连前(392)、Dispose(421) 与定义(211)；函数体内 StopGrabbing/CloseDevice/DestroyDevice 各自 try 并置 _camera=null。无真机，无法用执行验证设备侧会话是否真的归还，故只到审查级。"
+      "note": "CODE_REVIEW：grep 显示 TeardownDevice() 出现在步骤4失败(132)、步骤6失败(158)、open() 重连前(392)、Dispose(421) 与定义(211)；函数体内 StopGrabbing/CloseDevice/DestroyDevice 各自 try 并置 _camera=null。无真机，无法用执行验证设备侧会话是否真的归还，故只到审查级。 | v4 规程：CODE_REVIEW 只能证实「代码长这样」，不构成验收（失效未被证伪），本记录降为 UNVERIFIED 并计入未清偿。"
     },
     {
       "id": "V-D04",
       "req": "R-D04",
       "subject": "F-D04 Join 超时后继续销毁",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "evidence": "audit/artifacts-devices/evidence/V-D04_dispose_order.txt",
-      "note": "CODE_REVIEW：412 行 `bool threadStopped = thread == null || thread.Join(2000);`，413 行判断失败即 return（跳过 TeardownDevice/ReleaseSdk）；_grabbing/_disposed 已声明 volatile。取舍：宁可在极端时序下漏一次释放（由 3s 心跳超时兜底），也不在活线程使用的句柄上销毁。"
+      "note": "CODE_REVIEW：412 行 `bool threadStopped = thread == null || thread.Join(2000);`，413 行判断失败即 return（跳过 TeardownDevice/ReleaseSdk）；_grabbing/_disposed 已声明 volatile。取舍：宁可在极端时序下漏一次释放（由 3s 心跳超时兜底），也不在活线程使用的句柄上销毁。 | v4 规程：CODE_REVIEW 只能证实「代码长这样」，不构成验收（失效未被证伪），本记录降为 UNVERIFIED 并计入未清偿。"
     },
     {
       "id": "V-D05",
       "req": "R-D05",
       "subject": "F-D05 进程级 SDK 反初始化",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "evidence": "audit/artifacts-devices/evidence/V-D05_sdk_refcount.txt",
-      "note": "CODE_REVIEW：SdkAcquire 只在计数从 0 变 1 时调 MV_CC_Initialize_NET；ReleaseSdk 递减到 0 才 Finalize；四条失败路径（102/119/133/159）都归还引用。SDK 为进程级单例，无真机无法执行验证，只到审查级。"
+      "note": "CODE_REVIEW：SdkAcquire 只在计数从 0 变 1 时调 MV_CC_Initialize_NET；ReleaseSdk 递减到 0 才 Finalize；四条失败路径（102/119/133/159）都归还引用。SDK 为进程级单例，无真机无法执行验证，只到审查级。 | v4 规程：CODE_REVIEW 只能证实「代码长这样」，不构成验收（失效未被证伪），本记录降为 UNVERIFIED 并计入未清偿。"
     },
     {
       "id": "V-D06",
@@ -94,21 +94,23 @@
       "id": "V-D12",
       "req": "R-D12",
       "subject": "F-D12 采图线程无异常隔离/漏还缓冲",
-      "status": "PASS",
+      "status": "UNVERIFIED",
       "evidence": "audit/artifacts-devices/evidence/V-D12_grab_loop.txt",
-      "note": "CODE_REVIEW：282 行 FreeImageBuffer 位于 finally 块（279 行），拷贝异常与帧长非法都只记日志不逃逸；取帧调用单独 try/catch，异常则 break 退出线程而不是终止进程。需要真机才能制造 SDK 异常帧，故只到审查级。"
+      "note": "CODE_REVIEW：282 行 FreeImageBuffer 位于 finally 块（279 行），拷贝异常与帧长非法都只记日志不逃逸；取帧调用单独 try/catch，异常则 break 退出线程而不是终止进程。需要真机才能制造 SDK 异常帧，故只到审查级。 | v4 规程：CODE_REVIEW 只能证实「代码长这样」，不构成验收（失效未被证伪），本记录降为 UNVERIFIED 并计入未清偿。"
     }
   ],
   "tally": {
-    "PASS": 12,
+    "PASS": 8,
     "FAIL": 0,
-    "UNVERIFIED": 0,
+    "UNVERIFIED": 4,
     "NOT_RUN": 0,
-    "note": "12 条约束全部 PASS，其中 8 条由单元测试（31 条用例）支撑、1 条由并发测试支撑、3 条只能到代码审查级（SDK 句柄与线程异常需真机）。全量回归 183/183。"
+    "defense": 8,
+    "proof": 0,
+    "note": "v4 口径：PASS 8 条全部是防线（7 条单元测试 + 1 条并发测试，都在 tests/ 里随 CI 跑）；4 条 CODE_REVIEW 降为 UNVERIFIED，它们只有 grep 级举证，进未清偿清单。defense=8 / proof=0：本切片没有「跑过一次但不进 tests」的一次性举证。"
   },
   "unpaid": [
     {
-      "item": "HikCamera 的句柄销毁顺序、Dispose 的 Join 超时与 volatile 可见性、SDK 引用计数、采图线程 finally 归还四处只有 CODE_REVIEW 级证据",
+      "item": "HikCamera 的句柄销毁顺序、Dispose 的 Join 超时与 volatile 可见性、SDK 引用计数、采图线程 finally 归还四处（R-D03/R-D04/R-D05/R-D12）",
       "level": "S2",
       "risk": "结论依赖「代码写对了」，没有现场执行验证；MVS SDK 在异常帧下的真实行为无法在无相机环境复现",
       "owner": "现场接入真机后复跑：接相机 → 反复热切换 10 次 → 拔网线 → 关程序，检查是否残留 0x80000203",
@@ -129,9 +131,9 @@
       "evidence_gap": "需要改 SwapTo 的契约（先拆后建 + 失败时无相机可用），属于设计取舍，需用户确认"
     },
     {
-      "item": "6 条观察项（O-D01..O-D06）均未修",
+      "item": "6 条待定项（O-D01..O-D06）全部 next_action=DEFERRED，各有重开条件",
       "level": "S3",
-      "risk": "O-D06（ConnectAll 空 catch 吞失败、无日志）会让现场排查失去唯一的异常线索；其余为理论可达或展示语义",
+      "risk": "O-D06（ConnectAll 空 catch 吞失败、无日志）会让现场排查失去唯一的异常线索；其余为理论可达或展示语义。DEFERRED 不等于安全，只是明确选择了本版不处理。",
       "owner": "下一轮：给 DeviceManager 注入 ILogger 或加 ConnectFailed 事件；TriggerDevice.Type/Status 改为按 IsRunning 派生",
       "evidence_gap": "会改动构造签名/UI 文案，本轮不动"
     },

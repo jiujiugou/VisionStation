@@ -1,587 +1,617 @@
 {
- "module": "VisionStation.Service 运维模块（启动自检 + 后台管家）",
- "revision": "v3 · 2026-10-19 · A/B 批修复后状态回写（9 条 FIXED / 1 条 PARTIAL / 1 条重判）",
- "scope": {
-  "targets": [
-   "U19",
-   "U20",
-   "E16",
-   "E17",
-   "E18",
-   "E19",
-   "E20"
+  "module": "VisionStation.Service 运维模块（启动自检 + 后台管家）",
+  "revision": "v3 · 2026-10-19 · A/B 批修复后状态回写（9 条 FIXED / 1 条 PARTIAL / 1 条重判）",
+  "scope": {
+    "targets": [
+      "U19",
+      "U20",
+      "E16",
+      "E17",
+      "E18",
+      "E19",
+      "E20"
+    ],
+    "target_names": {
+      "U19": "HealthChecker 启动自检",
+      "U20": "HousekeepingService 后台管家",
+      "E16": "U20 → InspectionRepository.DeleteOlderThanAsync（与 SaveAsync 可重叠）",
+      "E17": "U20 → 图片目录（File.Delete，不回写数据库）",
+      "E18": "U19 → DeviceManager.ConnectionStats（启动快照）",
+      "E19": "U19 → 数据库/存储/模板三路径（存在性 + 写探测）",
+      "E20": "U19 → RecipeConfig（只读 Tools.Count）"
+    },
+    "categories": [
+      "无效",
+      "缺失",
+      "延迟",
+      "重复",
+      "失败",
+      "阻塞",
+      "崩溃",
+      "资源耗尽",
+      "恢复失败"
+    ],
+    "grid": 63
+  },
+  "counting": {
+    "loc": 252,
+    "rule": "MAIN 只收可执行验证的当前缺陷；OBSERVATION 收理论项与低危项，不计入总数；FIXED 为历史记录，不占格子不计密度",
+    "main_open": 1,
+    "main_fixed": 12,
+    "observation": 6,
+    "main_open_per_kloc": 4.0
+  },
+  "entries": [
+    {
+      "id": "F-101",
+      "target": "U19",
+      "category": "无效",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E20",
+          "category": "无效"
+        },
+        {
+          "target": "E20",
+          "category": "缺失"
+        }
+      ],
+      "trigger": "配方文件 Tools.Count>0 但工具参数非法（阈值=0、ROI 超出图像、模板路径为空）",
+      "impact": "自检报「配方有效」，产线开跑后全部判 NG 或全判 OK，属静默错误判定",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:21@KnownToolTypes",
+      "reachability": "REACHABLE",
+      "danger_level": "S1",
+      "disposition": "FIXED 2026-10-19 · CheckRecipe 增加工具类型白名单 / ROI 引用校验 / 标定值>0，详见 V-101-retry",
+      "observable": "配方里把阈值填 0、或 ROI 填到图像外后启动，自检仍显示「配方有效」；产线开跑后每一帧都判 NG（或全判 OK），日志里没有任何参数错误提示。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
+    },
+    {
+      "id": "F-102",
+      "target": "U19",
+      "category": "失败",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E19",
+          "category": "失败"
+        }
+      ],
+      "trigger": "db 文件存在但被另一实例独占、损坏或权限不足，File.Exists 仍为 true",
+      "impact": "数据库实际不可用时自检报 OK；真正失败发生在首次写入检测记录时，启动阶段无告警",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:18@SqliteMagic",
+      "reachability": "REACHABLE",
+      "danger_level": "S2",
+      "disposition": "FIXED 2026-10-19 · CheckDatabase 增加 SQLite 头魔数 + 读写打开探测（零新增依赖），详见 V-102-retry"
+    },
+    {
+      "id": "F-103",
+      "target": "U19",
+      "category": "缺失",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E19",
+          "category": "缺失"
+        }
+      ],
+      "trigger": "模板文件存在但内容损坏或格式不符（截断的 bmp、改名后的非图片）",
+      "impact": "自检通过，模板匹配在首帧抛异常或返回空结果，产线停机点后移到运行期",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:165@LooksLikeImage",
+      "reachability": "REACHABLE",
+      "danger_level": "S2",
+      "disposition": "FIXED 2026-10-19 · CheckTemplate 增加文件头魔数判定（BMP/PNG/JPEG/RIFF），详见 V-103-retry"
+    },
+    {
+      "id": "F-105",
+      "target": "U20",
+      "category": "无效",
+      "status": "FOUND",
+      "tier": "OBSERVATION",
+      "instances": [
+        {
+          "target": "E17",
+          "category": "无效"
+        }
+      ],
+      "trigger": "目录内存在过期图片时，删除后 totalSize 未同步扣减（第 138 行先累加，第 144 行删除但未减）",
+      "impact": "原判定「导致多删好图」经推演不成立：files 按 LastWrite 升序，过期文件必然排在最前，超容循环从最旧开始逐个扣减 size，恰好抵消删除时未减的部分。真实影响仅为「未进入超容分支时日志报的占用虚高」。重写已改为两遍扫描（只统计存活文件）。",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:204@private void CleanupImages",
+      "reachability": "REACHABLE",
+      "danger_level": "S3",
+      "disposition": "MISJUDGED 2026-10-19 · 降级 S1→S3 待用户确认；行为经重写后由 V-105-retry 覆盖",
+      "next_action": "DEFERRED",
+      "deferred_reason": "原判定「导致多删好图」经推演不成立（MISJUDGED），重写已改为两遍扫描，V-105-retry 覆盖",
+      "review_condition": "若重写后的两遍扫描再次出现日志占用虚高、或误删未过期图片，重开并重新定级"
+    },
+    {
+      "id": "F-106",
+      "target": "U20",
+      "category": "缺失",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E17",
+          "category": "缺失"
+        }
+      ],
+      "trigger": "图片被保留策略删除，但 InspectionRecords.ImagePath 未同步清除或标记",
+      "impact": "质检记录指向不存在的图片，追溯断链；图片保留 7 天、记录保留 30 天，第 8 天起必然大面积断链",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:40@imageRetentionDays < keepRecordsDays",
+      "reachability": "REACHABLE",
+      "danger_level": "S1",
+      "disposition": "FIXED 2026-10-19（缓解方案）· HousekeepingOptions 校验 ImageRetentionDays ≥ KeepRecordsDays，默认值与 appsettings 从 7/30 调为 30/30，保证图片不先于记录消失；删图回写 ImagePath 未实现，详见 V-106-retry",
+      "observable": "运行到第 8 天，打开任意一条质检记录详情，图片区域空白且日志无报错；按记录去图片目录找，文件已被清理掉。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
+    },
+    {
+      "id": "F-107",
+      "target": "U20",
+      "category": "重复",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E16",
+          "category": "重复"
+        },
+        {
+          "target": "E17",
+          "category": "重复"
+        }
+      ],
+      "trigger": "单轮清理耗时超过 DatabaseCleanIntervalMs（默认 1 小时，全量遍历大目录可超过）",
+      "impact": "上一轮未结束时下一轮 Timer 回调已开始，两轮并发执行清理：同一文件被两次删除、DbContext 被两个线程共用",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:88@_cleanupGate",
+      "reachability": "CONSTRUCTIBLE",
+      "danger_level": "S2",
+      "disposition": "FIXED 2026-10-19 · CleanupOnceAsync 增加 SemaphoreSlim 非阻塞重入保护 + 跳过计数，详见 V-107-retry"
+    },
+    {
+      "id": "F-108",
+      "target": "U20",
+      "category": "延迟",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E16",
+          "category": "延迟"
+        },
+        {
+          "target": "E16",
+          "category": "资源耗尽"
+        },
+        {
+          "target": "E17",
+          "category": "延迟"
+        }
+      ],
+      "trigger": "图片目录累积到数万文件；且 DeleteOlderThanAsync 用 ToListAsync 把全部过期记录一次载入内存（InspectionRepository.cs:113）",
+      "impact": "单轮清理耗时与内存无上界，触发 F-107 的重入，并在大库上造成内存峰值",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:202@EnumerateFiles",
+      "reachability": "CONSTRUCTIBLE",
+      "danger_level": "S2",
+      "disposition": "PARTIAL 2026-10-19 · 图片枚举改为 EnumerateFiles 流式；DeleteOlderThanAsync 仍是 ToListAsync 全量载入，批量删除未改，详见 V-108"
+    },
+    {
+      "id": "F-109",
+      "target": "U20",
+      "category": "失败",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E16",
+          "category": "失败"
+        },
+        {
+          "target": "E17",
+          "category": "失败"
+        },
+        {
+          "target": "E17",
+          "category": "崩溃"
+        }
+      ],
+      "trigger": "目录中任一图片被看图软件或杀毒占用，File.Delete 抛 IOException",
+      "impact": "异常跳出 foreach 被外层 catch 吞掉，本轮剩余文件全部不处理；日志只记一条「图片清理异常」，无法知道删到哪、还剩多少",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:237@文件处理失败，已跳过",
+      "reachability": "REACHABLE",
+      "danger_level": "S2",
+      "disposition": "FIXED 2026-10-19 · CleanupImages 逐文件 try，失败计数不中止整轮，详见 V-109-retry"
+    },
+    {
+      "id": "F-111",
+      "target": "E16",
+      "category": "阻塞",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [],
+      "trigger": "管家清理与检测保存同时使用同一个 InspectionDbContext（组合根注册为单例）",
+      "impact": "EF Core 禁止同一 context 上并发操作，第二个操作抛 InvalidOperationException，检测记录直接丢失且只写日志",
+      "code_ref": "src/VisionStation.App/Services/ServiceCollectionExtensions.cs:86@IInspectionRepository",
+      "reachability": "REACHABLE",
+      "danger_level": "S1",
+      "disposition": "FIXED 2026-10-19 · 抽出 IInspectionRepository，Repository 每次操作自建/自释 DbContext，删除单例 DbContext 注册，详见 V-111-retry",
+      "observable": "管家清理与一次检测保存撞在同一秒时，数据库里查不到这条检测记录，日志一行 InvalidOperationException，界面仍显示本次检测已完成。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
+    },
+    {
+      "id": "F-112",
+      "target": "U20",
+      "category": "恢复失败",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [
+        {
+          "target": "E16",
+          "category": "恢复失败"
+        }
+      ],
+      "trigger": "程序退出时 Dispose 执行，此时已有一轮回调在 await db 操作中",
+      "impact": "Timer.Stop 不取消已进入的回调，Dispose 后回调继续使用已释放资源；且 Dispose 立即返回不等待收尾，数据库可能留下半完成事务",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:287@_cleanupGate.Wait(5000)",
+      "reachability": "CONSTRUCTIBLE",
+      "danger_level": "S2",
+      "disposition": "FIXED 2026-10-19 · Dispose 停 Timer 后等待在途轮次收尾（上限 5s），详见 V-112-retry"
+    },
+    {
+      "id": "F-113",
+      "target": "E16",
+      "category": "无效",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [],
+      "trigger": "配置 ImageRetentionDays=0 或 KeepRecordsDays=0 / 负数（appsettings 手填，无校验）",
+      "impact": "cutoff = now，删除窗口覆盖当天全部数据：记录与图片被一次性清空且无二次确认",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:33@maxMemoryMb <= 0",
+      "reachability": "REACHABLE",
+      "danger_level": "S1",
+      "disposition": "FIXED 2026-10-19 · HousekeepingOptions 构造即校验四个阈值 >0，非法即抛，详见 V-113-retry",
+      "observable": "把 appsettings 里的 ImageRetentionDays 改成 0 后重启，第一次管家清理就把当天全部图片与记录删光，界面没有任何确认提示。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
+    },
+    {
+      "id": "F-001",
+      "target": "U19",
+      "category": "无效",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [],
+      "trigger": "判据为 File.Exists(db) || Directory.Exists(父目录)，父目录由程序创建，恒真",
+      "impact": "数据库不可用时自检报 OK",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:74@CheckDatabase",
+      "reachability": "REACHABLE",
+      "danger_level": "S1",
+      "disposition": "FIXED 2026-10-19 · R-001 测试证实后改为可写性探测，见 V-001-retry",
+      "observable": "把数据库文件改名或删除后重启，自检仍显示 OK；直到第一次保存检测记录时才报错。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
+    },
+    {
+      "id": "F-007",
+      "target": "U19",
+      "category": "崩溃",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [],
+      "trigger": "任一项检查抛异常时 RunAll 无隔离，异常直接中断整个自检",
+      "impact": "自检整体失败，后续检查项不执行，调用方拿到异常而非结果列表",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:37@RunAll",
+      "reachability": "REACHABLE",
+      "danger_level": "S2",
+      "disposition": "FIXED 2026-10-19 · RunAll 加 Safe 逐项隔离，见 V-004-retry"
+    },
+    {
+      "id": "F-038",
+      "target": "E18",
+      "category": "无效",
+      "status": "FOUND",
+      "tier": "MAIN",
+      "instances": [],
+      "trigger": "设备表为空时 online==total 为 0==0",
+      "impact": "自检报「0/0 在线」判为 OK（判据失效）",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:63@CheckDevices",
+      "reachability": "REACHABLE",
+      "danger_level": "S1",
+      "disposition": "FIXED 2026-10-19 · 改 total>0 && online==total，见 V-017-retry",
+      "observable": "设备表为空时，自检结果显示「0/0 在线」并判为通过，界面没有任何异常提示。",
+      "observable_note": "v4 补齐：由 impact 提炼，未经现场验证"
+    },
+    {
+      "id": "O-1",
+      "target": "U19",
+      "category": "资源耗尽",
+      "status": "FOUND",
+      "tier": "OBSERVATION",
+      "instances": [],
+      "trigger": "多实例同时启动自检，固定文件名 .write_test / .db_write_test 被互相创建与删除",
+      "impact": "探测结果可能被另一实例删除后误判；异常退出时残留文件留在目录",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:110@.write_test",
+      "reachability": "THEORETICAL",
+      "danger_level": "S3",
+      "next_action": "DEFERRED",
+      "deferred_reason": "探测文件的删除竞态只在多实例同时运行同一目录时触发，当前部署为单实例",
+      "review_condition": "若允许多实例共用图片目录、或引入分布式采集，必须改为原子探测（临时文件 + rename）"
+    },
+    {
+      "id": "O-2",
+      "target": "U20",
+      "category": "资源耗尽",
+      "status": "FOUND",
+      "tier": "OBSERVATION",
+      "instances": [],
+      "trigger": "MaxMemoryMb 配置为 0 或负数",
+      "impact": "每次内存检查都判定超限并连续两次强制 GC，形成周期性 Full GC 抖动，只影响性能不损坏数据",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:84@usedMb > _maxMemoryMb",
+      "reachability": "REACHABLE",
+      "danger_level": "S3",
+      "next_action": "DEFERRED",
+      "deferred_reason": "内存阈值取自进程工作集，周期性 Full GC 只影响性能不影响数据；调整需重新标定阈值",
+      "review_condition": "若出现采集帧率抖动、或 GC 暂停影响检测节拍，改为增量检查或引入缓存"
+    },
+    {
+      "id": "O-3",
+      "target": "E17",
+      "category": "阻塞",
+      "status": "FOUND",
+      "tier": "OBSERVATION",
+      "instances": [],
+      "trigger": "图片目录位于网络盘且掉线，Directory.Exists 返回 false",
+      "impact": "清理静默跳过并视为成功，无告警无计数，磁盘空间持续增长直到写满",
+      "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:125@Directory.Exists(_imageFolder)",
+      "reachability": "REACHABLE",
+      "danger_level": "S3",
+      "next_action": "DEFERRED",
+      "deferred_reason": "清理静默跳过需要目录权限异常或文件被占用，属环境异常；加告警要改 HealthCheck 契约。分级存疑：后果是磁盘写满，按 §4 判据②更接近 S2，本轮按原定级 DEFERRED，待人工复核",
+      "review_condition": "若现场出现「磁盘写满但自检一直显示 OK」，立即提升为必修（本组与 F-111/F-113 同属管家链路）"
+    },
+    {
+      "id": "O-4",
+      "target": "E18",
+      "category": "失败",
+      "status": "FOUND",
+      "tier": "OBSERVATION",
+      "instances": [],
+      "trigger": "运行期调用 Register 增删设备，同时自检枚举 List<IDevice>",
+      "impact": "LINQ 计数抛 Collection was modified；当前 Register 只在启动调用，故不可达",
+      "code_ref": "src/VisionStation.Devices/DeviceManager.cs:22@ConnectionStats",
+      "reachability": "THEORETICAL",
+      "danger_level": "S3",
+      "next_action": "DEFERRED",
+      "deferred_reason": "Register 只在启动期调用，运行期无并发注册，路径不可达",
+      "review_condition": "若引入配方热加载、或运行期增删设备，必须给 _devices 加锁或改用并发集合"
+    },
+    {
+      "id": "O-5",
+      "target": "E19",
+      "category": "重复",
+      "status": "FOUND",
+      "tier": "OBSERVATION",
+      "instances": [],
+      "trigger": "自检被重复触发（窗口重开、手动复检）且上一次探测文件未及删除",
+      "impact": "同名探测文件被覆盖写，无功能影响；仅日志中可能看到一次多余删除失败",
+      "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:89@.db_write_test",
+      "reachability": "THEORETICAL",
+      "danger_level": "S3",
+      "next_action": "DEFERRED",
+      "deferred_reason": "同名探测文件覆盖写无功能影响，只可能多一条删除失败日志",
+      "review_condition": "若探测文件名改为含实例标识、或需要多实例共存，重开并核对日志噪音"
+    },
+    {
+      "id": "N-01",
+      "target": "U19",
+      "category": "延迟",
+      "status": "N/A",
+      "na_reason": "自检仅在启动时执行一次，无周期性延迟约束；网络盘 IO 慢只表现为启动变慢，不改变任何判定结果"
+    },
+    {
+      "id": "N-02",
+      "target": "U19",
+      "category": "重复",
+      "status": "N/A",
+      "na_reason": "RunAll 无持久副作用，唯一写操作是创建后立即删除的单字节探测文件，重复调用结果一致"
+    },
+    {
+      "id": "N-03",
+      "target": "U19",
+      "category": "阻塞",
+      "status": "N/A",
+      "na_reason": "无锁、无队列、无跨线程等待，5 项检查串行执行，单项异常被 Safe 隔离不阻塞其余项"
+    },
+    {
+      "id": "N-05",
+      "target": "U19",
+      "category": "恢复失败",
+      "status": "N/A",
+      "na_reason": "自检无常驻状态，每次启动重新执行全部检查，不存在需要恢复的中间状态"
+    },
+    {
+      "id": "N-06",
+      "target": "U20",
+      "category": "阻塞",
+      "status": "N/A",
+      "na_reason": "两个 Timer 各自独立回调，无跨线程等待；自我竞争源于重入而非阻塞，已归入 F-107"
+    },
+    {
+      "id": "N-07",
+      "target": "U20",
+      "category": "崩溃",
+      "status": "N/A",
+      "na_reason": "CleanupDatabase 与 CleanupImages 均被 catch(Exception) 包裹，回调异常不外泄到线程池，进程不崩（代价是异常被吞，已记入 F-109）"
+    },
+    {
+      "id": "N-08",
+      "target": "E16",
+      "category": "缺失",
+      "status": "N/A",
+      "na_reason": "repo 由组合根注入且 DI 保证非空；DeleteOlderThanAsync 无「应删未删」的静默分支，删 0 条时显式返回 0"
+    },
+    {
+      "id": "N-09",
+      "target": "E16",
+      "category": "崩溃",
+      "status": "N/A",
+      "na_reason": "async void 内 try/catch 全包，EF 异常转为日志不冒泡；未捕获的 ObjectDisposedException 已由 F-112 单独登记"
+    },
+    {
+      "id": "N-10",
+      "target": "E17",
+      "category": "资源耗尽",
+      "status": "N/A",
+      "na_reason": "逐文件读取 FileInfo 属性（不读文件内容），目录句柄由 GetFiles 一次性返回后释放；规模问题已归入 F-108"
+    },
+    {
+      "id": "N-11",
+      "target": "E17",
+      "category": "恢复失败",
+      "status": "N/A",
+      "na_reason": "删除是逐文件幂等操作，中断后下一轮清理重新遍历并继续，无跨文件不变式需要恢复"
+    },
+    {
+      "id": "N-13",
+      "target": "E18",
+      "category": "缺失",
+      "status": "N/A",
+      "na_reason": "ConnectionStats 返回值元组，无 null 路径；设备列表为空的情形已由 F-038 覆盖"
+    },
+    {
+      "id": "N-14",
+      "target": "E18",
+      "category": "延迟",
+      "status": "N/A",
+      "na_reason": "内存 LINQ 对个位数设备计数，微秒级，不涉及 IO"
+    },
+    {
+      "id": "N-15",
+      "target": "E18",
+      "category": "重复",
+      "status": "N/A",
+      "na_reason": "纯读取无副作用，重复调用返回同一时刻的一致快照"
+    },
+    {
+      "id": "N-16",
+      "target": "E18",
+      "category": "阻塞",
+      "status": "N/A",
+      "na_reason": "无锁，直接枚举 List<IDevice>，不等待任何外部资源"
+    },
+    {
+      "id": "N-17",
+      "target": "E18",
+      "category": "崩溃",
+      "status": "N/A",
+      "na_reason": "无分配风险与外部调用，Count 不会抛业务异常；集合修改异常另见 O-4"
+    },
+    {
+      "id": "N-18",
+      "target": "E18",
+      "category": "资源耗尽",
+      "status": "N/A",
+      "na_reason": "O(n) 遍历，n 为设备注册数（启动后固定，个位数）"
+    },
+    {
+      "id": "N-19",
+      "target": "E18",
+      "category": "恢复失败",
+      "status": "N/A",
+      "na_reason": "无状态读取，不产生需要恢复的资源或中间结果"
+    },
+    {
+      "id": "N-20",
+      "target": "E19",
+      "category": "无效",
+      "status": "N/A",
+      "na_reason": "三条路径各自做了空值与可达性判断，非法路径返回 FAIL 而非抛异常外泄"
+    },
+    {
+      "id": "N-21",
+      "target": "E19",
+      "category": "延迟",
+      "status": "N/A",
+      "na_reason": "本地盘存在性检查为元数据操作，微秒级；网络盘变慢只影响启动耗时"
+    },
+    {
+      "id": "N-22",
+      "target": "E19",
+      "category": "阻塞",
+      "status": "N/A",
+      "na_reason": "同步文件 API 无等待队列，最坏表现为单次调用变慢"
+    },
+    {
+      "id": "N-23",
+      "target": "E19",
+      "category": "崩溃",
+      "status": "N/A",
+      "na_reason": "三处探测均在 Safe 内执行，异常转为该项 FAIL，不外泄"
+    },
+    {
+      "id": "N-24",
+      "target": "E19",
+      "category": "资源耗尽",
+      "status": "N/A",
+      "na_reason": "每次探测创建 1 个单字节文件并立即删除，无累积与句柄泄漏"
+    },
+    {
+      "id": "N-25",
+      "target": "E19",
+      "category": "恢复失败",
+      "status": "N/A",
+      "na_reason": "无持久状态；异常退出可能留下探测文件，下次启动同名覆盖，无功能影响"
+    },
+    {
+      "id": "N-26",
+      "target": "E20",
+      "category": "延迟",
+      "status": "N/A",
+      "na_reason": "配方为启动时加载的内存对象，属性读取不涉及 IO"
+    },
+    {
+      "id": "N-27",
+      "target": "E20",
+      "category": "重复",
+      "status": "N/A",
+      "na_reason": "只读判断，幂等，重复调用结果一致"
+    },
+    {
+      "id": "N-28",
+      "target": "E20",
+      "category": "失败",
+      "status": "N/A",
+      "na_reason": "_recipe 为 null 时已由 CheckRecipe 显式判 false，不抛异常"
+    },
+    {
+      "id": "N-29",
+      "target": "E20",
+      "category": "阻塞",
+      "status": "N/A",
+      "na_reason": "内存属性读取，无锁无等待"
+    },
+    {
+      "id": "N-30",
+      "target": "E20",
+      "category": "崩溃",
+      "status": "N/A",
+      "na_reason": "null 已判，Tools.Count 访问不会抛"
+    },
+    {
+      "id": "N-31",
+      "target": "E20",
+      "category": "资源耗尽",
+      "status": "N/A",
+      "na_reason": "仅读取一个整数属性，无分配"
+    },
+    {
+      "id": "N-32",
+      "target": "E20",
+      "category": "恢复失败",
+      "status": "N/A",
+      "na_reason": "无状态，不产生需要恢复的中间结果"
+    }
   ],
-  "target_names": {
-   "U19": "HealthChecker 启动自检",
-   "U20": "HousekeepingService 后台管家",
-   "E16": "U20 → InspectionRepository.DeleteOlderThanAsync（与 SaveAsync 可重叠）",
-   "E17": "U20 → 图片目录（File.Delete，不回写数据库）",
-   "E18": "U19 → DeviceManager.ConnectionStats（启动快照）",
-   "E19": "U19 → 数据库/存储/模板三路径（存在性 + 写探测）",
-   "E20": "U19 → RecipeConfig（只读 Tools.Count）"
-  },
-  "categories": [
-   "无效",
-   "缺失",
-   "延迟",
-   "重复",
-   "失败",
-   "阻塞",
-   "崩溃",
-   "资源耗尽",
-   "恢复失败"
-  ],
-  "grid": 63
- },
- "counting": {
-  "loc": 252,
-  "rule": "MAIN 只收可执行验证的当前缺陷；OBSERVATION 收理论项与低危项，不计入总数；FIXED 为历史记录，不占格子不计密度",
-  "main_open": 1,
-  "main_fixed": 12,
-  "observation": 6,
-  "main_open_per_kloc": 4.0
- },
- "entries": [
-  {
-   "id": "F-101",
-   "target": "U19",
-   "category": "无效",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E20",
-     "category": "无效"
-    },
-    {
-     "target": "E20",
-     "category": "缺失"
-    }
-   ],
-   "trigger": "配方文件 Tools.Count>0 但工具参数非法（阈值=0、ROI 超出图像、模板路径为空）",
-   "impact": "自检报「配方有效」，产线开跑后全部判 NG 或全判 OK，属静默错误判定",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:21@KnownToolTypes",
-   "reachability": "REACHABLE",
-   "danger_level": "S1",
-   "disposition": "FIXED 2026-10-19 · CheckRecipe 增加工具类型白名单 / ROI 引用校验 / 标定值>0，详见 V-101-retry"
-  },
-  {
-   "id": "F-102",
-   "target": "U19",
-   "category": "失败",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E19",
-     "category": "失败"
-    }
-   ],
-   "trigger": "db 文件存在但被另一实例独占、损坏或权限不足，File.Exists 仍为 true",
-   "impact": "数据库实际不可用时自检报 OK；真正失败发生在首次写入检测记录时，启动阶段无告警",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:18@SqliteMagic",
-   "reachability": "REACHABLE",
-   "danger_level": "S2",
-   "disposition": "FIXED 2026-10-19 · CheckDatabase 增加 SQLite 头魔数 + 读写打开探测（零新增依赖），详见 V-102-retry"
-  },
-  {
-   "id": "F-103",
-   "target": "U19",
-   "category": "缺失",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E19",
-     "category": "缺失"
-    }
-   ],
-   "trigger": "模板文件存在但内容损坏或格式不符（截断的 bmp、改名后的非图片）",
-   "impact": "自检通过，模板匹配在首帧抛异常或返回空结果，产线停机点后移到运行期",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:165@LooksLikeImage",
-   "reachability": "REACHABLE",
-   "danger_level": "S2",
-   "disposition": "FIXED 2026-10-19 · CheckTemplate 增加文件头魔数判定（BMP/PNG/JPEG/RIFF），详见 V-103-retry"
-  },
-  {
-   "id": "F-105",
-   "target": "U20",
-   "category": "无效",
-   "status": "FOUND",
-   "tier": "OBSERVATION",
-   "instances": [
-    {
-     "target": "E17",
-     "category": "无效"
-    }
-   ],
-   "trigger": "目录内存在过期图片时，删除后 totalSize 未同步扣减（第 138 行先累加，第 144 行删除但未减）",
-   "impact": "原判定「导致多删好图」经推演不成立：files 按 LastWrite 升序，过期文件必然排在最前，超容循环从最旧开始逐个扣减 size，恰好抵消删除时未减的部分。真实影响仅为「未进入超容分支时日志报的占用虚高」。重写已改为两遍扫描（只统计存活文件）。",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:204@private void CleanupImages",
-   "reachability": "REACHABLE",
-   "danger_level": "S3",
-   "disposition": "MISJUDGED 2026-10-19 · 降级 S1→S3 待用户确认；行为经重写后由 V-105-retry 覆盖"
-  },
-  {
-   "id": "F-106",
-   "target": "U20",
-   "category": "缺失",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E17",
-     "category": "缺失"
-    }
-   ],
-   "trigger": "图片被保留策略删除，但 InspectionRecords.ImagePath 未同步清除或标记",
-   "impact": "质检记录指向不存在的图片，追溯断链；图片保留 7 天、记录保留 30 天，第 8 天起必然大面积断链",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:40@imageRetentionDays < keepRecordsDays",
-   "reachability": "REACHABLE",
-   "danger_level": "S1",
-   "disposition": "FIXED 2026-10-19（缓解方案）· HousekeepingOptions 校验 ImageRetentionDays ≥ KeepRecordsDays，默认值与 appsettings 从 7/30 调为 30/30，保证图片不先于记录消失；删图回写 ImagePath 未实现，详见 V-106-retry"
-  },
-  {
-   "id": "F-107",
-   "target": "U20",
-   "category": "重复",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E16",
-     "category": "重复"
-    },
-    {
-     "target": "E17",
-     "category": "重复"
-    }
-   ],
-   "trigger": "单轮清理耗时超过 DatabaseCleanIntervalMs（默认 1 小时，全量遍历大目录可超过）",
-   "impact": "上一轮未结束时下一轮 Timer 回调已开始，两轮并发执行清理：同一文件被两次删除、DbContext 被两个线程共用",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:88@_cleanupGate",
-   "reachability": "CONSTRUCTIBLE",
-   "danger_level": "S2",
-   "disposition": "FIXED 2026-10-19 · CleanupOnceAsync 增加 SemaphoreSlim 非阻塞重入保护 + 跳过计数，详见 V-107-retry"
-  },
-  {
-   "id": "F-108",
-   "target": "U20",
-   "category": "延迟",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E16",
-     "category": "延迟"
-    },
-    {
-     "target": "E16",
-     "category": "资源耗尽"
-    },
-    {
-     "target": "E17",
-     "category": "延迟"
-    }
-   ],
-   "trigger": "图片目录累积到数万文件；且 DeleteOlderThanAsync 用 ToListAsync 把全部过期记录一次载入内存（InspectionRepository.cs:113）",
-   "impact": "单轮清理耗时与内存无上界，触发 F-107 的重入，并在大库上造成内存峰值",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:202@EnumerateFiles",
-   "reachability": "CONSTRUCTIBLE",
-   "danger_level": "S2",
-   "disposition": "PARTIAL 2026-10-19 · 图片枚举改为 EnumerateFiles 流式；DeleteOlderThanAsync 仍是 ToListAsync 全量载入，批量删除未改，详见 V-108"
-  },
-  {
-   "id": "F-109",
-   "target": "U20",
-   "category": "失败",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E16",
-     "category": "失败"
-    },
-    {
-     "target": "E17",
-     "category": "失败"
-    },
-    {
-     "target": "E17",
-     "category": "崩溃"
-    }
-   ],
-   "trigger": "目录中任一图片被看图软件或杀毒占用，File.Delete 抛 IOException",
-   "impact": "异常跳出 foreach 被外层 catch 吞掉，本轮剩余文件全部不处理；日志只记一条「图片清理异常」，无法知道删到哪、还剩多少",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:237@文件处理失败，已跳过",
-   "reachability": "REACHABLE",
-   "danger_level": "S2",
-   "disposition": "FIXED 2026-10-19 · CleanupImages 逐文件 try，失败计数不中止整轮，详见 V-109-retry"
-  },
-  {
-   "id": "F-111",
-   "target": "E16",
-   "category": "阻塞",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [],
-   "trigger": "管家清理与检测保存同时使用同一个 InspectionDbContext（组合根注册为单例）",
-   "impact": "EF Core 禁止同一 context 上并发操作，第二个操作抛 InvalidOperationException，检测记录直接丢失且只写日志",
-   "code_ref": "src/VisionStation.App/Services/ServiceCollectionExtensions.cs:86@IInspectionRepository",
-   "reachability": "REACHABLE",
-   "danger_level": "S1",
-   "disposition": "FIXED 2026-10-19 · 抽出 IInspectionRepository，Repository 每次操作自建/自释 DbContext，删除单例 DbContext 注册，详见 V-111-retry"
-  },
-  {
-   "id": "F-112",
-   "target": "U20",
-   "category": "恢复失败",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [
-    {
-     "target": "E16",
-     "category": "恢复失败"
-    }
-   ],
-   "trigger": "程序退出时 Dispose 执行，此时已有一轮回调在 await db 操作中",
-   "impact": "Timer.Stop 不取消已进入的回调，Dispose 后回调继续使用已释放资源；且 Dispose 立即返回不等待收尾，数据库可能留下半完成事务",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:287@_cleanupGate.Wait(5000)",
-   "reachability": "CONSTRUCTIBLE",
-   "danger_level": "S2",
-   "disposition": "FIXED 2026-10-19 · Dispose 停 Timer 后等待在途轮次收尾（上限 5s），详见 V-112-retry"
-  },
-  {
-   "id": "F-113",
-   "target": "E16",
-   "category": "无效",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [],
-   "trigger": "配置 ImageRetentionDays=0 或 KeepRecordsDays=0 / 负数（appsettings 手填，无校验）",
-   "impact": "cutoff = now，删除窗口覆盖当天全部数据：记录与图片被一次性清空且无二次确认",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:33@maxMemoryMb <= 0",
-   "reachability": "REACHABLE",
-   "danger_level": "S1",
-   "disposition": "FIXED 2026-10-19 · HousekeepingOptions 构造即校验四个阈值 >0，非法即抛，详见 V-113-retry"
-  },
-  {
-   "id": "F-001",
-   "target": "U19",
-   "category": "无效",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [],
-   "trigger": "判据为 File.Exists(db) || Directory.Exists(父目录)，父目录由程序创建，恒真",
-   "impact": "数据库不可用时自检报 OK",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:74@CheckDatabase",
-   "reachability": "REACHABLE",
-   "danger_level": "S1",
-   "disposition": "FIXED 2026-10-19 · R-001 测试证实后改为可写性探测，见 V-001-retry"
-  },
-  {
-   "id": "F-007",
-   "target": "U19",
-   "category": "崩溃",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [],
-   "trigger": "任一项检查抛异常时 RunAll 无隔离，异常直接中断整个自检",
-   "impact": "自检整体失败，后续检查项不执行，调用方拿到异常而非结果列表",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:37@RunAll",
-   "reachability": "REACHABLE",
-   "danger_level": "S2",
-   "disposition": "FIXED 2026-10-19 · RunAll 加 Safe 逐项隔离，见 V-004-retry"
-  },
-  {
-   "id": "F-038",
-   "target": "E18",
-   "category": "无效",
-   "status": "FOUND",
-   "tier": "MAIN",
-   "instances": [],
-   "trigger": "设备表为空时 online==total 为 0==0",
-   "impact": "自检报「0/0 在线」判为 OK（判据失效）",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:63@CheckDevices",
-   "reachability": "REACHABLE",
-   "danger_level": "S1",
-   "disposition": "FIXED 2026-10-19 · 改 total>0 && online==total，见 V-017-retry"
-  },
-  {
-   "id": "O-1",
-   "target": "U19",
-   "category": "资源耗尽",
-   "status": "FOUND",
-   "tier": "OBSERVATION",
-   "instances": [],
-   "trigger": "多实例同时启动自检，固定文件名 .write_test / .db_write_test 被互相创建与删除",
-   "impact": "探测结果可能被另一实例删除后误判；异常退出时残留文件留在目录",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:110@.write_test",
-   "reachability": "THEORETICAL",
-   "danger_level": "S3"
-  },
-  {
-   "id": "O-2",
-   "target": "U20",
-   "category": "资源耗尽",
-   "status": "FOUND",
-   "tier": "OBSERVATION",
-   "instances": [],
-   "trigger": "MaxMemoryMb 配置为 0 或负数",
-   "impact": "每次内存检查都判定超限并连续两次强制 GC，形成周期性 Full GC 抖动，只影响性能不损坏数据",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:84@usedMb > _maxMemoryMb",
-   "reachability": "REACHABLE",
-   "danger_level": "S3"
-  },
-  {
-   "id": "O-3",
-   "target": "E17",
-   "category": "阻塞",
-   "status": "FOUND",
-   "tier": "OBSERVATION",
-   "instances": [],
-   "trigger": "图片目录位于网络盘且掉线，Directory.Exists 返回 false",
-   "impact": "清理静默跳过并视为成功，无告警无计数，磁盘空间持续增长直到写满",
-   "code_ref": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:125@Directory.Exists(_imageFolder)",
-   "reachability": "REACHABLE",
-   "danger_level": "S3"
-  },
-  {
-   "id": "O-4",
-   "target": "E18",
-   "category": "失败",
-   "status": "FOUND",
-   "tier": "OBSERVATION",
-   "instances": [],
-   "trigger": "运行期调用 Register 增删设备，同时自检枚举 List<IDevice>",
-   "impact": "LINQ 计数抛 Collection was modified；当前 Register 只在启动调用，故不可达",
-   "code_ref": "src/VisionStation.Devices/DeviceManager.cs:22@ConnectionStats",
-   "reachability": "THEORETICAL",
-   "danger_level": "S3"
-  },
-  {
-   "id": "O-5",
-   "target": "E19",
-   "category": "重复",
-   "status": "FOUND",
-   "tier": "OBSERVATION",
-   "instances": [],
-   "trigger": "自检被重复触发（窗口重开、手动复检）且上一次探测文件未及删除",
-   "impact": "同名探测文件被覆盖写，无功能影响；仅日志中可能看到一次多余删除失败",
-   "code_ref": "src/VisionStation.Service/HealthCheck/HealthChecker.cs:89@.db_write_test",
-   "reachability": "THEORETICAL",
-   "danger_level": "S3"
-  },
-  {
-   "id": "N-01",
-   "target": "U19",
-   "category": "延迟",
-   "status": "N/A",
-   "na_reason": "自检仅在启动时执行一次，无周期性延迟约束；网络盘 IO 慢只表现为启动变慢，不改变任何判定结果"
-  },
-  {
-   "id": "N-02",
-   "target": "U19",
-   "category": "重复",
-   "status": "N/A",
-   "na_reason": "RunAll 无持久副作用，唯一写操作是创建后立即删除的单字节探测文件，重复调用结果一致"
-  },
-  {
-   "id": "N-03",
-   "target": "U19",
-   "category": "阻塞",
-   "status": "N/A",
-   "na_reason": "无锁、无队列、无跨线程等待，5 项检查串行执行，单项异常被 Safe 隔离不阻塞其余项"
-  },
-  {
-   "id": "N-05",
-   "target": "U19",
-   "category": "恢复失败",
-   "status": "N/A",
-   "na_reason": "自检无常驻状态，每次启动重新执行全部检查，不存在需要恢复的中间状态"
-  },
-  {
-   "id": "N-06",
-   "target": "U20",
-   "category": "阻塞",
-   "status": "N/A",
-   "na_reason": "两个 Timer 各自独立回调，无跨线程等待；自我竞争源于重入而非阻塞，已归入 F-107"
-  },
-  {
-   "id": "N-07",
-   "target": "U20",
-   "category": "崩溃",
-   "status": "N/A",
-   "na_reason": "CleanupDatabase 与 CleanupImages 均被 catch(Exception) 包裹，回调异常不外泄到线程池，进程不崩（代价是异常被吞，已记入 F-109）"
-  },
-  {
-   "id": "N-08",
-   "target": "E16",
-   "category": "缺失",
-   "status": "N/A",
-   "na_reason": "repo 由组合根注入且 DI 保证非空；DeleteOlderThanAsync 无「应删未删」的静默分支，删 0 条时显式返回 0"
-  },
-  {
-   "id": "N-09",
-   "target": "E16",
-   "category": "崩溃",
-   "status": "N/A",
-   "na_reason": "async void 内 try/catch 全包，EF 异常转为日志不冒泡；未捕获的 ObjectDisposedException 已由 F-112 单独登记"
-  },
-  {
-   "id": "N-10",
-   "target": "E17",
-   "category": "资源耗尽",
-   "status": "N/A",
-   "na_reason": "逐文件读取 FileInfo 属性（不读文件内容），目录句柄由 GetFiles 一次性返回后释放；规模问题已归入 F-108"
-  },
-  {
-   "id": "N-11",
-   "target": "E17",
-   "category": "恢复失败",
-   "status": "N/A",
-   "na_reason": "删除是逐文件幂等操作，中断后下一轮清理重新遍历并继续，无跨文件不变式需要恢复"
-  },
-  {
-   "id": "N-13",
-   "target": "E18",
-   "category": "缺失",
-   "status": "N/A",
-   "na_reason": "ConnectionStats 返回值元组，无 null 路径；设备列表为空的情形已由 F-038 覆盖"
-  },
-  {
-   "id": "N-14",
-   "target": "E18",
-   "category": "延迟",
-   "status": "N/A",
-   "na_reason": "内存 LINQ 对个位数设备计数，微秒级，不涉及 IO"
-  },
-  {
-   "id": "N-15",
-   "target": "E18",
-   "category": "重复",
-   "status": "N/A",
-   "na_reason": "纯读取无副作用，重复调用返回同一时刻的一致快照"
-  },
-  {
-   "id": "N-16",
-   "target": "E18",
-   "category": "阻塞",
-   "status": "N/A",
-   "na_reason": "无锁，直接枚举 List<IDevice>，不等待任何外部资源"
-  },
-  {
-   "id": "N-17",
-   "target": "E18",
-   "category": "崩溃",
-   "status": "N/A",
-   "na_reason": "无分配风险与外部调用，Count 不会抛业务异常；集合修改异常另见 O-4"
-  },
-  {
-   "id": "N-18",
-   "target": "E18",
-   "category": "资源耗尽",
-   "status": "N/A",
-   "na_reason": "O(n) 遍历，n 为设备注册数（启动后固定，个位数）"
-  },
-  {
-   "id": "N-19",
-   "target": "E18",
-   "category": "恢复失败",
-   "status": "N/A",
-   "na_reason": "无状态读取，不产生需要恢复的资源或中间结果"
-  },
-  {
-   "id": "N-20",
-   "target": "E19",
-   "category": "无效",
-   "status": "N/A",
-   "na_reason": "三条路径各自做了空值与可达性判断，非法路径返回 FAIL 而非抛异常外泄"
-  },
-  {
-   "id": "N-21",
-   "target": "E19",
-   "category": "延迟",
-   "status": "N/A",
-   "na_reason": "本地盘存在性检查为元数据操作，微秒级；网络盘变慢只影响启动耗时"
-  },
-  {
-   "id": "N-22",
-   "target": "E19",
-   "category": "阻塞",
-   "status": "N/A",
-   "na_reason": "同步文件 API 无等待队列，最坏表现为单次调用变慢"
-  },
-  {
-   "id": "N-23",
-   "target": "E19",
-   "category": "崩溃",
-   "status": "N/A",
-   "na_reason": "三处探测均在 Safe 内执行，异常转为该项 FAIL，不外泄"
-  },
-  {
-   "id": "N-24",
-   "target": "E19",
-   "category": "资源耗尽",
-   "status": "N/A",
-   "na_reason": "每次探测创建 1 个单字节文件并立即删除，无累积与句柄泄漏"
-  },
-  {
-   "id": "N-25",
-   "target": "E19",
-   "category": "恢复失败",
-   "status": "N/A",
-   "na_reason": "无持久状态；异常退出可能留下探测文件，下次启动同名覆盖，无功能影响"
-  },
-  {
-   "id": "N-26",
-   "target": "E20",
-   "category": "延迟",
-   "status": "N/A",
-   "na_reason": "配方为启动时加载的内存对象，属性读取不涉及 IO"
-  },
-  {
-   "id": "N-27",
-   "target": "E20",
-   "category": "重复",
-   "status": "N/A",
-   "na_reason": "只读判断，幂等，重复调用结果一致"
-  },
-  {
-   "id": "N-28",
-   "target": "E20",
-   "category": "失败",
-   "status": "N/A",
-   "na_reason": "_recipe 为 null 时已由 CheckRecipe 显式判 false，不抛异常"
-  },
-  {
-   "id": "N-29",
-   "target": "E20",
-   "category": "阻塞",
-   "status": "N/A",
-   "na_reason": "内存属性读取，无锁无等待"
-  },
-  {
-   "id": "N-30",
-   "target": "E20",
-   "category": "崩溃",
-   "status": "N/A",
-   "na_reason": "null 已判，Tools.Count 访问不会抛"
-  },
-  {
-   "id": "N-31",
-   "target": "E20",
-   "category": "资源耗尽",
-   "status": "N/A",
-   "na_reason": "仅读取一个整数属性，无分配"
-  },
-  {
-   "id": "N-32",
-   "target": "E20",
-   "category": "恢复失败",
-   "status": "N/A",
-   "na_reason": "无状态，不产生需要恢复的中间结果"
-  }
- ],
- "category_exemptions": []
+  "category_exemptions": []
 }

@@ -193,7 +193,9 @@
     "FAIL": 9,
     "UNVERIFIED": 0,
     "NOT_RUN": 0,
-    "note": "9 条 FAIL 是修复前的历史记录，保留不覆盖；13 条 PASS = 9 条 retry + 1 条第一批变异 + 3 条第二批（变异/两个新缺陷）"
+    "note": "v4 口径：defense 11 条（UNIT_TEST，进 tests/ 随 CI 跑）；proof 1 条（MUTATION_TEST 不进 CI 常跑）。9 条 FAIL 是修复前的历史记录，保留不覆盖",
+    "defense": 11,
+    "proof": 1
   },
   "unpaid": [
     {

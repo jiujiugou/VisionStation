@@ -220,7 +220,10 @@
     "PASS": 12,
     "FAIL": 4,
     "UNVERIFIED": 1,
-    "NOT_RUN": 8
+    "NOT_RUN": 8,
+    "defense": 11,
+    "proof": 3,
+    "note": "v4 口径：按手段性质分栏——defense 11 条（UNIT_TEST 10 + CONCURRENCY_TEST 1，均在 tests/ 里随 CI 跑）；proof 3 条（STRESS_TEST / FAULT_INJECTION / CODE_REVIEW 各 1，一次性举证）。CODE_REVIEW 那条只到 UNVERIFIED，不计入任一栏的\"已验\""
   },
   "unpaid": [
     {

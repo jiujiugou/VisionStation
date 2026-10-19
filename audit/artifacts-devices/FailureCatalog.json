@@ -40,7 +40,8 @@
           "category": "无效"
         }
       ],
-      "disposition": "FIXED 2026-10-19, 见 V-D01：HikCamera 改为“开流成功 + 最近 3s 内有帧”双条件（FrameAlive 为纯函数，可单测），采图线程每帧刷新心跳；Webcam 改为连续读帧失败 3 次判离线；FileCamera 改为“有图且（循环 或 未读完）”"
+      "disposition": "FIXED 2026-10-19, 见 V-D01：HikCamera 改为“开流成功 + 最近 3s 内有帧”双条件（FrameAlive 为纯函数，可单测），采图线程每帧刷新心跳；Webcam 改为连续读帧失败 3 次判离线；FileCamera 改为“有图且（循环 或 未读完）”",
+      "observable": "拔掉网线或关掉相机电源后，界面仍显示「已连接 · 已采集 N 帧」，N 停止增长，Capture 返回 null，日志里没有任何错误或断开记录。"
     },
     {
       "id": "F-D02",
@@ -54,7 +55,8 @@
       "trigger": "换用 Mono16 / Bayer 工业相机（类注释已自认这两类未覆盖）",
       "impact": "像素格式判定不看 pixelType（参数被接收却未参与任何判断），而是用 data.Length/像素数 猜通道：Mono16 是 2 字节/像素，被当成 8UC1，等于把高位字节当像素值；4 字节像素（BGRA/Mono32）被当成 8UC3，只拷 pixels*3 字节，行跨直接错位。两种情况下图像尺寸、通道数全部合法，Pipeline 照常判 OK/NG——静默错误判定，现场无法发现，日志无异常。",
       "instances": [],
-      "disposition": "FIXED 2026-10-19, 见 V-D02：新增纯函数 TryConvertPixels，只接受 1/3 字节像素，其余返回 null 并给出原因，Capture 侧记 Error 后丢帧"
+      "disposition": "FIXED 2026-10-19, 见 V-D02：新增纯函数 TryConvertPixels，只接受 1/3 字节像素，其余返回 null 并给出原因，Capture 侧记 Error 后丢帧",
+      "observable": "换一台 Mono16 工业相机，图像能显示、尺寸也对，但画面是斜条纹或接近全黑，检测结果照常输出 OK/NG，日志里没有任何格式警告。"
     },
     {
       "id": "F-D03",
@@ -289,7 +291,10 @@
       "trigger": "同一实例多次成功 Initialize（open() 被调用）",
       "impact": "每次成功初始化追加一个 ProcessExit 订阅且从不移除，闭包持有 this → 旧实例连同 _latestFrame 无法回收。热切换下第二次 Initialize 必然失败（设备独占），实际累积次数有限，故列观察项。",
       "instances": [],
-      "disposition": "未修：建议改为延迟订阅一次并在 Dispose 中解除"
+      "disposition": "未修：建议改为延迟订阅一次并在 Dispose 中解除",
+      "next_action": "DEFERRED",
+      "deferred_reason": "ProcessExit 订阅累积只在同一实例二次 Initialize 时发生，而设备独占让第二次 Initialize 通常直接失败，实际累积次数极少；改延迟订阅需要动初始化顺序，本轮不动",
+      "review_condition": "若支持同型号相机热切换、或放开设备独占允许重复 Initialize，必须改为一次性订阅并在 Dispose 中解除"
     },
     {
       "id": "O-D02",
@@ -297,13 +302,16 @@
       "category": "崩溃",
       "status": "FOUND",
       "tier": "OBSERVATION",
-      "code_ref": "src/VisionStation.Devices/SwappableCamera.cs:97@(old as IDisposable)?.Dispose()",
+      "code_ref": "src/VisionStation.Devices/SwappableCamera.cs:96@_active = candidate",
       "reachability": "THEORETICAL",
       "danger_level": "S3",
       "trigger": "SwapTo 与 Capture 在不同线程同时执行",
       "impact": "替换 _active 后立刻 Dispose 旧实例：若另一线程正在 old.Capture()，会命中已释放的相机（ObjectDisposedException 或原生访问违例）。当前 Capture 与 SwapTo 都在 UI 线程上执行（OnTriggered 统一 Dispatcher 切换），故判理论可达。",
       "instances": [],
-      "disposition": "已加 _swapLock 保护换指针与释放顺序，Capture 路径未加锁；彻底解决需引用计数或读写锁"
+      "disposition": "已加 _swapLock 保护换指针与释放顺序，Capture 路径未加锁；彻底解决需引用计数或读写锁",
+      "next_action": "DEFERRED",
+      "deferred_reason": "SwapTo 与 Capture 的竞态需要两个线程并发调用，而当前宿主（MainViewModel）把采集与切换都归到 UI 线程串行执行，路径不可达",
+      "review_condition": "若引入后台采集线程、支持并发调用 Capture，或放开多切片同时持有相机，必须改为引用计数或读写锁"
     },
     {
       "id": "O-D03",
@@ -317,7 +325,10 @@
       "trigger": "对同一 IDevice 实例重复 Register",
       "impact": "Register 无去重、List 无同步：重复注册会让 ConnectionStats 的 total 虚高、ConnectAll 连接两次。当前注册只在 DI 容器构造期执行两行不同对象，也不存在并发注册，故为理论项。",
       "instances": [],
-      "disposition": "已补空值校验；去重未加（会改变语义），留观察项"
+      "disposition": "已补空值校验；去重未加（会改变语义），留观察项",
+      "next_action": "DEFERRED",
+      "deferred_reason": "去重会改变 Register 的语义（允许同名重复注册是当前契约），属于接口设计取舍而非缺陷修复",
+      "review_condition": "若下游出现按设备名索引、或 UI 列表出现重复项，必须加去重并同步修改 Register 契约"
     },
     {
       "id": "O-D04",
@@ -331,7 +342,10 @@
       "trigger": "Dispose 之后，已在飞行中的 Elapsed 回调再触发一次",
       "impact": "停表与“回调完成”之间无同步：Dispose 后仍可能 Invoke 一次 Triggered，此时消费者可能已释放相机/窗口。后果是一次多余检测，不产生持续错误。",
       "instances": [],
-      "disposition": "已加 _disposed 标志（回调入口先判断），窗口缩小到标志读取与 Invoke 之间"
+      "disposition": "已加 _disposed 标志（回调入口先判断），窗口缩小到标志读取与 Invoke 之间",
+      "next_action": "DEFERRED",
+      "deferred_reason": "已加 _disposed 标志，窗口缩小到标志读取与 Invoke 之间；要彻底消除需重构成异步回调 + CancellationToken",
+      "review_condition": "若触发源改为异步回调或引入多线程触发，必须改成带取消令牌的等待，不能用标志轮询"
     },
     {
       "id": "O-D05",
@@ -345,7 +359,10 @@
       "trigger": "任意时刻查看设备列表",
       "impact": "触发源包装的状态字段全是常量：IsConnected 恒真、Type 写死 \"PLC\"（实际是定时器）、Status 只按类型返回“自动模式”，不看定时器是否 Start。手动模式下界面也显示“自动模式”，现场排查会误判。",
       "instances": [],
-      "disposition": "未修：Type/Status 属展示语义，改动会影响 UI 文案；建议后续按 IsRunning 派生 Status"
+      "disposition": "未修：Type/Status 属展示语义，改动会影响 UI 文案；建议后续按 IsRunning 派生 Status",
+      "next_action": "DEFERRED",
+      "deferred_reason": "Type/Status 当前是常量，改成按 IsRunning 派生会改变 UI 文案与状态语义，属展示层改动",
+      "review_condition": "UI 重构、或需要按实际触发状态展示时，改为派生自 IsRunning 并同步改文案"
     },
     {
       "id": "O-D06",
@@ -359,7 +376,10 @@
       "trigger": "启动时相机未接（现场最常见状态），ConnectAll 里的 Connect 抛异常",
       "impact": "ConnectAll/DisconnectAll 用空 catch 吞掉一切异常，不记日志、不记哪台设备失败。现场排查 0x80000203 时唯一可用的线索（异常信息）被丢掉，只剩 HealthChecker 稍后报“1/2 在线”。这类缺陷不产生运行期可观测症状，只能靠人工审查发现，故作观察项。",
       "instances": [],
-      "disposition": "未修：加日志需给 DeviceManager 注入 ILogger（会改 DI 签名）；建议下一轮补 ConnectFailed 事件"
+      "disposition": "未修：加日志需给 DeviceManager 注入 ILogger（会改 DI 签名）；建议下一轮补 ConnectFailed 事件",
+      "next_action": "DEFERRED",
+      "deferred_reason": "加日志需要给 DeviceManager 注入 ILogger，会改构造签名与三个 DI 调用点；本轮优先保证设备层行为正确",
+      "review_condition": "下一轮打开设备层时一并处理；若现场出现「设备连不上但日志没有任何记录」，立即提升为必修"
     },
     {
       "id": "N-D01",

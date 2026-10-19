@@ -18,6 +18,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +48,34 @@ HARD_STANDARDS = {"UNIT_TEST", "CONCURRENCY_TEST", "STRESS_TEST", "MUTATION_TEST
 RATIO_WARN = 30.0     # >30/KLOC 警告：复核是否重复登记
 RATIO_BLOCK = 60.0    # >60/KLOC 阻断：口径已失控，退回重做阶段1
 MIN_LOC_FOR_RATIO = 200  # 切片小于 200 行时密度无统计意义，不做判定
+
+# ---- 待定项与 S1 可观测量（2026-10-19 裁剪版加）----
+# OBSERVATION 从"观察项"改成"待定项"：只登记不给出路的条目，等于把真缺陷挪出了统计。
+OBS_ACTIONS = {"PROMOTE", "DEFERRED"}
+# S1 要求 observable：现场看到什么。出现这些词说明写的是判断，不是现象。
+VAGUE_WORDS = ("违反契约", "不符合预期", "不符合规范", "存在风险", "潜在问题",
+               "可能导致", "存在隐患", "不够健壮")
+
+
+def load_editor_rules():
+    """读 .editorconfig 的 dotnet_diagnostic.X.severity。
+
+    MACHINE_COVERED 豁免声称"分析器常驻守卫"，必须能在此核对上：
+    规则号不存在、或 severity=none，这句话就是空的。
+    """
+    p = os.path.join(ROOT, ".editorconfig")
+    rules = {}
+    if not os.path.exists(p):
+        return rules
+    try:
+        with open(p, encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                m = re.match(r"\s*dotnet_diagnostic\.([A-Za-z]+\d+)\.severity\s*=\s*(\S+)", line)
+                if m:
+                    rules[m.group(1)] = m.group(2).strip().lower()
+    except OSError:
+        pass
+    return rules
 
 problems = []   # (gate, severity, msg)
 BLOCK, WARN = "BLOCK", "WARN"
@@ -126,6 +155,7 @@ def gate1(idx, fcat, only=None):
         return
     entries = fcat.get("entries", [])
     covered = set()
+    grid_multi = {}         # 格 -> [条目 id]：同格多根因（不同 path:line），只做可见性输出
     ref_owner = {}          # "path:line" -> [条目 id]，用于根因唯一性
     main_ids, obs_ids, fixed_ids = [], [], []
 
@@ -152,8 +182,13 @@ def gate1(idx, fcat, only=None):
         for i in e.get("instances", []) or []:
             keys.append((norm_target(i.get("target", "")), i.get("category", "")))
         for key in keys:
+            # 同一格被两条 FOUND 占住有两种情况：
+            # ① 同一根因重复登记 —— 由下面的 path:line 主键唯一性 BLOCK；
+            # ② 不同根因落在同一「单元×类别」—— 网格坐标是 单元×类别，缺陷坐标是 path:line，
+            #    多对一天然存在（HealthChecker 的配方校验与数据库校验同属 U19/无效）。
+            #    ②不算重复计数，只做可见性输出，不进 problems。
             if key in covered:
-                problems.append((1, WARN, f"{eid}: 重复覆盖 {key[0]}/{key[1]}"))
+                grid_multi.setdefault(key, []).append(eid)
             covered.add(key)
 
         if st == "FOUND":
@@ -166,6 +201,18 @@ def gate1(idx, fcat, only=None):
                                  f"{eid}: reachability=THEORETICAL 不得进 MAIN，必须 tier=OBSERVATION（理论项不计入问题总数）"))
             if tier != "MAIN":
                 obs_ids.append(eid)
+                # 待定项必须给出路。只登记、不处置 = 用一个不计入统计的格子把缺陷藏起来。
+                act = str(e.get("next_action", "")).strip()
+                if act not in OBS_ACTIONS:
+                    problems.append((1, BLOCK,
+                                     f"{eid}: OBSERVATION 必须给 next_action"
+                                     f"（PROMOTE=升级为 MAIN / DEFERRED=本版不处理+重开条件）"))
+                elif act == "DEFERRED":
+                    for fld in ("deferred_reason", "review_condition"):
+                        if len(str(e.get(fld, "")).strip()) < 8:
+                            problems.append((1, BLOCK,
+                                             f"{eid}: next_action=DEFERRED 必须写 {fld}"
+                                             f"（≥8 字符：为何不处理 / 何时必须重开）"))
             elif is_fixed:
                 fixed_ids.append(eid)
             else:
@@ -188,6 +235,18 @@ def gate1(idx, fcat, only=None):
                     problems.append((1, WARN, f"{eid}: 使用旧字段 severity，请迁移为 danger_level(S1/S2/S3)"))
                 else:
                     problems.append((1, BLOCK, f"{eid}: 缺 danger_level（S1/S2/S3）"))
+            # S1 必须写出现场可观测量：它是唯一能让独立复审有输入的东西。
+            # 写不出来，说明这条还没被理解成真实故障，只是纸面判断。
+            if e.get("danger_level") == "S1":
+                ob = str(e.get("observable", "")).strip()
+                hit = next((w for w in VAGUE_WORDS if w in ob), None)
+                if len(ob) < 15:
+                    problems.append((1, BLOCK,
+                                     f"{eid}: S1 必须给 observable（现场会看到什么，≥15 字符）；"
+                                     f"写不出这一句=还没被理解成真实故障"))
+                elif hit:
+                    problems.append((1, BLOCK,
+                                     f"{eid}: observable 过虚（含「{hit}」）；只准写现场现象，不准写判断"))
         else:
             if len(str(e.get("na_reason", "")).strip()) < 8:
                 problems.append((1, BLOCK, f"{eid}: N/A 但无实质理由"))
@@ -201,6 +260,7 @@ def gate1(idx, fcat, only=None):
                          f"根因重复登记 {len(dup_groups)} 组：{detail}（同一 path:line 只许一条 FOUND，其余并入 instances[]）"))
 
     # ---- 类级豁免：诚实申报"这一类不适用"的成本必须低于编造一条故障 ----
+    editor_rules = load_editor_rules()
     exempt = set()
     for ex in fcat.get("category_exemptions", []) or []:
         c = ex.get("category")
@@ -211,6 +271,19 @@ def gate1(idx, fcat, only=None):
             continue
         if len(reason) < 20:
             problems.append((1, BLOCK, f"豁免 {c}: 理由不足 20 字符（须说明为何整类不适用）"))
+        # "机器已守"是一种可核对的声明，不是一句免责：规则号要在 .editorconfig 里真的开着。
+        if reason.upper().startswith("MACHINE_COVERED"):
+            codes = re.findall(r"\b(?:CA|S|IDE|CS)\d{3,5}\b", reason)
+            if not codes:
+                problems.append((1, BLOCK, f"豁免 {c}: MACHINE_COVERED 必须给规则号（如 S3881/CA1816）"))
+            for code in codes:
+                sev = editor_rules.get(code)
+                if sev is None:
+                    problems.append((1, BLOCK,
+                                     f"豁免 {c}: MACHINE_COVERED 引用的 {code} 不在 .editorconfig 中，机器并没有在守"))
+                elif sev == "none":
+                    problems.append((1, BLOCK,
+                                     f"豁免 {c}: {code} 在 .editorconfig 里被设为 none，不能作为豁免依据"))
         if not applies:
             problems.append((1, BLOCK, f"豁免 {c}: applies_to 为空（写 ALL 或列目标）"))
             continue
@@ -220,6 +293,9 @@ def gate1(idx, fcat, only=None):
 
     missing = grid - covered - exempt
     print(f"  门禁1 覆盖对账: {len(covered)}/{total} 格已覆盖，类级豁免 {len(exempt & grid)} 格，缺 {len(missing)} 格")
+    if grid_multi:
+        shown = ", ".join(f"{t}/{c}←{','.join(v)}" for (t, c), v in list(grid_multi.items())[:4])
+        print(f"  门禁1 同格多根因: {len(grid_multi)} 格（不同 path:line 落同一类别，非重复计数）: {shown}")
     by_t = {}
     for t, c in sorted(missing):
         by_t.setdefault(t, []).append(c)
@@ -253,6 +329,19 @@ def gate1(idx, fcat, only=None):
     else:
         print(f"  门禁1 密度: 分母 {loc} 行 < {MIN_LOC_FOR_RATIO}，样本过小不作判定"
               f"（MAIN {len(main_ids)} / OBSERVATION {len(obs_ids)}）")
+
+    # ---- 待定项稀释：OBSERVATION 不计入密度，于是它成了唯一能无成本往外挪问题的口子 ----
+    # 分母用「全部 MAIN」（含已修复），与 §8 的"条目总数与 MAIN 的比值"口径一致。
+    main_total = len(main_ids) + len(fixed_ids)
+    if obs_ids or main_total:
+        r = len(obs_ids) / main_total if main_total else float(len(obs_ids))
+        diluted = main_total == 0 or r > 1
+        print(f"  门禁1 待定项: OBSERVATION {len(obs_ids)} : MAIN {main_total} = {r:.2f} : 1"
+              f"{'（>1:1，疑似稀释）' if diluted else ''}")
+        if diluted and obs_ids:
+            problems.append((1, WARN,
+                             f"门禁1 待定项过多：OBSERVATION:MAIN = {len(obs_ids)}:{main_total} 超过 1:1，"
+                             f"复核是否有真缺陷被挪进 OBSERVATION 而不处理"))
 
 
 def gate2(fcat, rcat):
@@ -309,12 +398,13 @@ def gate2(fcat, rcat):
     print(f"  门禁2 约束合法: {len(reqs)} 条约束，来源覆盖 {len(linked & required)}/{len(required)} 条开放 MAIN")
 
 
-def gate3(rcat, vrep):
+def gate3(fcat, rcat, vrep):
     if vrep is None:
         problems.append((3, BLOCK, "门禁3：VerificationReport 缺失"))
         return
     results = vrep.get("results", [])
     reqs = {r.get("id"): r for r in (rcat or {}).get("entries", [])}
+    found = {e.get("id"): e for e in (fcat or {}).get("entries", []) if e.get("status") == "FOUND"}
     seen = {}
     for v in results:
         rid = v.get("req", "?")
@@ -332,12 +422,40 @@ def gate3(rcat, vrep):
                     os.path.join(BASE, ev.replace("/", os.sep))):
                 problems.append((3, BLOCK, f"{v.get('id')}: 证据文件不存在: {ev}"))
         if st == "PASS":
-            prov = reqs.get(rid, {}).get("provenance")
-            if prov == "CODE_AS_IS":
+            req = reqs.get(rid, {})
+            if req.get("provenance") == "CODE_AS_IS":
                 problems.append((3, BLOCK, f"{v.get('id')}: CODE_AS_IS 约束不得判 PASS（现状合理化）"))
+            # CODE_REVIEW 只能证明"代码现在长这样"，不能证明"失效已被证伪"。
+            # 允许它 PASS，未清偿项就会从纸面上消失（Devices 那轮 4 条正是这样被记成 12/12 的）。
+            if req.get("verification_method") == "CODE_REVIEW":
+                problems.append((3, BLOCK,
+                                 f"{v.get('id')}: CODE_REVIEW 不得判 PASS——grep 不是验收。"
+                                 f"改为 UNVERIFIED 并计入未清偿清单"))
     no_result = [r for r in reqs if r not in seen]
     if no_result:
         problems.append((3, BLOCK, f"门禁3：{len(no_result)} 条约束没有任何验证记录: {no_result[:6]}"))
+
+    # S1 不许以「未验证」结案：要么换手段，要么改设计让它不可达，要么承认未修并挂人（FAIL 进未清偿）。
+    # 此前规程写了这条，脚本没实现——规程声称检查的东西必须真的被检查。
+    s1_reqs = set()
+    for rid, r in reqs.items():
+        for f in r.get("from", []) or []:
+            fe = found.get(f) or found.get(norm_target(f))
+            if fe and fe.get("danger_level") == "S1":
+                s1_reqs.add(rid)
+    for rid in sorted(s1_reqs):
+        sts = seen.get(rid, [])
+        if "UNVERIFIED" in sts and "PASS" not in sts:
+            problems.append((3, BLOCK,
+                             f"门禁3：S1 约束 {rid} 以 UNVERIFIED 收尾"
+                             f"（换验证手段或改设计使其不可达，不允许用「未验证」结案）"))
+
+    t = vrep.get("tally") or {}
+    if "defense" not in t or "proof" not in t:
+        problems.append((3, WARN,
+                         "门禁3：tally 缺 defense/proof 分栏——防线（进 tests/，每次 CI 跑）"
+                         "与举证（evidence/ 一次性）合并计数，会把举证当成永久保障"))
+
     tally = {}
     for sts in seen.values():
         for s in sts:
@@ -378,7 +496,7 @@ def main():
     if a.gate in (0, 2):
         gate2(fcat, rcat)
     if a.gate in (0, 3):
-        gate3(rcat, vrep)
+        gate3(fcat, rcat, vrep)
 
     # ---- 产物成本：规程的纸面量不许远超被审代码本身（上轮实测 7:1，明显失衡）----
     try:

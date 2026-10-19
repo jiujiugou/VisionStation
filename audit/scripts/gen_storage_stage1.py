@@ -1,0 +1,482 @@
+#!/usr/bin/env python3
+"""阶段 1 生成器：Storage 切片的 81 格判定。
+
+为什么用脚本生成而不是手写 JSON：
+  网格是 9 目标 × 9 类 = 81 格。手写会漏格，而漏格在门禁里只表现为
+  "缺 N 格"，看不出是哪一格没想过。这里把每格的判定写成数据，
+  写文件前先自检：缺格直接退出，N/A 表有多余键也退出（多余键会造成重复覆盖）。
+"""
+import json
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+OUT = os.path.join(ROOT, "audit", "artifacts-storage", "FailureCatalog.json")
+SCOPE = os.path.join(ROOT, "audit", "artifacts-storage", "scope-storage.json")
+
+CATS = ["无效", "缺失", "延迟", "重复", "失败", "阻塞", "崩溃", "资源耗尽", "恢复失败"]
+
+# ── FOUND / OBSERVATION ────────────────────────────────────────────────
+# 一条根因 = 一个 path:line。同一根因落到别的格写成 instances，不复制条目。
+ENTRIES = [
+    {
+        "id": "F-S01",
+        "target": "U16",
+        "category": "缺失",
+        "status": "FOUND",
+        "tier": "MAIN",
+        "danger_level": "S1",
+        "reachability": "REACHABLE",
+        "code_ref": "src/VisionStation.Storage/ImageStoreService.cs:137@ImageSaveOutcome.Saved, fullPath",
+        "trigger": (
+            "存图成功后 Save 返回 ImageSaveResult(Path=fullPath)，但没有任何调用方把这个 Path "
+            "写回 report.ImagePath；MainViewModel 在 Save 之后直接 await _repo.SaveAsync(report)，"
+            "而 report.ImagePath 是 Pipeline 从 frame.FilePath 拷来的原始来源名。"
+        ),
+        "impact": (
+            "数据库里每条记录的 ImagePath 指向的不是存下来的那张图。海康相机下 frame.FilePath 是 "
+            "\"HikCamera_Frame_N\" 这种占位名，文件根本不存在；File 相机下指向输入目录的原图。"
+            "结果是：质检记录与图像证据永久脱钩，客户点开记录看不到图，复盘 \"这条为什么判 NG\" "
+            "时没有现场影像。图片文件还在磁盘上，但系统里没有任何字段能定位它。"
+        ),
+        "observable": (
+            "用海康相机跑一帧，点开这条记录的详情：图片区空白或加载失败。去 Storage 目录下当天的 "
+            "日期文件夹，能看到刚生成的 png；但数据库里这条记录的 ImagePath 是 \"HikCamera_Frame_12\"，"
+            "不是那个 png 的路径。文件相机的记录则指向输入目录的原图，而不是带判定标记的存储副本。"
+        ),
+        "disposition": "FIXED 2026-10-19 · Save 成功时把 fullPath 写回 report.ImagePath，Skipped/Failed 不改写",
+    },
+    {
+        "id": "F-S02",
+        "target": "U17",
+        "category": "缺失",
+        "status": "FOUND",
+        "tier": "MAIN",
+        "danger_level": "S2",
+        "reachability": "REACHABLE",
+        "code_ref": "src/VisionStation.Storage/InspectionRepository.cs:108@var p = report.PresenceResult;",
+        "instances": [
+            {"target": "U17", "category": "无效"},
+            {"target": "E15", "category": "缺失"},
+            {"target": "E15", "category": "无效"},
+        ],
+        "trigger": (
+            "InspectionReport 已经改成 Dictionary<string, ToolResult> Results，工具集可任意扩展；"
+            "但 SaveAsync 仍然只取 PresenceResult / DimensionResult / DefectResult 三个兼容属性，"
+            "映射到硬编码的三组列。配方里出现第四个工具（如 OnnxYolo）时，它的结果不落库。"
+        ),
+        "impact": (
+            "两个后果，都发生在记录侧：① 第四个工具的结论不进数据库，OverallVerdict 却把它算进去 —— "
+            "出现「总判定 NG，但库里三个子项全是 OK」的记录，复盘时无法解释 NG 从哪来；"
+            "② 配方里没启用的工具，兼容属性返回 IsOk=false 的「未执行」结果，被写成子项失败 —— "
+            "出现「总判定 OK，但三个子项全 NG」的矛盾记录。"
+        ),
+        "disposition": "FIXED 2026-10-19 · 新增 ToolResultsJson 列存全部工具快照，三组硬编码列保留给旧 UI",
+    },
+    {
+        "id": "F-S03",
+        "target": "U17",
+        "category": "恢复失败",
+        "status": "FOUND",
+        "tier": "MAIN",
+        "danger_level": "S2",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/InspectionRepository.cs:92@EnsureCreatedAsync()",
+        "trigger": (
+            "启动时只调 Database.EnsureCreatedAsync()。它的语义是「库不存在就整库创建」，"
+            "对已存在的库不做任何 ALTER TABLE。只要给 InspectionRecord 加一列（修 F-S02 就必须加），"
+            "现场老库的表结构不会升级。"
+        ),
+        "impact": (
+            "升级包发到已运行的现场：程序正常启动、自检显示 DB OK，第一条检测记录写入时抛 "
+            "SqliteException: no such column，界面每帧报「检测异常」，所有记录停止入库。"
+            "更麻烦的是本地开发（新库）完全复现不出来 —— 只有老库才炸。"
+        ),
+        "disposition": "FIXED 2026-10-19 · StorageSchema 启动时对比 EF 模型与实际列，缺列自动 ALTER TABLE ADD COLUMN",
+    },
+    {
+        "id": "F-S04",
+        "target": "U18",
+        "category": "阻塞",
+        "status": "FOUND",
+        "tier": "MAIN",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/InspectionDbContext.cs:30@UseSqlite($\"Data Source={_dbPath};Default Timeout=5\")",
+        "instances": [
+            {"target": "U17", "category": "阻塞"},
+            {"target": "E14", "category": "阻塞"},
+            {"target": "E16", "category": "阻塞"},
+        ],
+        "trigger": (
+            "连接串没有开 WAL、没有设 busy_timeout，SQLite 用默认的 rollback journal："
+            "同一时刻只允许一个写者。管家清理（Timer 线程）与检测保存（UI 线程）在时间上重叠时，"
+            "第二个写请求必须等第一个提交完成。"
+        ),
+        "impact": (
+            "写操作被串行化。单条写入是毫秒级，所以正常情况下只是几十毫秒的偶发卡顿；"
+            "但清理一轮删除大量记录时事务变长，保存侧要等它提交，最长等到 "
+            "Microsoft.Data.Sqlite 的默认命令超时（30 秒）后抛 SQLITE_BUSY —— 那一帧的记录丢失。"
+            "本条定 S3 的前提是「等待窗口极短、实测不丢记录」，该前提由阶段 3 的并发用例检验。"
+        ),
+        "disposition": "FIXED 2026-10-19 · 启动时开 WAL；连接串 Default Timeout=5，锁等待上限从 30s 压到 5s",
+    },
+    {
+        "id": "F-S05",
+        "target": "U16",
+        "category": "重复",
+        "status": "FOUND",
+        "tier": "MAIN",
+        "danger_level": "S2",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/ImageStoreService.cs:121@var fileName = BuildFileName(DateTime.Now, report.OverallVerdict, baseName, report.Id)",
+        "instances": [{"target": "E13", "category": "重复"}],
+        "trigger": (
+            "文件名只有 DateTime.Now 的 HHmmssfff 精度，不含任何唯一后缀。"
+            "同一毫秒内完成两次 Save（快速文件源循环、或两个采集实例共用同一目录）时，"
+            "两次生成的路径完全相同，后一次直接覆盖前一次。"
+        ),
+        "impact": (
+            "前一张图被覆盖，两条数据库记录指向同一个文件：其中一条的现场影像永久丢失，且没有任何"
+            "错误日志（ImWrite 覆盖成功返回 true）。若被覆盖的是 NG 图，等于 NG 证据被后一张 OK 图替换。"
+        ),
+        "disposition": "FIXED 2026-10-19 · 文件名追加 report.Id 前 8 位，BuildFileName 抽成纯函数",
+    },
+    {
+        "id": "F-S06",
+        "target": "U16",
+        "category": "崩溃",
+        "status": "FOUND",
+        "tier": "MAIN",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/ImageStoreService.cs:106@if (!ShouldSave(report))",
+        "trigger": (
+            "ShouldSave 在 try 之外调用，而 Sampling 分支执行 `++_okCounter % _samplingRate`。"
+            "SetMode 是 public，允许传 samplingRate=0（DI 现在只传默认 10，但配置化后很容易传 0）。"
+        ),
+        "impact": (
+            "DivideByZeroException 直接冒到调用方。MainViewModel 的 catch 把它记成「检测异常」，"
+            "之后的累计计数、落库、界面消息全部跳过 —— 这一帧的检测结果无声消失，"
+            "而日志里只有一条与存图无关的通用异常。"
+        ),
+        "disposition": "FIXED 2026-10-19 · SetMode 校验 samplingRate ≥ 1，除零在配置入口被拦下",
+    },
+    # ── 待定项（不计入密度，但必须给出路）────────────────────────────
+    {
+        "id": "O-S01",
+        "target": "U17",
+        "category": "资源耗尽",
+        "status": "FOUND",
+        "tier": "OBSERVATION",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/InspectionRepository.cs:181@var old = await db.InspectionRecords",
+        "instances": [{"target": "E16", "category": "资源耗尽"}],
+        "trigger": (
+            "DeleteOlderThanAsync 先用 ToListAsync 把符合条件的全部记录实体化，再 RemoveRange。"
+            "保留 30 天、日产数千条时，一次清理要加载数万条实体。"
+        ),
+        "impact": (
+            "内存峰值与事务持锁时间随数据量线性增长：数万条约几十 MB，可接受；"
+            "到二十万条量级时峰值上百 MB，且长事务把 F-S04 的写锁窗口放大。"
+            "当前量级不构成功能失效，故不进本版必修。"
+        ),
+        "next_action": "DEFERRED",
+        "deferred_reason": (
+            "当前 30 天保留 × 单机产线量级下，一次清理加载的实体数在可接受范围，"
+            "未观测到内存或锁等待问题；改 ExecuteDeleteAsync 会丢掉「返回删除条数」之外的"
+            "可控性（分批删除、进度回调），属优化而非修复。"
+        ),
+        "review_condition": (
+            "单表记录数超过 20 万，或一轮清理耗时超过 10 秒，或清理期间出现保存失败，"
+            "必须改为分批 ExecuteDeleteAsync 并重新评估 F-S04。"
+        ),
+        "disposition": "OPEN",
+    },
+    {
+        "id": "O-S02",
+        "target": "U17",
+        "category": "无效",
+        "status": "FOUND",
+        "tier": "OBSERVATION",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/InspectionRepository.cs:165@query = query.Where(r => r.Timestamp >= since.Value)",
+        "trigger": (
+            "同一张表上两套时间口径：删除按 CreatedAt（入库时刻），统计按 Timestamp（检测时刻）。"
+            "批量补录、导入历史数据、或系统时钟回拨时两者会明显偏离。"
+        ),
+        "impact": (
+            "「最近 24 小时合格率」统计的窗口与保留策略的窗口错位：可能统计到已被清理的记录，"
+            "也可能漏掉实际刚写入但 Timestamp 较早的记录。当前只有实时检测一条写入路径，"
+            "两值相差毫秒，不构成可见偏差。"
+        ),
+        "next_action": "DEFERRED",
+        "deferred_reason": (
+            "当前唯一写入路径是实时检测，Timestamp 与 CreatedAt 相差毫秒级，"
+            "两套口径在可预见的使用中给出相同结果；统一口径需要动清理语义与 UI 统计，"
+            "属模型层变更，不在本轮范围。"
+        ),
+        "review_condition": (
+            "引入补录/导入、离线缓存重放、或现场出现「统计条数与列表条数对不上」时，"
+            "必须统一为同一列并写迁移。"
+        ),
+        "disposition": "OPEN",
+    },
+    {
+        "id": "O-S03",
+        "target": "U18",
+        "category": "无效",
+        "status": "FOUND",
+        "tier": "OBSERVATION",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/Entities/InspectionRecord.cs:17@[MaxLength(50)]",
+        "trigger": (
+            "实体上用 DataAnnotations 的 MaxLength 限制 TriggerSource(50) / ImagePath(500) / "
+            "OverallVerdict(10)，但 SQLite 不强制 VARCHAR 长度，EF Core 写入时也不做校验。"
+        ),
+        "impact": (
+            "超长字符串静默入库，约束只在「有人以为它有约束」这件事上生效。"
+            "对 ImagePath 尤其相关：修 F-S01 后这里会写入真实长路径（含中文目录时可能超过 500），"
+            "而不会有任何报错。"
+        ),
+        "next_action": "DEFERRED",
+        "deferred_reason": (
+            "当前写入的三类值长度都由代码常量控制（判定只有 OK/NG、来源是三个固定枚举），"
+            "超长只可能来自路径拼接；加 check 约束需要重建表，代价大于收益。"
+        ),
+        "review_condition": (
+            "修 F-S01 后若现场出现路径截断、或引入用户可填字段（工单号、批次号），"
+            "必须在写入前显式校验长度并给出可读错误。"
+        ),
+        "disposition": "OPEN",
+    },
+    {
+        "id": "O-S04",
+        "target": "U18",
+        "category": "资源耗尽",
+        "status": "FOUND",
+        "tier": "OBSERVATION",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/InspectionDbContext.cs:39@entity.HasIndex(e => e.OverallVerdict);",
+        "trigger": (
+            "OverallVerdict 只有 \"OK\" / \"NG\" 两个取值，却建了独立索引。"
+            "索引选择性为 2，查询优化器几乎不会选它，但每次插入都要维护这棵 B 树。"
+        ),
+        "impact": (
+            "每次保存多一次索引写入；单条记录的代价可忽略，但它与 F-S04 的写锁窗口叠加，"
+            "且让「这张表有几个索引」这件事失去解释力。属清理项，不构成故障。"
+        ),
+        "next_action": "DEFERRED",
+        "deferred_reason": (
+            "删索引要重建表或写迁移，而当前插入频率下单次成本处于噪声级别；"
+            "与 F-S03（迁移机制）一起做才有净收益，单独动不划算。"
+        ),
+        "review_condition": (
+            "做 F-S03 的迁移机制时一并删掉该索引；或在十万条以上量表实测到插入耗时异常。"
+        ),
+        "disposition": "OPEN",
+    },
+    {
+        "id": "O-S05",
+        "target": "E12",
+        "category": "资源耗尽",
+        "status": "FOUND",
+        "tier": "OBSERVATION",
+        "danger_level": "S3",
+        "reachability": "CONSTRUCTIBLE",
+        "code_ref": "src/VisionStation.Storage/ImageStoreService.cs:127@if (!Cv2.ImWrite(fullPath, frame.Image))",
+        "instances": [],
+        "trigger": (
+            "ImageStoreService 只读 frame.Image，不 Clone 也不 Dispose。谁负责释放这个 Mat "
+            "在接口契约里没有定义：Pipeline 返回的报告不带 Mat，MainViewModel 用 using 释放的是 Clone。"
+        ),
+        "impact": (
+            "当前调用链上 Mat 由 MainViewModel 在 ProcessFrame 作用域内释放，所以不泄漏；"
+            "但这是隐式约定，换个宿主（批处理、无界面复检）就没人知道该谁释放。"
+            "本切片只登记「契约未定义」，不把它算成当前泄漏。"
+        ),
+        "next_action": "DEFERRED",
+        "deferred_reason": (
+            "AGENTS 第 15 条已记录「Core 公开签名泄漏 Mat」这条债，根因在 Core 与 App 之间的"
+            "所有权契约，不在 Storage；在 Storage 切片里改只能写成注释，改不到契约本体。"
+        ),
+        "review_condition": (
+            "做无界面批处理宿主、或引入图像缓存时，必须先定义 Mat 所有权（谁创建谁释放 / "
+            "调用方转移所有权），否则会立刻出现双重释放或永不释放。"
+        ),
+        "disposition": "OPEN",
+    },
+    {
+        "id": "O-S06",
+        "target": "U16",
+        "category": "延迟",
+        "status": "FOUND",
+        "tier": "OBSERVATION",
+        "danger_level": "S3",
+        "reachability": "REACHABLE",
+        "code_ref": "src/VisionStation.Storage/ImageStoreService.cs:115@Directory.CreateDirectory(folder);",
+        "instances": [{"target": "E13", "category": "延迟"}],
+        "trigger": (
+            "每存一张图都调用一次 Directory.CreateDirectory（目录已存在时它只是返回，不抛错），"
+            "但这是一次系统调用，且发生在每一次检测的同步路径上。"
+        ),
+        "impact": (
+            "单次开销在几十微秒量级，对 100ms 级的检测周期几乎不可见；"
+            "它属于「每帧都做一次无用检查」的形态，不构成故障。"
+        ),
+        "next_action": "DEFERRED",
+        "deferred_reason": (
+            "改为首次保存时建目录需要记状态（今天是哪一天），引入的状态比省下的系统调用更贵；"
+            "而且跨零点换目录时缓存逻辑容易出错。当前开销处于噪声级别。"
+        ),
+        "review_condition": (
+            "若单帧周期降到 10ms 以下、或 profiling 显示 IO 占比异常，改为按日期缓存建目录结果。"
+        ),
+        "disposition": "OPEN",
+    },
+]
+
+# ── N/A（逐格，理由必须针对该格，不许复制粘贴）──────────────────────
+NA = {
+    # U16 ImageStoreService
+    ("U16", "无效"): "唯一的输入异常是空 Mat，已由 Cv2.ImWrite 返回 false 转成 Failed，并有 Save_EmptyImage_ReturnsFailed 覆盖；report 非空由 Pipeline 构造保证。",
+    ("U16", "失败"): "ImWrite 返回 false 与任何异常都转成 ImageSaveResult.Failed 并带原因，不抛给调用方；三种模式与路径被文件占用都有用例。",
+    ("U16", "阻塞"): "Save 全程同步、无锁、无等待队列，唯一的耗时点是 ImWrite 本身，不存在额外的阻塞点。",
+    ("U16", "资源耗尽"): "Save 不持有句柄（ImWrite 内部开关），Mat 只读不 Clone；磁盘满表现为 ImWrite 返回 false，归入失败路径而非资源泄漏。",
+    ("U16", "恢复失败"): "存图按帧独立、无跨帧累积状态，一次失败不影响下一帧重试（Save_ConsecutiveSuccess_KeepsOutcomeStable 覆盖）。",
+
+    # U17 InspectionRepository
+    ("U17", "延迟"): "单条 insert 一次数据库往返，无批处理、无重试等待；RunAsync 只做 context 创建与释放，不引入额外延迟。",
+    ("U17", "重复"): "主键取 report.Id，由 InspectionReport 默认 Guid.NewGuid() 每帧新生成；当前没有重放/重存同一份 report 的调用路径，真撞主键会抛 DbUpdateException 而非静默写重复行。",
+    ("U17", "失败"): "SaveChangesAsync / ToListAsync 的异常直接向上抛，finally 只负责释放，不吞异常也不改写判定。",
+    ("U17", "崩溃"): "无后台线程与静态可变状态，RunAsync 的 finally 保证 context 释放，异常不会越过调用方的 catch。",
+
+    # U18 InspectionDbContext
+    ("U18", "缺失"): "DbContext 只声明映射与索引；缺迁移/结构升级由 U17/恢复失败（F-S03）承担，本单元不重复登记。",
+    ("U18", "延迟"): "OnConfiguring 只拼连接串，不打开连接；实际连接在首次查询时建立，构造阶段无 IO。",
+    ("U18", "重复"): "OnModelCreating 每次构建模型执行一次，EF 内部缓存模型；重复执行只产生等价配置，无副作用。",
+    ("U18", "失败"): "连接失败由 EF 在查询时抛出，DbContext 不捕获也不改写异常，调用方能拿到原始 SqliteException。",
+    ("U18", "崩溃"): "无后台线程、无静态可变状态，构造与模型配置阶段不执行 IO，不存在未捕获异常路径。",
+    ("U18", "恢复失败"): "DbContext 无持久化状态机，实例销毁即结束；重连由下一次 new 承担，不需要恢复逻辑。",
+
+    # E12 U16 -> Mat
+    ("E12", "无效"): "Mat 的像素格式与尺寸由采集层保证，ImageStoreService 只做编码，不对格式做假设，也不解析像素。",
+    ("E12", "缺失"): "这条边只有「读 Image 写文件」一条数据流，没有字段缺失面；路径缺失登在 U16/缺失（F-S01）。",
+    ("E12", "延迟"): "内存引用传递，无序列化、无拷贝，边本身不产生延迟。",
+    ("E12", "重复"): "同一次 Save 只读一次 frame.Image，无重复消费；连续帧使用不同的 Mat 实例。",
+    ("E12", "失败"): "ImWrite 失败已在 U16/失败覆盖；边本身不产生失败，也不持有返回值。",
+    ("E12", "阻塞"): "无锁、无队列，读写直接落在 ImWrite 调用上。",
+    ("E12", "崩溃"): "对已释放的 Mat 调用 ImWrite 会抛 ObjectDisposedException，被 U16 的 catch 转成 Failed，不会终止进程。",
+    ("E12", "恢复失败"): "边无状态，不涉及恢复；失败只影响当次 Save。",
+
+    # E13 U16 -> 文件系统
+    ("E13", "无效"): "目标路径由 baseFolder + yyyy-MM-dd 推导，非法字符由 Path.Combine 抛出并被 catch 转成 Failed。",
+    ("E13", "缺失"): "写入目标唯一（一个 png），每次 Save 必写一个文件，没有缺失分支。",
+    ("E13", "失败"): "ImWrite 返回 false 已转 Failed（覆盖磁盘满、无权限）；目录被同名文件占用有专门用例。",
+    ("E13", "阻塞"): "同步写单个文件，无锁竞争；与管家删除并发的情形登在 E17 与 F-S04。",
+    ("E13", "崩溃"): "异常路径全部由 U16 的 try/catch 覆盖，写盘阶段不会出现未捕获异常。",
+    ("E13", "资源耗尽"): "磁盘空间无预检，但写失败会显式返回 Failed，由 App 层连续失败阈值升级为告警，不静默。",
+    ("E13", "恢复失败"): "每帧独立写、无跨帧状态，下一帧重新尝试，不需要恢复流程。",
+
+    # E14 U17 -> U18
+    ("E14", "无效"): "context 由 Repository 用固定 dbPath 构造，没有参数分支，也不接受外部传入的连接串。",
+    ("E14", "缺失"): "每次操作新建并释放 context（F-111 已修），生命周期完整，没有借用后不还的路径。",
+    ("E14", "延迟"): "new DbContext 不打开连接，连接在首次查询时惰性建立，创建本身是内存操作。",
+    ("E14", "重复"): "每次操作独立 context，不存在同一实例被重复使用；owned 标志只区分测试注入实例。",
+    ("E14", "失败"): "释放放在 finally，异常不会导致 context 泄漏；DisposeAsync 失败会向上抛而非吞掉。",
+    ("E14", "崩溃"): "无后台线程，DisposeAsync 在 finally 中执行，异常不外逃到未捕获区域。",
+    ("E14", "资源耗尽"): "每个操作结束即 DisposeAsync，连接与跟踪器不累积，长跑不会出现 context 堆积。",
+    ("E14", "恢复失败"): "边无状态可恢复；一次操作失败不影响下一个 context 的创建。",
+
+    # E15 U17 -> InspectionReport
+    ("E15", "延迟"): "纯字段读取与字典 GetValueOrDefault，无转换、无 IO，边本身不产生可测延迟。",
+    ("E15", "重复"): "一条 report 映射为一条 record，主键取 report.Id；不存在一次 Save 写出两行的路径。",
+    ("E15", "失败"): "映射不抛异常；缺失工具由兼容属性返回「未执行」结果，该形态登在 S02 的无效格，此处不重复。",
+    ("E15", "阻塞"): "无锁、无等待，字段读取是同步内存操作。",
+    ("E15", "崩溃"): "GetToolResult 对不存在的键返回空结果而非 null，映射链上无空引用路径。",
+    ("E15", "资源耗尽"): "只读标量字段，不复制 Metrics 字典，也不持有 Mat 引用。",
+    ("E15", "恢复失败"): "映射是纯函数，无状态，失败不会留下需要恢复的中间态。",
+
+    # E16 U20 -> U17
+    ("E16", "无效"): "cutoff 由 HousekeepingOptions 构造期校验（F-113 已修），0 或负数进不来。",
+    ("E16", "缺失"): "删除语义完整：按 CreatedAt 删除 cutoff 之前的全部记录，没有遗漏分支。",
+    ("E16", "延迟"): "删除耗时随数据量线性增长，属预期行为；一次加载全部实体的开销登在资源耗尽格。",
+    ("E16", "重复"): "删除幂等，重复执行只影响剩余行，不会把已删记录算两次。",
+    ("E16", "失败"): "异常由 Housekeeping 的 catch 记录并返回 false；共享 context 丢记录的根因已由 ops 切片 F-111 登记修复，本切片不重复。",
+    ("E16", "崩溃"): "调用方持 _cleanupGate，无并发重入；仓储方法内无后台线程段。",
+    ("E16", "恢复失败"): "无跨轮状态，下一轮重新计算 cutoff 并重试，不需要恢复流程。",
+
+    # E17 U20 -> 文件系统
+    ("E17", "无效"): "删除路径来自 EnumerateFiles 的真实枚举结果，不存在构造出的非法路径。",
+    ("E17", "缺失"): "过期判定用 LastWriteTime，与写入侧落盘时间一致，不会漏掉刚写的文件。",
+    ("E17", "延迟"): "逐个删除，耗时随文件数增长；已改为流式枚举，不再一次性把目录拉进内存。",
+    ("E17", "重复"): "删除幂等；文件已不存在时抛 FileNotFoundException，被逐个 try 捕获并计入 failed。",
+    ("E17", "失败"): "每个文件独立 try（F-108/109 已修），单个文件删不掉不中止整轮。",
+    ("E17", "阻塞"): "无锁；与写入并发的覆盖窗口属文件名碰撞问题，登在 F-S05 的 E13 实例。",
+    ("E17", "崩溃"): "循环内全部 try，异常不外逃到管家线程的未捕获区域。",
+    ("E17", "资源耗尽"): "流式枚举，内存不随文件数增长（F-105 重写已改）。",
+    ("E17", "恢复失败"): "无状态；删不掉的文件下一轮重新尝试，不需要额外恢复逻辑。",
+}
+
+
+def main():
+    scope = json.load(open(SCOPE, encoding="utf-8"))
+    targets = scope["targets"]
+    grid = {(t, c) for t in targets for c in CATS}
+
+    covered = set()
+    entry_keys = set()          # 独立条目之间不得抢同一格
+    for e in ENTRIES:
+        key = (e["target"], e["category"])
+        # 同格多根因（不同 path:line）是合法的，见规程 §2 第 2 条：
+        # 网格坐标是「目标×类别」，缺陷坐标是 path:line，多对一天然存在。
+        # 这里只拦「两条独立条目既不写 instances 又抢同一格」——那才是重复计数。
+        if key in entry_keys and not e.get("instances"):
+            raise SystemExit(f"两条独立条目抢同一格且未声明 instances: {key}")
+        entry_keys.add(key)
+        covered.add(key)
+        for i in e.get("instances", []) or []:
+            covered.add((i["target"], i["category"]))
+
+    missing = grid - covered
+    no_reason = [k for k in missing if k not in NA]
+    unused = [k for k in NA if k not in missing]
+
+    if no_reason:
+        raise SystemExit(f"还有 {len(no_reason)} 格没有判定: {sorted(no_reason)}")
+    if unused:
+        raise SystemExit(f"NA 表有多余键（会造成重复覆盖，或格已被 FOUND 占）: {sorted(unused)}")
+
+    entries = list(ENTRIES)
+    for t, c in sorted(NA):
+        entries.append({
+            "id": f"N-{t}-{CATS.index(c) + 1}",
+            "target": t,
+            "category": c,
+            "status": "N/A",
+            "na_reason": NA[(t, c)],
+        })
+
+    doc = {
+        "meta": {
+            "slice": "storage",
+            "grid": len(grid),
+            "found": len(ENTRIES),
+            "na": len(NA),
+            "targets": targets,
+            "generated_by": "audit/scripts/gen_storage_stage1.py",
+        },
+        "entries": entries,
+        "category_exemptions": [],
+    }
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    json.dump(doc, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+    print(f"写出 {OUT}")
+    print(f"  网格 {len(grid)} 格 = FOUND {len(ENTRIES)} 条 + N/A {len(NA)} 格，缺 0")
+
+
+if __name__ == "__main__":
+    main()

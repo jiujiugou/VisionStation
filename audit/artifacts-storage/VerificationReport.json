@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "slice": "storage",
+    "baseline": "192/192 通过（本切片新增 7 条用例）",
+    "pre_fix_probe": "audit/artifacts-storage/evidence/probe-before.txt（修复前实测：journal_mode=delete、busy_timeout=0、8 并发最坏单次 1849ms、ToolResultsJson 列不存在）",
+    "scope_note": "只覆盖 Storage 三个单元与 E12-E17；App 层调用时序、U20 管家逻辑不在此切片，跨切片并发只登记了 Storage 侧的根因。"
+  },
+  "tally": {
+    "PASS": 6,
+    "FAIL": 0,
+    "UNVERIFIED": 0,
+    "NOT_RUN": 0,
+    "defense": 6,
+    "proof": 0,
+    "note": "6 条约束全部是防线：用例在 tests/VisionStation.UnitTests/StorageLayerTests.cs，每次 CI 都跑，改坏了会红。proof=0 —— 本切片没有「跑过一次但不进 tests」的一次性举证。R-S01 对应 2 条用例（Saved / Skipped 各一），按约束计 1 条。"
+  },
+  "results": [
+    {
+      "id": "V-S01",
+      "req": "R-S01",
+      "status": "PASS",
+      "evidence": "audit/artifacts-storage/evidence/R-S01.txt",
+      "note": "Saved 时 report.ImagePath == result.Path 且 File.Exists 为真；Skipped 时不动原值。修复前该断言不成立：Path 只在返回值里，从未写回报告。"
+    },
+    {
+      "id": "V-S02",
+      "req": "R-S02",
+      "status": "PASS",
+      "evidence": "audit/artifacts-storage/evidence/R-S02.txt",
+      "note": "4 工具（第 4 个 NG）保存后 ToolResultsJson 解析出 4 个条目，Yolo.IsOk=false，OverallVerdict=NG 与 JSON 自洽。修复前该列不存在，Yolo 的结论完全不落库。"
+    },
+    {
+      "id": "V-S03",
+      "req": "R-S03",
+      "status": "PASS",
+      "evidence": "audit/artifacts-storage/evidence/R-S03.txt",
+      "note": "DROP COLUMN 模拟旧库 → 启动后自动补列；原有记录仍在、ToolResultsJson 为空串（不伪造成 '{}'）。同时验证补列后能继续写入。"
+    },
+    {
+      "id": "V-S04",
+      "req": "R-S04",
+      "status": "PASS",
+      "evidence": "audit/artifacts-storage/evidence/R-S04.txt",
+      "note": "journal_mode=wal；8 任务 × 20 次并发写零异常，160 条全部落库。注意：WAL 只解决「读被写阻塞」，写-写仍然串行（SQLite 单写者），这一点写进未清偿清单。"
+    },
+    {
+      "id": "V-S05",
+      "req": "R-S05",
+      "status": "PASS",
+      "evidence": "audit/artifacts-storage/evidence/R-S05.txt",
+      "note": "同一 DateTime + 不同 Guid → 文件名不同；同一 Guid → 结果稳定（重存幂等）。"
+    },
+    {
+      "id": "V-S06",
+      "req": "R-S06",
+      "status": "PASS",
+      "evidence": "audit/artifacts-storage/evidence/R-S06.txt",
+      "note": "SetMode(Sampling, 0/-1) 抛 ArgumentOutOfRangeException；参数 1 下连续 10 次保存无异常。"
+    }
+  ],
+  "unpaid": [
+    {
+      "item": "F-S01（S1）的独立上下文二审未做",
+      "level": "S1",
+      "risk": "规程 §4 要求 S1 由「没有历史记录的新会话」只看 diff + observable 复核。本会话既是分析者又是修复者，无法自证。observable 已写进 FailureCatalog，可直接投喂给一个新会话。",
+      "next": "新开会话，只给 F-S01 的 observable 与 ImageStoreService 的 diff，问「哪里会坏」"
+    },
+    {
+      "item": "SQLite 写-写串行未解决：WAL 只让读不被写阻塞，两个写者仍排队",
+      "level": "S3",
+      "risk": "清理一轮删除大量记录时，保存侧最长等待 = 一次清理事务的时长；已把单条命令的锁等待上限从 30s 压到 5s，超时显式失败而不是无声卡死。实测 8 并发最坏单次 1849ms（probe-before.txt），生产 2 写者时应显著更低，但未在生产量级实测。",
+      "next": "若现场出现「清理时检测卡顿超过 1 秒」，改为分批删除（每批 500 条）+ 短事务"
+    },
+    {
+      "item": "6 条待定项（O-S01..O-S06）全部 DEFERRED",
+      "level": "S3",
+      "risk": "每条都写了 deferred_reason 与 review_condition，但 DEFERRED 不等于安全，只是明确选择了本版不处理。O-S01（清理全量加载）会在数据量涨到 20 万条时放大 F-S04 的锁窗口。",
+      "next": "见各条 review_condition；O-S01 与 O-S04 建议在做迁移机制时一并处理"
+    },
+    {
+      "item": "存储层未做变异测试",
+      "level": "—",
+      "risk": "BuildFileName / SerializeToolResults / StorageSchema 的列差集计算都是纯函数或准纯函数，变异成本低，本轮未做。",
+      "next": "下一轮把 Stryker 靶点扩到 VisionStation.Storage，重点看 BuildFileName 与 AddMissingColumnsAsync"
+    }
+  ]
+}

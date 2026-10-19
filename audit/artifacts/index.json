@@ -28,7 +28,8 @@
     "deviation_from_raw_index": [
       "raw 候选 25 个，剔除 5 个纯数据/结果载体 (CalibrationConfig/InspectionReport/RoiRegion/ToolResult/HealthResult)，理由：无可执行行为、不持有资源、故障全部由其生产者承担",
       "未增删任何有行为的类型"
-    ]
+    ],
+    "loc_sync_2026_10_19_storage": "U16/U17/U18 的 loc 按有效代码行同步（修复后 78/128/32，合计 238）；密度判定用 gate_check.file_loc 实时计算，此处只用于文档展示"
   },
   "coverage_claim": {
     "covered": [
@@ -198,7 +199,7 @@
       "notes": "Start/Stop 如何映射待核实"
     },
     {
-      "id": "U16", "name": "ImageStoreService", "path": "src/VisionStation.Storage/ImageStoreService.cs", "loc": 128, "role": "BEHAVIOR", "read_confidence": "full",
+      "id": "U16", "name": "ImageStoreService", "path": "src/VisionStation.Storage/ImageStoreService.cs", "loc": 78, "role": "BEHAVIOR", "read_confidence": "full",
       "inputs": ["CameraFrame (含 Mat)", "InspectionReport"],
       "outputs": ["ImageSaveResult (Skipped/Saved/Failed)"],
       "state": ["_mode", "_samplingRate", "_okCounter (非原子)"],
@@ -208,7 +209,7 @@
       "notes": "文件名用 HHmmssfff，同毫秒会覆盖；ShouldSave 在 try 之外，_samplingRate=0 时除以零会抛到调用方；无 fsync、无磁盘空间预检"
     },
     {
-      "id": "U17", "name": "InspectionRepository", "path": "src/VisionStation.Storage/InspectionRepository.cs", "loc": 125, "role": "BEHAVIOR", "read_confidence": "full",
+      "id": "U17", "name": "InspectionRepository", "path": "src/VisionStation.Storage/InspectionRepository.cs", "loc": 128, "role": "BEHAVIOR", "read_confidence": "full",
       "inputs": ["InspectionReport", "cutoff:DateTime", "count:int"],
       "outputs": ["Task", "List<InspectionRecord>", "(OkCount,NgCount)", "deleted:int"],
       "state": ["_db: InspectionDbContext（外部注入的共享实例）"],
@@ -218,7 +219,7 @@
       "notes": "SaveAsync 用 report.Id 作主键；DeleteOlderThanAsync 先 ToListAsync 再 RemoveRange（大表内存峰值）"
     },
     {
-      "id": "U18", "name": "InspectionDbContext", "path": "src/VisionStation.Storage/InspectionDbContext.cs", "loc": 39, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "id": "U18", "name": "InspectionDbContext", "path": "src/VisionStation.Storage/InspectionDbContext.cs", "loc": 32, "role": "BEHAVIOR", "read_confidence": "index-only",
       "inputs": ["连接配置"],
       "outputs": ["DbSet<InspectionRecord>"],
       "state": ["跟踪的实体图"],

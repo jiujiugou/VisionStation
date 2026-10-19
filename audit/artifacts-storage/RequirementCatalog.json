@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "slice": "storage",
+    "count": 6,
+    "note": "六条约束对应六条 MAIN；六条待定项（O-S01..O-S06）按规程不强制进入阶段 2，未登记约束。"
+  },
+  "entries": [
+    {
+      "id": "R-S01",
+      "from": [
+        "F-S01"
+      ],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "存图成功后把实际写入路径写回报告，使记录的 ImagePath 必然指向存在的文件",
+      "scope": "ImageStoreService.Save → InspectionReport.ImagePath → InspectionRepository.SaveAsync",
+      "trigger": "Save 返回 Outcome=Saved",
+      "criterion": "report.ImagePath == result.Path，且 File.Exists(report.ImagePath) 为真；Skipped/Failed 时不得改写 ImagePath",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test --no-build --filter \"FullyQualifiedName~R_S01_SavedPathIsWrittenBack\""
+    },
+    {
+      "id": "R-S02",
+      "from": [
+        "F-S02"
+      ],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "报告的全部工具结果写入 ToolResultsJson，读回后条目集合与检测时的 Results 一致",
+      "scope": "InspectionRepository.SaveAsync 映射层",
+      "trigger": "报告含任意数量工具（含非 Presence/Dimension/Defect 的工具）",
+      "criterion": "4 个工具、第 4 个 NG 的报告保存后，ToolResultsJson 解析出 4 个条目且第 4 条 Ok=false；OverallVerdict=NG 与 JSON 内至少一条 false 自洽",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test --no-build --filter \"FullyQualifiedName~R_S02_AllToolResultsPersisted\""
+    },
+    {
+      "id": "R-S03",
+      "from": [
+        "F-S03"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "启动时对比实体属性与库表列，缺列自动 ALTER TABLE ADD COLUMN，已有数据保留",
+      "scope": "InspectionRepository.EnsureCreatedAsync 的启动路径",
+      "trigger": "库文件已存在但表结构比代码旧（缺列）",
+      "criterion": "用缺 ToolResultsJson 列的旧库启动后，该列存在；启动前写入的 1 条记录仍可读出且字段未变",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test --no-build --filter \"FullyQualifiedName~R_S03_OldSchemaGetsUpgraded\""
+    },
+    {
+      "id": "R-S04",
+      "from": [
+        "F-S04"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "启用 WAL 与 busy_timeout，使清理与保存并发写不因锁等待抛 SQLITE_BUSY",
+      "scope": "InspectionDbContext 连接配置与 InspectionRepository 初始化",
+      "trigger": "两个及以上线程同时写同一个库文件",
+      "criterion": "初始化后 PRAGMA journal_mode 返回 wal；8 个并发写任务 × 20 次 SaveAsync 全部成功，零异常",
+      "verification_method": "CONCURRENCY_TEST",
+      "command": "dotnet test --no-build --filter \"FullyQualifiedName~R_S04_ConcurrentWrites_NoBusyFailure\""
+    },
+    {
+      "id": "R-S05",
+      "from": [
+        "F-S05"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "文件名包含报告 ID 片段，同一毫秒内不同报告不会生成相同路径",
+      "scope": "ImageStoreService 文件名生成",
+      "trigger": "同一毫秒内两次 Save（不同 report.Id）",
+      "criterion": "BuildFileName 对同一 DateTime/verdict/baseName、不同 Guid 返回不同字符串；对同一 Guid 返回稳定值",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test --no-build --filter \"FullyQualifiedName~R_S05_FileNameUniquePerReport\""
+    },
+    {
+      "id": "R-S06",
+      "from": [
+        "F-S06"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "SetMode 拒绝非正抽样率，除零在配置入口就被拦下，不会推迟到保存时炸掉整帧",
+      "scope": "ImageStoreService.SetMode 参数校验",
+      "trigger": "SetMode(Sampling, 0) 或负数",
+      "criterion": "SetMode 抛 ArgumentOutOfRangeException；合法值 1 与 10 正常接受且 Save 不抛异常",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test --no-build --filter \"FullyQualifiedName~R_S06_SamplingRateValidated\""
+    }
+  ]
+}

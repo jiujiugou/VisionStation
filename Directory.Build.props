@@ -1,0 +1,28 @@
+<Project>
+
+  <!-- 全仓库统一的编译与分析配置。改这里，不要改各 csproj。 -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+
+    <!-- 代码风格规则暂不进构建：先把 CA / Sonar 的 bug 类规则清零，再开这一项 -->
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!-- 分阶段收紧：现在只报警不阻断。清零后用 WarningsAsErrors 白名单打开 -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- Sonar 只在生产代码上跑。测试代码的断言、命名、方法长度会淹没真信号。 -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'VisionStation.UnitTests' AND '$(MSBuildProjectName)' != 'VisionStation.Test' AND '$(MSBuildProjectName)' != 'Repro'">
+    <PackageReference Include="SonarAnalyzer.CSharp" Version="10.35.0.4138">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+</Project>

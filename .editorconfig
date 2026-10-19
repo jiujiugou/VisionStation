@@ -1,0 +1,59 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+
+[*.cs]
+
+# ============================================================
+# 噪音规则：永久关闭。理由都写在这里，改之前先读。
+# ============================================================
+
+# 测试方法名 A_B_C 是 .NET 测试惯例（332 条全在测试工程）
+dotnet_diagnostic.CA1707.severity = none
+
+# 日志用 LoggerMessage 源生成：当前无 profiling 证据表明日志是瓶颈
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none
+
+# "可设为 static"：纯风格，无正确性含义
+dotnet_diagnostic.CA1822.severity = none
+dotnet_diagnostic.S2325.severity = none
+dotnet_diagnostic.S3604.severity = none
+
+# ============================================================
+# 真信号：保持警告。清零后逐条升级为 error（见 docs/ci-baseline.md）
+# ============================================================
+
+# 正确实现 IDisposable 模式 —— 对应设备层资源释放，S1/S2 级
+dotnet_diagnostic.S3881.severity = warning
+
+# Dispose 内调用 GC.SuppressFinalize
+dotnet_diagnostic.CA1816.severity = warning
+
+# catch 块吞掉异常（含只记日志不处理）
+dotnet_diagnostic.S2486.severity = warning
+
+# 静态字段在实例方法中被赋值 —— 并发隐患
+dotnet_diagnostic.S2696.severity = warning
+
+# 数值/字符串格式化必须指定 IFormatProvider（区域设置相关，检测报告会变）
+dotnet_diagnostic.CA1305.severity = warning
+dotnet_diagnostic.CA1310.severity = warning
+
+# 缓存 JsonSerializerOptions，避免每次序列化重建
+dotnet_diagnostic.CA1869.severity = warning
+
+# 空代码块 —— 空 catch 就是它
+dotnet_diagnostic.S108.severity = warning
+
+# ============================================================
+# 暂不启用
+# ============================================================
+
+# 代码风格规则（IDE00xx）暂不进构建，等 CA/Sonar 清零后再开
+dotnet_analyzer_diagnostic.category-Style.severity = silent

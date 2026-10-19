@@ -40,3 +40,6 @@ tests/GoldenSet/last-run.json
 
 # 变异测试产物（每次跑都变；结论已抽到 audit/artifacts-core/evidence/）
 StrykerOutput/
+
+# 本地 CI 产物：构建日志每次变，基线文件入库（棘轮的锚点）
+artifacts/ci/*.log

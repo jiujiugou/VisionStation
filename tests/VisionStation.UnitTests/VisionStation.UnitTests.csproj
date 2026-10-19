@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VisionStation.Core\VisionStation.Core.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Storage\VisionStation.Storage.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Service\VisionStation.Service.csproj" />
+    <ProjectReference Include="..\..\tools\GoldenSetRunner\GoldenSetRunner.csproj" />
   </ItemGroup>
 
 </Project>

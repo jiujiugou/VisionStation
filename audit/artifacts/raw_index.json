@@ -1,0 +1,1152 @@
+{
+ "scope": [
+  "src/VisionStation.Core",
+  "src/VisionStation.Devices",
+  "src/VisionStation.Storage",
+  "src/VisionStation.Service"
+ ],
+ "file_count": 33,
+ "total_loc": 3071,
+ "unit_rule": "class 且含至少一个非属性成员方法；record/interface/struct/enum/纯DTO 不计",
+ "unit_count": 25,
+ "units": [
+  {
+   "unit": "Calibration",
+   "path": "src/VisionStation.Core/Calibration.cs"
+  },
+  {
+   "unit": "Pipeline",
+   "path": "src/VisionStation.Core/Pipeline.cs"
+  },
+  {
+   "unit": "CoordinateMath",
+   "path": "src/VisionStation.Core/Geometry/CoordinateMath.cs"
+  },
+  {
+   "unit": "CalibrationConfig",
+   "path": "src/VisionStation.Core/Models/CalibrationConfig.cs"
+  },
+  {
+   "unit": "InspectionReport",
+   "path": "src/VisionStation.Core/Models/InspectionReport.cs"
+  },
+  {
+   "unit": "RoiRegion",
+   "path": "src/VisionStation.Core/Models/RoiRegion.cs"
+  },
+  {
+   "unit": "DefectTool",
+   "path": "src/VisionStation.Core/Tools/DefectTool.cs"
+  },
+  {
+   "unit": "DimensionTool",
+   "path": "src/VisionStation.Core/Tools/DimensionTool.cs"
+  },
+  {
+   "unit": "OnnxYoloTool",
+   "path": "src/VisionStation.Core/Tools/OnnxYoloTool.cs"
+  },
+  {
+   "unit": "PresenceTool",
+   "path": "src/VisionStation.Core/Tools/PresenceTool.cs"
+  },
+  {
+   "unit": "ToolResult",
+   "path": "src/VisionStation.Core/Tools/ToolResult.cs"
+  },
+  {
+   "unit": "DeviceManager",
+   "path": "src/VisionStation.Devices/DeviceManager.cs"
+  },
+  {
+   "unit": "SwappableCamera",
+   "path": "src/VisionStation.Devices/SwappableCamera.cs"
+  },
+  {
+   "unit": "FileCamera",
+   "path": "src/VisionStation.Devices/Camera/FileCamera.cs"
+  },
+  {
+   "unit": "HikCamera",
+   "path": "src/VisionStation.Devices/Camera/HikCamera.cs"
+  },
+  {
+   "unit": "WebcamCamera",
+   "path": "src/VisionStation.Devices/Camera/WebcamCamera.cs"
+  },
+  {
+   "unit": "CameraDevice",
+   "path": "src/VisionStation.Devices/Device/CameraDevice.cs"
+  },
+  {
+   "unit": "TriggerDevice",
+   "path": "src/VisionStation.Devices/Device/TriggerDevice.cs"
+  },
+  {
+   "unit": "TimerTrigger",
+   "path": "src/VisionStation.Devices/Trigger/TimerTrigger.cs"
+  },
+  {
+   "unit": "ImageStoreService",
+   "path": "src/VisionStation.Storage/ImageStoreService.cs"
+  },
+  {
+   "unit": "InspectionDbContext",
+   "path": "src/VisionStation.Storage/InspectionDbContext.cs"
+  },
+  {
+   "unit": "InspectionRepository",
+   "path": "src/VisionStation.Storage/InspectionRepository.cs"
+  },
+  {
+   "unit": "HealthChecker",
+   "path": "src/VisionStation.Service/HealthCheck/HealthChecker.cs"
+  },
+  {
+   "unit": "HealthResult",
+   "path": "src/VisionStation.Service/HealthCheck/HealthChecker.cs"
+  },
+  {
+   "unit": "HousekeepingService",
+   "path": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs"
+  }
+ ],
+ "files": [
+  {
+   "path": "src/VisionStation.Core/Calibration.cs",
+   "loc": 42,
+   "namespace": "VisionStation.Core",
+   "usings": [
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "Calibration",
+     "bases": "",
+     "methods": [
+      "public void SetConfig",
+      "public double PixelToMm",
+      "public double MmToPixel",
+      "public bool IsWithinTolerance"
+     ],
+     "fields": [
+      "CalibrationConfig _config"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "Calibration"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Pipeline.cs",
+   "loc": 165,
+   "namespace": "VisionStation.Core",
+   "usings": [
+    "Microsoft.Extensions.Logging",
+    "OpenCvSharp",
+    "VisionStation.Core.Models",
+    "VisionStation.Core.Tools"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "Pipeline",
+     "bases": "",
+     "methods": [
+      "public InspectionReport Run"
+     ],
+     "fields": [
+      "IList<IVisionTool> _tools",
+      "ILogger<Pipeline>? _logger"
+     ]
+    }
+   ],
+   "markers": [
+    "catch"
+   ],
+   "unit_candidates": [
+    "Pipeline"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Geometry/CoordinateMath.cs",
+   "loc": 96,
+   "namespace": "VisionStation.Core.Geometry",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "CoordinateMath",
+     "bases": "",
+     "methods": [
+      "public void UpdateLayout",
+      "public void UpdateLayout",
+      "public void SetZoom"
+     ],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "CoordinateMath"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Models/CalibrationConfig.cs",
+   "loc": 28,
+   "namespace": "VisionStation.Core.Models",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "CalibrationConfig",
+     "bases": "",
+     "methods": [
+      "public double PixelToMm",
+      "public double MmToPixel"
+     ],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "CalibrationConfig"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Models/CameraFrame.cs",
+   "loc": 18,
+   "namespace": "VisionStation.Core.Models",
+   "usings": [
+    "OpenCvSharp"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "CameraFrame",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Core/Models/InspectionReport.cs",
+   "loc": 57,
+   "namespace": "VisionStation.Core.Models",
+   "usings": [
+    "VisionStation.Core.Tools"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "InspectionReport",
+     "bases": "",
+     "methods": [
+      "public void SetToolResult",
+      "public ToolResult GetToolResult"
+     ],
+     "fields": [
+      "bool IsOk",
+      "string OverallVerdict",
+      "ToolResult PresenceResult",
+      "ToolResult DimensionResult",
+      "ToolResult DefectResult"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "InspectionReport"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Models/RecipeConfig.cs",
+   "loc": 81,
+   "namespace": "VisionStation.Core.Models",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "RecipeConfig",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "CalibrationData",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "RoiData",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "ToolConfigData",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Core/Models/RoiRegion.cs",
+   "loc": 51,
+   "namespace": "VisionStation.Core.Models",
+   "usings": [
+    "OpenCvSharp"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "RoiRegion",
+     "bases": "",
+     "methods": [
+      "public Mat Crop",
+      "public Rect ToRect"
+     ],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "RoiRegion"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Tools/DefectTool.cs",
+   "loc": 198,
+   "namespace": "VisionStation.Core.Tools",
+   "usings": [
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "DefectTool",
+     "bases": "IVisionTool",
+     "methods": [
+      "public ToolResult Execute"
+     ],
+     "fields": [
+      "string Name"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "DefectTool"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Tools/DimensionTool.cs",
+   "loc": 148,
+   "namespace": "VisionStation.Core.Tools",
+   "usings": [
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "DimensionTool",
+     "bases": "IVisionTool",
+     "methods": [
+      "public ToolResult Execute"
+     ],
+     "fields": [
+      "Calibration _calibration",
+      "string Name"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "DimensionTool"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Tools/IVisionTool.cs",
+   "loc": 47,
+   "namespace": "VisionStation.Core.Tools",
+   "usings": [
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "interface",
+     "name": "IVisionTool",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [
+    "catch"
+   ],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Core/Tools/OnnxYoloTool.cs",
+   "loc": 429,
+   "namespace": "VisionStation.Core.Tools",
+   "usings": [
+    "System.Diagnostics",
+    "Microsoft.ML.OnnxRuntime",
+    "Microsoft.ML.OnnxRuntime.Tensors",
+    "OpenCvSharp",
+    "OpenCvSharp.Dnn",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "OnnxYoloTool",
+     "bases": "IVisionTool, IDisposable",
+     "methods": [
+      "private InferenceSession EnsureSession",
+      "public ToolResult Execute",
+      "private void FillTensor",
+      "private List<Candidate> ExtractCandidates",
+      "private List<Candidate> FilterAndNms",
+      "public void Dispose"
+     ],
+     "fields": [
+      "object _sessionLock",
+      "InferenceSession? _session"
+     ]
+    }
+   ],
+   "markers": [
+    "IDisposable",
+    "lock",
+    "throw"
+   ],
+   "unit_candidates": [
+    "OnnxYoloTool"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Tools/PresenceTool.cs",
+   "loc": 115,
+   "namespace": "VisionStation.Core.Tools",
+   "usings": [
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "PresenceTool",
+     "bases": "IVisionTool",
+     "methods": [
+      "public void LoadTemplate",
+      "public void LoadTemplate",
+      "public ToolResult Execute"
+     ],
+     "fields": [
+      "Mat? _template",
+      "double _threshold",
+      "string Name"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "PresenceTool"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Core/Tools/ToolResult.cs",
+   "loc": 108,
+   "namespace": "VisionStation.Core.Tools",
+   "usings": [
+    "OpenCvSharp"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "ToolResult",
+     "bases": "",
+     "methods": [
+      "public ToolResult Ok",
+      "public ToolResult Ng"
+     ],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "DrawCommand",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "DrawRect",
+     "bases": "DrawCommand",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "DrawCircle",
+     "bases": "DrawCommand",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "DrawContour",
+     "bases": "DrawCommand",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "ToolResult"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/DeviceManager.cs",
+   "loc": 50,
+   "namespace": "VisionStation.Devices",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "DeviceManager",
+     "bases": "",
+     "methods": [
+      "public void Register",
+      "public void ConnectAll",
+      "public void DisconnectAll"
+     ],
+     "fields": [
+      "List<IDevice> _devices",
+      "IReadOnlyList<IDevice> Devices",
+      "bool AllConnected"
+     ]
+    }
+   ],
+   "markers": [
+    "catch",
+    "catch_empty"
+   ],
+   "unit_candidates": [
+    "DeviceManager"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/SwappableCamera.cs",
+   "loc": 66,
+   "namespace": "VisionStation.Devices",
+   "usings": [
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "SwappableCamera",
+     "bases": "ICamera, IDisposable",
+     "methods": [
+      "public void open",
+      "public void close",
+      "public CameraFrame? Capture",
+      "public void SwapTo",
+      "public void Dispose"
+     ],
+     "fields": [
+      "ICamera _active",
+      "string _currentMode",
+      "bool IsAvailable",
+      "int FrameCount",
+      "string CurrentMode",
+      "string[] AvailableModes"
+     ]
+    }
+   ],
+   "markers": [
+    "IDisposable",
+    "static_state"
+   ],
+   "unit_candidates": [
+    "SwappableCamera"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/Camera/FileCamera.cs",
+   "loc": 118,
+   "namespace": "VisionStation.Devices",
+   "usings": [
+    "Microsoft.Extensions.Logging",
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "FileCamera",
+     "bases": "ICamera",
+     "methods": [
+      "public void open",
+      "public void close",
+      "public void RefreshFileList",
+      "public CameraFrame? Capture"
+     ],
+     "fields": [
+      "string _folderPath",
+      "string _fileFilter",
+      "List<string> _files",
+      "int _index",
+      "bool _loop",
+      "ILogger<FileCamera>? _logger",
+      "bool IsAvailable",
+      "int TotalFiles"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "FileCamera"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/Camera/HikCamera.cs",
+   "loc": 305,
+   "namespace": "VisionStation.Devices",
+   "usings": [
+    "System.Runtime.InteropServices",
+    "Microsoft.Extensions.Logging",
+    "MvCamCtrl.NET",
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "HikCamera",
+     "bases": "ICamera, IDisposable",
+     "methods": [
+      "private void Initialize",
+      "private void GrabLoop",
+      "public CameraFrame? Capture",
+      "private Mat? RawToMat",
+      "public void open",
+      "public void close",
+      "public void Dispose"
+     ],
+     "fields": [
+      "ILogger<HikCamera>? _logger",
+      "MyCamera? _camera",
+      "bool _grabbing",
+      "int _frameCount",
+      "Thread? _grabThread",
+      "IntPtr _imageBuffer",
+      "object _lock",
+      "bool _disposed",
+      "byte[]? _latestFrame",
+      "int _latestLen",
+      "int _latestWidth",
+      "int _latestHeight",
+      "uint _latestPixelType",
+      "bool _hasNewFrame",
+      "int FrameCount"
+     ]
+    }
+   ],
+   "markers": [
+    "IDisposable",
+    "PInvoke",
+    "catch",
+    "lock"
+   ],
+   "unit_candidates": [
+    "HikCamera"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/Camera/ICamera.cs",
+   "loc": 38,
+   "namespace": "VisionStation.Devices",
+   "usings": [
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "interface",
+     "name": "ICamera",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Devices/Camera/WebcamCamera.cs",
+   "loc": 56,
+   "namespace": "VisionStation.Devices",
+   "usings": [
+    "Microsoft.Extensions.Logging",
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "WebcamCamera",
+     "bases": "ICamera, IDisposable",
+     "methods": [
+      "public CameraFrame? Capture",
+      "public void open",
+      "public void close",
+      "public void Dispose"
+     ],
+     "fields": [
+      "VideoCapture _capture",
+      "ILogger<WebcamCamera>? _logger"
+     ]
+    }
+   ],
+   "markers": [
+    "IDisposable"
+   ],
+   "unit_candidates": [
+    "WebcamCamera"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/Device/CameraDevice.cs",
+   "loc": 26,
+   "namespace": "VisionStation.Devices",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "CameraDevice",
+     "bases": "IDevice",
+     "methods": [
+      "public void Connect",
+      "public void Refresh",
+      "public void Disconnect"
+     ],
+     "fields": [
+      "ICamera _camera",
+      "string Name",
+      "string Type",
+      "bool IsConnected",
+      "string Status"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "CameraDevice"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/Device/IDevice.cs",
+   "loc": 34,
+   "namespace": "VisionStation.Devices",
+   "usings": [],
+   "types": [
+    {
+     "kind": "interface",
+     "name": "IDevice",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Devices/Device/TriggerDevice.cs",
+   "loc": 26,
+   "namespace": "VisionStation.Devices",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "TriggerDevice",
+     "bases": "IDevice",
+     "methods": [
+      "public void Connect",
+      "public void Disconnect"
+     ],
+     "fields": [
+      "ITriggerSource _trigger",
+      "string Name",
+      "string Type",
+      "bool IsConnected",
+      "string Status"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "TriggerDevice"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Devices/Trigger/ITriggerSource.cs",
+   "loc": 29,
+   "namespace": "VisionStation.Devices",
+   "usings": [],
+   "types": [
+    {
+     "kind": "interface",
+     "name": "ITriggerSource",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [
+    "event"
+   ],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Devices/Trigger/TimerTrigger.cs",
+   "loc": 68,
+   "namespace": "VisionStation.Devices",
+   "usings": [
+    "System.Timers"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "TimerTrigger",
+     "bases": "ITriggerSource, IDisposable",
+     "methods": [
+      "public void Start",
+      "public void Stop",
+      "public void Fire",
+      "public void Dispose"
+     ],
+     "fields": [
+      "Timer _timer",
+      "bool _running",
+      "int _busy"
+     ]
+    }
+   ],
+   "markers": [
+    "IDisposable",
+    "Interlocked",
+    "event",
+    "timer"
+   ],
+   "unit_candidates": [
+    "TimerTrigger"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Storage/ImageStoreService.cs",
+   "loc": 128,
+   "namespace": "VisionStation.Storage",
+   "usings": [
+    "OpenCvSharp",
+    "VisionStation.Core.Models"
+   ],
+   "types": [
+    {
+     "kind": "enum",
+     "name": "ImageStoreMode",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "enum",
+     "name": "ImageSaveOutcome",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "record",
+     "name": "ImageSaveResult",
+     "bases": "",
+     "methods": [],
+     "fields": [
+      "bool IsSaved",
+      "bool IsFailed",
+      "ImageSaveResult Skipped"
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "ImageStoreService",
+     "bases": "",
+     "methods": [
+      "public void SetMode",
+      "public ImageSaveResult Save",
+      "private bool ShouldSave"
+     ],
+     "fields": [
+      "string _baseFolder",
+      "ImageStoreMode _mode",
+      "int _samplingRate",
+      "int _okCounter"
+     ]
+    }
+   ],
+   "markers": [
+    "catch",
+    "static_state"
+   ],
+   "unit_candidates": [
+    "ImageStoreService"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Storage/InspectionDbContext.cs",
+   "loc": 39,
+   "namespace": "VisionStation.Storage",
+   "usings": [
+    "Microsoft.EntityFrameworkCore",
+    "VisionStation.Storage.Entities"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "InspectionDbContext",
+     "bases": "DbContext",
+     "methods": [
+      "protected void OnConfiguring",
+      "protected void OnModelCreating"
+     ],
+     "fields": [
+      "DbSet<InspectionRecord> InspectionRecords",
+      "string _dbPath"
+     ]
+    }
+   ],
+   "markers": [],
+   "unit_candidates": [
+    "InspectionDbContext"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Storage/InspectionRepository.cs",
+   "loc": 125,
+   "namespace": "VisionStation.Storage",
+   "usings": [
+    "Microsoft.EntityFrameworkCore",
+    "Microsoft.Extensions.Logging",
+    "VisionStation.Core.Models",
+    "VisionStation.Storage.Entities"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "InspectionRepository",
+     "bases": "",
+     "methods": [
+      "public Task EnsureCreatedAsync",
+      "public Task SaveAsync",
+      "public Task<List<InspectionRecord>> GetRecentAsync",
+      "public Task<int> DeleteOlderThanAsync"
+     ],
+     "fields": [
+      "InspectionDbContext _db",
+      "ILogger<InspectionRepository>? _logger"
+     ]
+    }
+   ],
+   "markers": [
+    "DbTask",
+    "Task",
+    "async"
+   ],
+   "unit_candidates": [
+    "InspectionRepository"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Storage/Entities/InspectionRecord.cs",
+   "loc": 46,
+   "namespace": "VisionStation.Storage.Entities",
+   "usings": [
+    "System.ComponentModel.DataAnnotations",
+    "System.ComponentModel.DataAnnotations.Schema"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "InspectionRecord",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Service/HealthCheck/HealthChecker.cs",
+   "loc": 126,
+   "namespace": "VisionStation.Service",
+   "usings": [
+    "System.IO",
+    "VisionStation.Core.Models",
+    "VisionStation.Devices"
+   ],
+   "types": [
+    {
+     "kind": "class",
+     "name": "HealthChecker",
+     "bases": "IHealthChecker",
+     "methods": [
+      "public List<HealthResult> RunAll",
+      "private HealthResult CheckDevices",
+      "private HealthResult CheckDatabase",
+      "private HealthResult CheckStorage",
+      "private HealthResult CheckTemplate",
+      "private HealthResult CheckRecipe"
+     ],
+     "fields": [
+      "DeviceManager _devices",
+      "string _dbPath",
+      "string _storagePath",
+      "string _templatePath",
+      "RecipeConfig _recipe"
+     ]
+    },
+    {
+     "kind": "class",
+     "name": "HealthResult",
+     "bases": "",
+     "methods": [
+      "public string ToString"
+     ],
+     "fields": []
+    }
+   ],
+   "markers": [
+    "FileIO",
+    "catch"
+   ],
+   "unit_candidates": [
+    "HealthChecker",
+    "HealthResult"
+   ]
+  },
+  {
+   "path": "src/VisionStation.Service/HealthCheck/HealthResult.cs",
+   "loc": 24,
+   "namespace": "VisionStation.Service.HealthCheck",
+   "usings": [],
+   "types": [
+    {
+     "kind": "class",
+     "name": "HealthResult",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Service/HealthCheck/IHealthChecker.cs",
+   "loc": 9,
+   "namespace": "VisionStation.Service",
+   "usings": [],
+   "types": [
+    {
+     "kind": "interface",
+     "name": "IHealthChecker",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    }
+   ],
+   "markers": [],
+   "unit_candidates": []
+  },
+  {
+   "path": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs",
+   "loc": 175,
+   "namespace": "VisionStation.Service.Housekeeping",
+   "usings": [
+    "Microsoft.Extensions.Logging",
+    "VisionStation.Storage"
+   ],
+   "types": [
+    {
+     "kind": "record",
+     "name": "HousekeepingOptions",
+     "bases": "",
+     "methods": [],
+     "fields": [
+      "HousekeepingOptions Default"
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "IHousekeepingService",
+     "bases": "",
+     "methods": [],
+     "fields": []
+    },
+    {
+     "kind": "class",
+     "name": "HousekeepingService",
+     "bases": "IHousekeepingService",
+     "methods": [
+      "private void CheckMemory",
+      "private void CleanupDatabase",
+      "private void CleanupImages",
+      "public void Dispose"
+     ],
+     "fields": [
+      "InspectionRepository _repo",
+      "string _imageFolder",
+      "ILogger<HousekeepingService>? _logger",
+      "System.Timers.Timer _memTimer",
+      "System.Timers.Timer _dbTimer",
+      "int _maxMemoryMb",
+      "int _keepRecordsDays",
+      "int _imageRetentionDays",
+      "long _maxImageFolderBytes"
+     ]
+    }
+   ],
+   "markers": [
+    "FileIO",
+    "IDisposable",
+    "async",
+    "catch",
+    "static_state",
+    "timer"
+   ],
+   "unit_candidates": [
+    "HousekeepingService"
+   ]
+  }
+ ]
+}

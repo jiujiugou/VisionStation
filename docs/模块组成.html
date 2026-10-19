@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VisionStation · 模块组成</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    color: #1E1E1E; background: #F7F7F5;
+    line-height: 1.7; padding: 40px 16px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: 0.5px; }
+  .sub { color: #5F5E5A; font-size: 13px; margin-top: 4px; }
+  section {
+    background: #FFFFFF; border: 1px solid #E1E1E1; border-radius: 8px;
+    padding: 24px 28px; margin-bottom: 20px;
+  }
+  h2 {
+    font-size: 16px; font-weight: 600; color: #0C447C;
+    padding-bottom: 10px; margin-bottom: 18px;
+    border-bottom: 1px solid #E1E1E1;
+  }
+  .diagram { text-align: center; }
+  .diagram svg { max-width: 680px; width: 100%; height: auto; }
+  .caption { color: #5F5E5A; font-size: 12.5px; margin-top: 10px; text-align: center; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #EDEDEB; vertical-align: top; }
+  th {
+    background: #E6F1FB; color: #0C447C; font-weight: 600;
+    border-bottom: 1px solid #B5D4F4; white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.name { font-weight: 600; white-space: nowrap; }
+  td.code { font-family: Consolas, "Courier New", monospace; font-size: 12.5px; color: #333; }
+  tr:nth-child(even) td { background: #FAFAF8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>VisionStation 模块组成</h1>
+    <div class="sub">按业务职责聚合 · 主链路三个模块 + 交互层，配方 / 运维 / 回归验证为支撑</div>
+  </header>
+
+  <section>
+    <h2>模块组成</h2>
+    <div class="diagram">
+      <svg viewBox="0 0 680 316" width="100%" role="img">
+        <title>模块依赖图</title>
+        <desc>交互层编排采集、检测引擎、存储组成的主链路，配方驱动检测引擎，运维与回归验证为支撑模块</desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </marker>
+        </defs>
+
+        <g>
+          <rect x="190" y="40" width="300" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+          <text x="340" y="60" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#0C447C">交互层 · WPF/MVVM</text>
+          <text x="340" y="80" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#185FA5">App · 只编排，不写业务规则</text>
+        </g>
+
+        <g>
+          <rect x="40" y="140" width="180" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+          <text x="130" y="160" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#0C447C">采集</text>
+          <text x="130" y="180" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#185FA5">相机×3 · 触发 · 设备管理</text>
+        </g>
+        <g>
+          <rect x="250" y="140" width="180" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+          <text x="340" y="160" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#0C447C">检测引擎</text>
+          <text x="340" y="180" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#185FA5">Pipeline · 4 工具 · 标定</text>
+        </g>
+        <g>
+          <rect x="460" y="140" width="180" height="56" rx="8" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+          <text x="550" y="160" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#0C447C">存储</text>
+          <text x="550" y="180" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#185FA5">SQLite · 图片归档</text>
+        </g>
+
+        <g>
+          <rect x="40" y="240" width="180" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+          <text x="130" y="260" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">运维</text>
+          <text x="130" y="280" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">自检 · 管家 · 看门狗</text>
+        </g>
+        <g>
+          <rect x="250" y="240" width="180" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+          <text x="340" y="260" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">配方</text>
+          <text x="340" y="280" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">检什么 · 多严 · 单一真相源</text>
+        </g>
+        <g>
+          <rect x="460" y="240" width="180" height="56" rx="8" fill="#F1EFE8" stroke="#5F5E5A" stroke-width="0.5"/>
+          <text x="550" y="260" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" fill="#2C2C2A">回归验证</text>
+          <text x="550" y="280" text-anchor="middle" dominant-baseline="central" font-size="12" fill="#5F5E5A">黄金样本 · 105 张 · 跑批器</text>
+        </g>
+
+        <path d="M340 96 L340 136" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <path d="M222 168 L246 168" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <path d="M432 168 L456 168" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <path d="M340 236 L340 200" fill="none" stroke="#378ADD" stroke-width="1.5" marker-end="url(#arrow)"/>
+      </svg>
+    </div>
+    <div class="caption">依赖单向：交互层 → 采集 → 检测引擎 → 存储；配方驱动检测引擎；支撑模块不反向依赖主链路</div>
+  </section>
+
+  <section>
+    <h2>模块清单</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>模块</th>
+          <th>回答的问题</th>
+          <th>代码落点</th>
+          <th>边界规则</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="name">采集</td>
+          <td>图从哪来、什么时候拍</td>
+          <td class="code">Devices：ICamera×3 实现（海康 / 文件 / 摄像头）、ITriggerSource、DeviceManager</td>
+          <td>只吐 CameraFrame，不认识配方</td>
+        </tr>
+        <tr>
+          <td class="name">检测引擎</td>
+          <td>图里有什么、合格吗</td>
+          <td class="code">Core：Pipeline + 4 个工具 + Calibration</td>
+          <td>输入帧、输出报告，零框架依赖，可被跑批器直接复用</td>
+        </tr>
+        <tr>
+          <td class="name">配方</td>
+          <td>检什么、多严</td>
+          <td class="code">Core/Models/RecipeConfig + App 加载逻辑 + Config/recipes/</td>
+          <td>单一真相源，磁盘与内嵌资源为同一份文件</td>
+        </tr>
+        <tr>
+          <td class="name">存储</td>
+          <td>结果去哪、留多久</td>
+          <td class="code">Storage：InspectionRepository + ImageStoreService</td>
+          <td>只认 InspectionReport，换数据库只动本模块</td>
+        </tr>
+        <tr>
+          <td class="name">交互</td>
+          <td>人怎么操作系统</td>
+          <td class="code">App：Views + ViewModels + Converters</td>
+          <td>只编排，不写业务规则</td>
+        </tr>
+        <tr>
+          <td class="name">运维</td>
+          <td>系统好不好、能跑多久</td>
+          <td class="code">Service：HealthChecker + HousekeepingService + Watchdog</td>
+          <td>收明确参数，不读配置文件</td>
+        </tr>
+        <tr>
+          <td class="name">回归验证</td>
+          <td>改动坏没坏</td>
+          <td class="code">tests/GoldenSet/ + tools/GoldenSetRunner/</td>
+          <td>验证以上所有模块，独立进程运行</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+</div>
+</body>
+</html>

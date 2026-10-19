@@ -8,7 +8,8 @@
   "rois": [
     { "name": "Presence",  "x": 491, "y": 363, "width": 300, "height": 300 },
     { "name": "Dimension", "x": 491, "y": 363, "width": 300, "height": 300 },
-    { "name": "Defect",    "x": 390, "y": 175, "width": 590, "height": 130 }
+    { "name": "Defect",    "x": 390, "y": 175, "width": 590, "height": 130 },
+    { "name": "Yolo",      "x": 491, "y": 363, "width": 300, "height": 300 }
   ],
   "tools": [
     {
@@ -34,6 +35,13 @@
         "excludeY": 513.0,
         "excludeRadius": 115.0
       }
+    },
+    {
+      "type": "Yolo",
+      "enabled": false,
+      "roi": "Yolo",
+      "model": "models/neu-det.onnx",
+      "params": { "conf": 0.25, "nms": 0.45 }
     }
   ]
 }

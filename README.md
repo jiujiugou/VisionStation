@@ -47,6 +47,9 @@ VisionStation.sln
 │   └── ImageStoreService.cs    图片存储（全存/仅NG/抽样）
 │
 └── VisionStation.Test/         端到端测试（合成图生成 + 全链路验证）
+
+tools/GoldenSetRunner/          黄金样本库跑批器（回归验证，独立控制台程序）
+tests/GoldenSet/                数据集清单 + 基线快照
 ```
 
 ## 关键抽象（面试重点）
@@ -141,6 +144,30 @@ dotnet publish src/VisionStation.App -c Release -r win-x64 --self-contained -o p
 [✅] 模板文件: D:\...\hole_template.png
 [✅] 配方: 金属垫圈检测 · 3个工具
 ```
+
+## 黄金样本库（回归验证）
+
+改视觉算法之后，怎么知道是变好了还是变坏了？跑一遍固定样本，看漏检和误报的变化。
+
+```bash
+# 校验数据集完整性（图片存在 + 哈希 + 尺寸，秒级）
+dotnet run --project tools/GoldenSetRunner -- verify
+
+# 跑批 105 张（约 18 秒）+ 自动与基线对比
+dotnet run --project tools/GoldenSetRunner
+```
+
+当前基线（`models/neu-det.onnx`，conf 0.25 / nms 0.45）：
+
+| 指标 | 数值 |
+| --- | --- |
+| 命中（真值类检出） | 104 / 105（99.0%） |
+| 漏检（一个框都没有） | 1（`crazing_294`） |
+| 错分（检出但认错类别） | 0 |
+| 跨类误报框 | 14 个 |
+
+判定分「命中 / 错分 / 漏检」三态，改动后输出「新漏检 N 个、修复 M 个、误报框增减」，有回归时退出码为 1，可直接接 CI 门禁。
+数据集只覆盖 6 类中的 4 类，且无 good 样本（过杀率暂不可测），边界见 [docs/黄金样本库-使用说明.md](docs/黄金样本库-使用说明.md)。
 
 ## 技术栈
 

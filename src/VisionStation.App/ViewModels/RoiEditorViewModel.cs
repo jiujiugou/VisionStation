@@ -143,7 +143,7 @@ public partial class RoiEditorViewModel : ObservableObject
 
         _drawingRoi = new EditableRoi
         {
-            Name = $"ROI-{Rois.Count + 1}",
+            Name = NextRoiName(),
             ImageX = imgPt.X,
             ImageY = imgPt.Y,
             ImageWidth = 0,
@@ -251,10 +251,24 @@ public partial class RoiEditorViewModel : ObservableObject
     //  命令
     // ════════════════════════════════════════════════
 
+    /// <summary>
+    /// 生成不重复的默认 ROI 名。
+    ///
+    /// 不能直接用 Rois.Count+1：删掉中间一个再添加就会撞上已有名字。
+    /// 重名 ROI 写进配方后，Pipeline 侧只能保留一个 —— 等于悄悄改掉了检测区域，
+    /// 是那种"界面看着正常、结果不对"的故障。
+    /// </summary>
+    private string NextRoiName()
+    {
+        int n = Rois.Count + 1;
+        while (Rois.Any(r => r.Name == $"ROI-{n}")) n++;
+        return $"ROI-{n}";
+    }
+
     [RelayCommand]
     private void AddRoi()
     {
-        var r = new EditableRoi { Name = $"ROI-{Rois.Count + 1}", ImageX = 50, ImageY = 50, ImageWidth = 100, ImageHeight = 80 };
+        var r = new EditableRoi { Name = NextRoiName(), ImageX = 50, ImageY = 50, ImageWidth = 100, ImageHeight = 80 };
         RefreshDisplay(r);
         Rois.Add(r); SelectRoi(r);
     }

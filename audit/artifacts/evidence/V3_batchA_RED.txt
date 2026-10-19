@@ -1,0 +1,17 @@
+# A批 红证据 2026-10-19 12:47:03
+# 期望：全部通过（目标行为）；实际 7 红 2 绿，红 = 缺陷成立
+  失败 VisionStation.UnitTests.RecipeCalibrationTests.R101_UnknownToolType_MustFail [43 ms]
+  失败 VisionStation.UnitTests.RecipeCalibrationTests.R101_NegativePixelPerMillimeter_MustFail [13 ms]
+  失败 VisionStation.UnitTests.RecipeCalibrationTests.R101_ZeroPixelPerMillimeter_MustFail [13 ms]
+  失败 VisionStation.UnitTests.HousekeepingRetentionTests.R106_ImageRetentionShorterThanRecords_MustThrow [1 s]
+   Assert.IsType() Failure: Value is null
+Expected: typeof(System.ArgumentOutOfRangeException)
+  失败 VisionStation.UnitTests.HousekeepingRetentionTests.R113_ZeroImageRetentionDays_MustThrow [40 ms]
+   Assert.IsType() Failure: Value is null
+Expected: typeof(System.ArgumentOutOfRangeException)
+  失败 VisionStation.UnitTests.HousekeepingRetentionTests.R113_ZeroKeepRecordsDays_MustThrow [6 ms]
+   Assert.IsType() Failure: Value is null
+Expected: typeof(System.ArgumentOutOfRangeException)
+  失败 VisionStation.UnitTests.HousekeepingRetentionTests.R109_OneUndeletableFile_MustNotAbortWholeRound [26 ms]
+   一个文件删不掉就中止整轮，后面的过期文件没被清理（F-109）
+失败!  - 失败:     7，通过:     2，已跳过:     0，总计:     9，持续时间: 2 s - VisionStation.UnitTests.dll (net8.0)

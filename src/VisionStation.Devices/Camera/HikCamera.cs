@@ -41,9 +41,10 @@ public class HikCamera : ICamera, IDisposable
     // ── 最新帧缓存（生产者-消费者核心）──
     // 采图线程写入 / Capture() 读取，全部在 _lock 内访问
     private byte[]? _latestFrame;    // 最新一帧的原始像素数据（格式由 enPixelType 决定）
+    private int _latestLen;          // 本帧真实字节数（_latestFrame 会被复用，长度可能大于本帧）
     private int _latestWidth;        // 帧宽（px）
     private int _latestHeight;       // 帧高（px）
-    private uint _latestPixelType;   // 像素格式枚举值（RGB24/Mono8...；⚠️ RawToMat 目前未按它分支，见该方法注释）
+    private uint _latestPixelType;   // 像素格式枚举值（RGB24/Mono8...）
     private bool _hasNewFrame;       // 有新帧未消费的标志：Capture 取走后置 false，避免重复处理同一帧
 
     // ── 对外状态 ──
@@ -171,6 +172,7 @@ public class HikCamera : ICamera, IDisposable
                         _latestFrame = new byte[dataLen];
 
                     Marshal.Copy(frameInfo.pBufAddr, _latestFrame, 0, dataLen);
+                    _latestLen = dataLen;
                     _latestWidth = (int)frameInfo.stFrameInfo.nWidth;
                     _latestHeight = (int)frameInfo.stFrameInfo.nHeight;
                     _latestPixelType = (uint)frameInfo.stFrameInfo.enPixelType;
@@ -196,8 +198,15 @@ public class HikCamera : ICamera, IDisposable
 
         lock (_lock)
         {
-            if (!_hasNewFrame || _latestFrame == null) return null;
-            frameData = _latestFrame;
+            if (!_hasNewFrame || _latestFrame == null || _latestLen <= 0) return null;
+
+            // ★ 必须拷贝出快照，不能直接持有 _latestFrame 引用：
+            //   GrabLoop 下一帧会在锁内 Marshal.Copy 覆盖同一个数组，
+            //   而下面的 RawToMat 在锁外读它 —— 直接引用会拿到"上半帧旧、下半帧新"的拼接鬼影，
+            //   检测结果随机错乱且无任何报错，是最难查的一类现场故障。
+            frameData = new byte[_latestLen];
+            Buffer.BlockCopy(_latestFrame, 0, frameData, 0, _latestLen);
+
             w = _latestWidth;
             h = _latestHeight;
             pixelType = _latestPixelType;
@@ -225,12 +234,32 @@ public class HikCamera : ICamera, IDisposable
         }
     }
 
+    /// <summary>
+    /// 原始像素缓冲 → OpenCV Mat
+    ///
+    /// 通道数按"每像素字节数"推断，不能无条件按 CV_8UC3 构造：
+    ///   黑白工业相机（Mono8）只给 width*height 字节，按 8UC3 构造会得到行跨错乱的花屏，
+    ///   而且 Marshal.Copy 用 data.Length 拷贝时不再受 Mat 容量约束，直接越界写坏堆。
+    ///
+    /// 未覆盖的格式：Mono16（需要右移 8 位降位深）、Bayer（需要 GBRG→BGR）。
+    /// 这两类目前会退化为灰度 8 位且数值错乱 —— 换这类相机时必须在这里补分支，
+    /// pixelType 参数就是为此保留的。
+    /// </summary>
     private static Mat? RawToMat(byte[] data, int width, int height, uint pixelType)
     {
         try
         {
-            var mat = new Mat(height, width, MatType.CV_8UC3); // 默认 BGR
-            Marshal.Copy(data, 0, mat.Data, data.Length);
+            int pixels = width * height;
+            if (pixels <= 0 || data.Length < pixels) return null;
+
+            int bytesPerPixel = data.Length / pixels;
+            var type = bytesPerPixel >= 3 ? MatType.CV_8UC3 : MatType.CV_8UC1;
+            int channels = type == MatType.CV_8UC3 ? 3 : 1;
+
+            var mat = new Mat(height, width, type);
+            // 只拷 Mat 装得下的量：绝不越界，也不把上一帧残留的尾巴拷进来
+            int copyLen = Math.Min(data.Length, pixels * channels);
+            Marshal.Copy(data, 0, mat.Data, copyLen);
             return mat;
         }
         catch

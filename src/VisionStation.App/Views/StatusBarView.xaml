@@ -15,11 +15,16 @@
                 <TextBlock Text="{Binding StatusText}" Foreground="#CCC" FontSize="11" />
 
                 <TextBlock Text="PLC" Foreground="#888" FontSize="11" Margin="14,0,0,0" />
-                <TextBlock Text="{Binding PlcOnline, Converter={StaticResource BoolToOnlineColor}}"
+                <!-- Text 绑的是"颜色"，Foreground 才是画颜色的地方。
+                     之前写成 Text="{Binding PlcOnline, Converter=...}"，
+                     运行时直接把 SolidColorBrush.ToString() 印在了状态栏上（"#FF6EBFEF"）。 -->
+                <TextBlock Text="●"
+                           Foreground="{Binding PlcOnline, Converter={StaticResource BoolToOnlineColor}}"
                            FontSize="11" Margin="4,0,0,0" />
 
                 <TextBlock Text="Camera" Foreground="#888" FontSize="11" Margin="14,0,0,0" />
-                <TextBlock Text="{Binding CameraOnline, Converter={StaticResource BoolToOnlineColor}}"
+                <TextBlock Text="●"
+                           Foreground="{Binding CameraOnline, Converter={StaticResource BoolToOnlineColor}}"
                            FontSize="11" Margin="4,0,0,0" />
 
                 <TextBlock FontSize="11" Margin="14,0,0,0">

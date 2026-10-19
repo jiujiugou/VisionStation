@@ -1,0 +1,247 @@
+{
+  "comment": "运维模块 v2 阶段3产物。四态严格：PASS / FAIL / UNVERIFIED / NOT_RUN，禁止『基本通过』。FAIL 不覆盖历史，修复后追加 -retry。",
+  "revision": "v3 · 2026-10-19 · A/B 批修复后复验",
+  "results": [
+    {
+      "id": "V-001-retry",
+      "req": "R-001",
+      "status": "PASS",
+      "evidence": "artifacts/evidence/V001_V017_retry_GREEN.txt",
+      "subject": "F-001",
+      "note": "红→修→绿闭环（2026-10-19 早）：判据改为可写性探测，4/4 通过",
+      "retry_of": "V-001"
+    },
+    {
+      "id": "V-004-retry",
+      "req": "R-004",
+      "status": "PASS",
+      "evidence": "artifacts/evidence/V001_V017_retry_GREEN.txt",
+      "subject": "F-007",
+      "note": "RunAll 加 Safe 逐项隔离；该测试修复前后均绿（选定路径未触发原崩溃），是契约回归而非红→绿反证",
+      "retry_of": "V-004"
+    },
+    {
+      "id": "V-017-retry",
+      "req": "R-017",
+      "status": "PASS",
+      "evidence": "artifacts/evidence/V001_V017_retry_GREEN.txt",
+      "subject": "F-038",
+      "note": "空设备表改为 total>0 && online==total，红→绿闭环",
+      "retry_of": "V-017"
+    },
+    {
+      "id": "V-101",
+      "req": "R-101",
+      "status": "FAIL",
+      "subject": "F-101",
+      "evidence": "artifacts/evidence/V2_R101_R102_R103_RED.txt",
+      "note": "UNIT_TEST 已执行：R101_EmptyToolType_MustFail 与 R101_UnknownRoiReference_MustFail 两条断言失败——空工具类型、引用不存在 ROI 均被判为配方有效。同组 3 条反向用例通过（合法配方不误报）。修复被阻断：合法参数范围属产品决策，不得由分析者擅自补全"
+    },
+    {
+      "id": "V-102",
+      "req": "R-102",
+      "status": "FAIL",
+      "subject": "F-102",
+      "evidence": "artifacts/evidence/V2_R101_R102_R103_RED.txt",
+      "note": "UNIT_TEST 已执行：库文件被 FileShare.None 独占时 CheckDatabase 仍返回 OK（判据只查 File.Exists）。反向用例（可正常打开）通过。修复需决定 Service 层是否引入 SQLite 连接探测"
+    },
+    {
+      "id": "V-103",
+      "req": "R-103",
+      "status": "FAIL",
+      "subject": "F-103",
+      "evidence": "artifacts/evidence/V2_R101_R102_R103_RED.txt",
+      "note": "UNIT_TEST 已执行：扩展名为 .bmp 但内容为文本的模板被判 OK。反向用例（缺失模板）通过。修复需决定 Service 层是否允许依赖图像解码库"
+    },
+    {
+      "id": "V-109",
+      "req": "R-109",
+      "status": "NOT_RUN",
+      "subject": "F-109",
+      "evidence": "",
+      "note": "FAULT_INJECTION 测试（占用文件后断言其余仍被删）尚未编写"
+    },
+    {
+      "id": "V-105",
+      "req": "R-105",
+      "status": "NOT_RUN",
+      "subject": "F-105",
+      "evidence": "",
+      "note": "需反射调用私有 CleanupImages 或重构后测，尚未编写"
+    },
+    {
+      "id": "V-106",
+      "req": "R-106",
+      "status": "NOT_RUN",
+      "subject": "F-106",
+      "evidence": "",
+      "note": "需真实 SQLite + 图片目录联动测试，尚未编写"
+    },
+    {
+      "id": "V-107",
+      "req": "R-107",
+      "status": "NOT_RUN",
+      "subject": "F-107",
+      "evidence": "",
+      "note": "并发重入测试尚未编写（需两个线程同时触发清理）"
+    },
+    {
+      "id": "V-108",
+      "req": "R-108",
+      "status": "NOT_RUN",
+      "subject": "F-108",
+      "evidence": "",
+      "note": "图片枚举已改流式（EnumerateFiles），但记录删除仍是 ToListAsync 全量载入；规模基准（2000 文件 ≤2s）尚未编写。属部分修复，保持 NOT_RUN"
+    },
+    {
+      "id": "V-112",
+      "req": "R-112",
+      "status": "NOT_RUN",
+      "subject": "F-112",
+      "evidence": "",
+      "note": "Dispose 竞态测试尚未编写"
+    },
+    {
+      "id": "V-113",
+      "req": "R-113",
+      "status": "NOT_RUN",
+      "subject": "F-113",
+      "evidence": "",
+      "note": "保留天数 0/负值用例尚未编写（需先确定处置策略：抛异常还是回落默认值）"
+    },
+    {
+      "id": "V-013",
+      "req": "R-111",
+      "status": "FAIL",
+      "subject": "F-111",
+      "evidence": "src/VisionStation.App/Services/ServiceCollectionExtensions.cs",
+      "note": "CODE_REVIEW 已执行（可复现：grep -n \"AddSingleton(new InspectionDbContext\" src/VisionStation.App/Services/ServiceCollectionExtensions.cs → 83 行），全进程单例 DbContext 成立，违反 R-111"
+    },
+    {
+      "id": "V-111",
+      "req": "R-111",
+      "status": "NOT_RUN",
+      "subject": "F-111",
+      "evidence": "",
+      "note": "单元测试（容器解析两次断言实例不同）尚未编写；V-013 已用 CODE_REVIEW 证实现状违反，但 CODE_REVIEW 不算验收"
+    },
+    {
+      "id": "V-101-retry",
+      "req": "R-101",
+      "status": "PASS",
+      "subject": "F-101",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "红→修→绿：空工具类型 / 悬空 ROI / 零或负标定值 / 未知工具类型 4 条断言先红后绿；2 条反向用例（合法配方）保持通过，无误杀。修复未改测试与断言",
+      "retry_of": "V-101"
+    },
+    {
+      "id": "V-102-retry",
+      "req": "R-102",
+      "status": "PASS",
+      "subject": "F-102",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "红→修→绿：库文件被 FileShare.None 独占时判 FAIL；新增正向用例用真实 SQLite 库验证不误报。判据 = 文件头魔数 + 读写打开",
+      "retry_of": "V-102"
+    },
+    {
+      "id": "V-103-retry",
+      "req": "R-103",
+      "status": "PASS",
+      "subject": "F-103",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "红→修→绿：文本改名 .bmp 判 FAIL；新增正向用例用真实 BMP 头验证不误杀",
+      "retry_of": "V-103"
+    },
+    {
+      "id": "V-105-retry",
+      "req": "R-105",
+      "status": "PASS",
+      "subject": "F-105",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "验证结论是「原判定不成立」：过期文件按时间排在最前，超容循环逐个扣减恰好抵消，不会多删。真实缺陷仅为日志占用虚高（S3）。重写后由「超容只删最旧、过期删净、存活保留」3 条用例覆盖",
+      "retry_of": "V-105"
+    },
+    {
+      "id": "V-106-retry",
+      "req": "R-106",
+      "status": "PASS",
+      "subject": "F-106",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "采用保留期一致性方案（用户确认）：ImageRetentionDays < KeepRecordsDays 时构造抛异常，默认值与 appsettings 已改为 30/30。3 条用例覆盖 0 天、倒挂、负数。回写 ImagePath 未实现，属后续增量",
+      "retry_of": "V-106"
+    },
+    {
+      "id": "V-107-retry",
+      "req": "R-107",
+      "status": "PASS",
+      "subject": "F-107",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "白盒 gate 测试：占住重入闸门时 CleanupOnceAsync 返回 false（跳过），释放后恢复正常执行。修复前无该入口，红证据由 CODE_REVIEW（无任何重入保护）承担",
+      "retry_of": "V-107"
+    },
+    {
+      "id": "V-109-retry",
+      "req": "R-109",
+      "status": "PASS",
+      "subject": "F-109",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "故障注入：目录中放一个只读文件（删除抛 UnauthorizedAccessException），断言排在它后面的过期文件仍被删除。修复前整轮中止",
+      "retry_of": "V-109"
+    },
+    {
+      "id": "V-111-retry",
+      "req": "R-111",
+      "status": "PASS",
+      "subject": "F-111",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "并发测试：16 路并发读 + 8 读 8 删混合并发均无异常。修复前为全进程单例 DbContext（V-013 已用 DI 注册代码证实），该测试在旧实现下会抛『second operation started on this context』",
+      "retry_of": "V-111"
+    },
+    {
+      "id": "V-113-retry",
+      "req": "R-113",
+      "status": "PASS",
+      "subject": "F-113",
+      "evidence": "artifacts/evidence/V3_batchA_B_GREEN.txt",
+      "note": "红→修→绿：KeepRecordsDays=0、ImageRetentionDays=0 均先红（构造不抛）后绿（抛 ArgumentOutOfRangeException）",
+      "retry_of": "V-113"
+    },
+    {
+      "id": "V-112-retry",
+      "req": "R-112",
+      "status": "UNVERIFIED",
+      "subject": "F-112",
+      "evidence": "",
+      "note": "代码已改为 Dispose 停 Timer 后 Wait(5000) 等待在途轮次，但无竞态测试证明『Dispose 返回后无回调触碰 repo』。取证方式是 grep 代码（CODE_REVIEW 级），不算验收。S2，进未清偿清单",
+      "retry_of": "V-112"
+    }
+  ],
+  "tally": {
+    "PASS": 12,
+    "FAIL": 4,
+    "UNVERIFIED": 1,
+    "NOT_RUN": 8
+  },
+  "unpaid": [
+    {
+      "f": "F-108",
+      "r": "R-108",
+      "danger": "S2",
+      "state": "NOT_RUN",
+      "blocker": "记录批量删除未实现 + 规模基准待写（需 2000 文件基准环境）"
+    },
+    {
+      "f": "F-112",
+      "r": "R-112",
+      "danger": "S2",
+      "state": "UNVERIFIED",
+      "blocker": "无竞态测试证明 Dispose 返回后无回调触碰 repo；当前仅代码级证据"
+    }
+  ],
+  "notes": [
+    "本轮（A/B 批，用户全权授权按推荐值执行）修完 9 条 FIXED + 1 条 PARTIAL + 1 条重判（F-105 降 S3，待确认）",
+    "红→绿有据可查：A 批 7 红 2 绿（V3_batchA_RED.txt）→ 修后 9/9 绿；B 批 6 条为修复后补测（无红证据，已在各条 note 说明）",
+    "全量回归 70/70 通过（含既有 55 条），App 层与测试工程均编译通过，无回归",
+    "F-108 与 F-112 未清账，S2 级，未写成「基本通过」"
+  ]
+}

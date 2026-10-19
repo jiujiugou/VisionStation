@@ -7,4 +7,5 @@
   <Project Path="tests/VisionStation.Test/VisionStation.Test.csproj" />
   <Project Path="tests/VisionStation.UnitTests/VisionStation.UnitTests.csproj" />
   <Project Path="src/VisionStation.Watchdog/VisionStation.Watchdog.csproj" />
+  <Project Path="tools/GoldenSetRunner/GoldenSetRunner.csproj" />
 </Solution>

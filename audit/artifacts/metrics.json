@@ -1,0 +1,209 @@
+{
+ "module": "VisionStation.Service (运维模块：自检 + 管家)",
+ "root": "D:/Code/VisionStation",
+ "files": [
+  {
+   "path": "src/VisionStation.Service/HealthCheck/HealthChecker.cs",
+   "loc_total": 158,
+   "loc_blank": 18,
+   "loc_comment": 23,
+   "loc_code": 117,
+   "io_file": 9,
+   "io_path": 3,
+   "concurrency": 0,
+   "async_void": 0,
+   "timer": 0,
+   "clock": 0,
+   "try": 4,
+   "catch_any": 4,
+   "throw": 0,
+   "branch": 11,
+   "compare": 25,
+   "public_method": 1,
+   "private_method": 5,
+   "type_decl": 2
+  },
+  {
+   "path": "src/VisionStation.Service/HealthCheck/HealthResult.cs",
+   "loc_total": 24,
+   "loc_blank": 4,
+   "loc_comment": 12,
+   "loc_code": 8,
+   "io_file": 0,
+   "io_path": 0,
+   "concurrency": 0,
+   "async_void": 0,
+   "timer": 0,
+   "clock": 0,
+   "try": 0,
+   "catch_any": 0,
+   "throw": 0,
+   "branch": 0,
+   "compare": 16,
+   "public_method": 0,
+   "private_method": 0,
+   "type_decl": 1
+  },
+  {
+   "path": "src/VisionStation.Service/HealthCheck/IHealthChecker.cs",
+   "loc_total": 9,
+   "loc_blank": 1,
+   "loc_comment": 3,
+   "loc_code": 5,
+   "io_file": 0,
+   "io_path": 0,
+   "concurrency": 0,
+   "async_void": 0,
+   "timer": 0,
+   "clock": 0,
+   "try": 0,
+   "catch_any": 0,
+   "throw": 0,
+   "branch": 0,
+   "compare": 6,
+   "public_method": 0,
+   "private_method": 0,
+   "type_decl": 1
+  },
+  {
+   "path": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs",
+   "loc_total": 175,
+   "loc_blank": 20,
+   "loc_comment": 20,
+   "loc_code": 135,
+   "io_file": 4,
+   "io_path": 2,
+   "concurrency": 0,
+   "async_void": 2,
+   "timer": 5,
+   "clock": 2,
+   "try": 3,
+   "catch_any": 3,
+   "throw": 0,
+   "branch": 11,
+   "compare": 42,
+   "public_method": 1,
+   "private_method": 3,
+   "type_decl": 3
+  }
+ ],
+ "totals": {
+  "loc_total": 366,
+  "loc_blank": 43,
+  "loc_comment": 58,
+  "loc_code": 265,
+  "io_file": 13,
+  "io_path": 5,
+  "concurrency": 0,
+  "async_void": 2,
+  "timer": 5,
+  "clock": 2,
+  "try": 7,
+  "catch_any": 7,
+  "throw": 0,
+  "branch": 22,
+  "compare": 89,
+  "public_method": 2,
+  "private_method": 8,
+  "type_decl": 7
+ },
+ "downstream_refs": [
+  {
+   "unit": "U17 InspectionRepository",
+   "loc_code": 82,
+   "concurrency": 0,
+   "io_file": 0
+  },
+  {
+   "unit": "U10 DeviceManager",
+   "loc_code": 29,
+   "concurrency": 0,
+   "io_file": 0
+  },
+  {
+   "unit": "U13 ImageStoreService",
+   "loc_code": 67,
+   "concurrency": 0,
+   "io_file": 2
+  }
+ ],
+ "grid": {
+  "behavior_units": 2,
+  "interactions": 5,
+  "categories_per_object": 9,
+  "cells": 63
+ },
+ "previous_round": {
+  "grid_entries": 63,
+  "found": 35,
+  "na": 28,
+  "by_category": {
+   "无效": 3,
+   "缺失": 4,
+   "延迟": 3,
+   "重复": 5,
+   "失败": 4,
+   "阻塞": 5,
+   "崩溃": 2,
+   "恢复失败": 6,
+   "资源耗尽": 3
+  },
+  "by_severity": {
+   "M": 14,
+   "L": 16,
+   "H": 5
+  },
+  "by_target": {
+   "U19": 8,
+   "U20": 7,
+   "E16": 6,
+   "E17": 4,
+   "E18": 4,
+   "E19": 3,
+   "E20": 3
+  },
+  "by_reachability": {
+   "REACHABLE": 17,
+   "THEORETICAL": 8,
+   "CONSTRUCTIBLE": 10
+  },
+  "distinct_code_refs": 25,
+  "code_ref_dup_top": [
+   [
+    "src/VisionStation.Service/HealthCheck/HealthChecker.cs:78",
+    3
+   ],
+   [
+    "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:133",
+    3
+   ],
+   [
+    "src/VisionStation.Service/HealthCheck/HealthChecker.cs:76",
+    2
+   ],
+   [
+    "src/VisionStation.Service/HealthCheck/HealthChecker.cs:36",
+    2
+   ],
+   [
+    "src/VisionStation.Service/Housekeeping/HousekeepingService.cs:142",
+    2
+   ]
+  ],
+  "req_total": 23,
+  "req_by_method": {
+   "UNIT_TEST": 17,
+   "CONCURRENCY_TEST": 2,
+   "CODE_REVIEW": 4
+  },
+  "ver_by_status": {
+   "FAIL": 2,
+   "NOT_RUN": 18,
+   "PASS": 6
+  },
+  "ver_total": 26,
+  "ver_executable": 8,
+  "artifact_bytes": 36801,
+  "evidence_files": 3
+ }
+}

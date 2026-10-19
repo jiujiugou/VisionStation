@@ -1,0 +1,292 @@
+{
+  "meta": {
+    "project": "VisionStation",
+    "root": "D:/Code/VisionStation",
+    "built_at": "2026-10-19T10:5x",
+    "builder": "scripts/build_index.py (机械) + 模型语义补全",
+    "scope": [
+      "src/VisionStation.Core",
+      "src/VisionStation.Devices",
+      "src/VisionStation.Storage",
+      "src/VisionStation.Service"
+    ],
+    "out_of_scope": [
+      "src/VisionStation.App (UI/MVVM/Dispatcher)",
+      "src/VisionStation.Watchdog",
+      "tests/*",
+      "tools/GoldenSetRunner"
+    ],
+    "counts": {
+      "files": 33,
+      "loc": 3071,
+      "behavior_units": 20,
+      "data_contracts": 5,
+      "interactions": 22,
+      "grid_cells": 378
+    },
+    "grid_rule": "(20 单元 + 22 交互) × 9 失效类别 = 378 格",
+    "deviation_from_raw_index": [
+      "raw 候选 25 个，剔除 5 个纯数据/结果载体 (CalibrationConfig/InspectionReport/RoiRegion/ToolResult/HealthResult)，理由：无可执行行为、不持有资源、故障全部由其生产者承担",
+      "未增删任何有行为的类型"
+    ]
+  },
+  "coverage_claim": {
+    "covered": [
+      "本进程内 Core/Devices/Storage/Service 四层的类级调用、数据流、资源持有与释放",
+      "进程级共享状态：海康 MVS SDK 全局初始化/反初始化",
+      "后台线程与定时器：GrabLoop、System.Timers.Timer ×3",
+      "文件系统写入与删除：存图、清理"
+    ],
+    "not_covered": [
+      "App 层 WPF 绑定/Dispatcher 调度 —— 本范围内所有后台事件的实际消费者都在此层，因此跨线程时序只能靠契约推断，不能靠代码证实",
+      "Watchdog 进程对宿主进程的监督行为",
+      "第三方库内部：MvCameraControl.Net、OpenCvSharp、Microsoft.ML.OnnxRuntime、EF Core/SQLite",
+      "运行时实现细节：SDK 心跳会话、SQLite 锁等待、ORT 线程池调度",
+      "构建与部署：DLL 版本、相机驱动安装"
+    ],
+    "impact": "跨模块并发类故障（触发-采集-检测-落库四段时序）在本次范围内只能证明'存在无保护共享状态'，不能证明'一定出错'；此类条目的验证方法必须标注为 UNVERIFIED 或在范围外补充用例"
+  },
+  "units": [
+    {
+      "id": "U01", "name": "Pipeline", "path": "src/VisionStation.Core/Pipeline.cs", "loc": 165, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["Mat image (BGR/BGRA/Mono8)", "List<RoiRegion> rois", "CalibrationConfig", "triggerSource:string", "imagePath:string"],
+      "outputs": ["InspectionReport"],
+      "state": ["_tools: IList<IVisionTool> (构造时拷贝，之后只读)"],
+      "external_deps": ["OpenCvSharp", "Microsoft.Extensions.Logging", "IVisionTool", "RoiRegion"],
+      "resources": ["Mat gray (using 释放)"],
+      "concurrency": "无内部同步；线程安全性完全取决于调用方是否串行调用 Run",
+      "notes": "单工具异常被 catch 成 ToolResult.Ng，不中断后续工具；ROI 三层匹配(名字→索引→末位)，ROI 数量不足时静默重用末位"
+    },
+    {
+      "id": "U02", "name": "Calibration", "path": "src/VisionStation.Core/Calibration.cs", "loc": 42, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["CalibrationConfig (SetConfig)"],
+      "outputs": ["double mm", "double px", "bool withinTolerance"],
+      "state": ["_config: CalibrationConfig (可变，SetConfig 整体替换)"],
+      "external_deps": [],
+      "resources": [],
+      "concurrency": "无同步；_config 为引用替换，非原子但引用赋值本身原子",
+      "notes": "PixelToMm 直接除 PixelPerMillimeter，无零值/负值守卫；IsWithinTolerance 同样无守卫"
+    },
+    {
+      "id": "U03", "name": "CoordinateMath", "path": "src/VisionStation.Core/Geometry/CoordinateMath.cs", "loc": 96, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["containerW/H", "imageRenderW/H", "pixelW/H", "zoom", "screen/image 坐标"],
+      "outputs": ["(x,y) 图像坐标", "(x,y) 屏幕坐标"],
+      "state": ["ScaleFactor", "OffsetX/Y", "Zoom", "ImagePixelW/H", "ContainerW/H"],
+      "external_deps": [],
+      "resources": [],
+      "concurrency": "无同步；UI 线程独占使用",
+      "notes": "非法尺寸时 UpdateLayout 直接 return 并保留上次值（部分字段已更新、比例未更新 → 状态不一致窗口）"
+    },
+    {
+      "id": "U04", "name": "DefectTool", "path": "src/VisionStation.Core/Tools/DefectTool.cs", "loc": 198, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["Mat grayImage", "RoiRegion roi"],
+      "outputs": ["ToolResult"],
+      "state": ["阈值/面积等参数属性"],
+      "external_deps": ["OpenCvSharp"],
+      "resources": ["Mat (工具内部中间结果，待阶段1 核实释放路径)"],
+      "concurrency": "未知（未读实现）",
+      "notes": "语义字段来自结构索引，未逐行核实；阶段1 分析前必须补读"
+    },
+    {
+      "id": "U05", "name": "DimensionTool", "path": "src/VisionStation.Core/Tools/DimensionTool.cs", "loc": 148, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["Mat grayImage", "RoiRegion roi"],
+      "outputs": ["ToolResult (Metrics: DesignedDiameter_mm / MeasuredDiameter_mm / Deviation_mm)"],
+      "state": ["标定参数（来源待核实：CalibrationConfig 还是内联 px/mm）"],
+      "external_deps": ["OpenCvSharp"],
+      "resources": ["Mat (待核实)"],
+      "concurrency": "未知",
+      "notes": "px→mm 换算是否复用 U02 Calibration 未核实 —— 若各自实现，标定变更会出现两套换算"
+    },
+    {
+      "id": "U06", "name": "PresenceTool", "path": "src/VisionStation.Core/Tools/PresenceTool.cs", "loc": 115, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["Mat grayImage", "RoiRegion roi"],
+      "outputs": ["ToolResult (Metrics: MatchScore)"],
+      "state": ["模板图（加载时机待核实）"],
+      "external_deps": ["OpenCvSharp"],
+      "resources": ["Mat 模板 (待核实)"],
+      "concurrency": "未知",
+      "notes": "模板缺失/尺寸不匹配时的行为未核实"
+    },
+    {
+      "id": "U07", "name": "OnnxYoloTool", "path": "src/VisionStation.Core/Tools/OnnxYoloTool.cs", "loc": 429, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["Mat grayImage", "RoiRegion roi", "ModelPath", "ConfThreshold/NmsThreshold/MaxDetections"],
+      "outputs": ["ToolResult (DefectCount/MaxScore/InferenceMs/Count_*)"],
+      "state": ["_session: InferenceSession (惰性+双检锁)", "Name/阈值/ClassNames 可写属性"],
+      "external_deps": ["Microsoft.ML.OnnxRuntime", "OpenCvSharp", "OpenCvSharp.Dnn"],
+      "resources": ["InferenceSession (非托管)", "DenseTensor", "Mat ×4", "IDisposable"],
+      "concurrency": "会话创建有锁；Execute 本身无锁，同一实例并发 Execute 共享同一 InferenceSession",
+      "notes": "padded Mat 在 FillTensor 抛异常时不在 using 内（释放路径缺口）；Dispose 无 in-flight 保护"
+    },
+    {
+      "id": "U08", "name": "HikCamera", "path": "src/VisionStation.Devices/Camera/HikCamera.cs", "loc": 305, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["相机设备（GigE/USB 枚举第一个）", "SDK 返回帧缓冲"],
+      "outputs": ["CameraFrame (Mat)"],
+      "state": ["_camera 句柄", "_grabbing", "_grabThread", "_disposed", "_latestFrame/_latestLen/_latestWidth/_latestHeight/_latestPixelType/_hasNewFrame", "_frameCount", "IsAvailable"],
+      "external_deps": ["MvCamCtrl.NET (MVS SDK V4.x)", "OpenCvSharp", "Marshal/P-Invoke"],
+      "resources": ["进程级 SDK 全局状态 (MV_CC_Initialize_NET/Finalize_NET)", "设备独占会话", "后台 Thread", "非托管帧缓冲", "ProcessExit 事件订阅"],
+      "concurrency": "GrabLoop 与 Capture 用 _lock 互斥；Capture 与 Dispose 之间无同步；_grabbing/_disposed 为普通 bool 非 volatile",
+      "notes": "Dispose 内调用进程级 MV_CC_Finalize_NET；open() 复用 Initialize() 但不清 _disposed；每次 Initialize 成功都追加 ProcessExit 订阅；步骤3成功步骤4失败的路径未 Destroy 句柄"
+    },
+    {
+      "id": "U09", "name": "SwappableCamera", "path": "src/VisionStation.Devices/SwappableCamera.cs", "loc": 66, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["ICamera initial", "Func<string,ICamera> factory", "mode:string"],
+      "outputs": ["CameraFrame", "IsAvailable/FrameCount/CurrentMode"],
+      "state": ["_active: ICamera (运行时替换)", "_currentMode"],
+      "external_deps": ["ICamera", "CameraFactory (App 层委托)"],
+      "resources": ["被包装相机的全部资源（含 Hik 设备会话）"],
+      "concurrency": "无锁；SwapTo 与 Capture 可并发（UI 线程 vs 采集线程）",
+      "notes": "SwapTo 先建新再 Dispose 旧；close() 为空实现；Dispose 不幂等不置空"
+    },
+    {
+      "id": "U10", "name": "DeviceManager", "path": "src/VisionStation.Devices/DeviceManager.cs", "loc": 50, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["IDevice 注册"],
+      "outputs": ["AllConnected", "(online,total)"],
+      "state": ["_devices: List<IDevice>"],
+      "external_deps": ["IDevice"],
+      "resources": [],
+      "concurrency": "List 无同步；ConnectAll 遍历时可被 Register 修改",
+      "notes": "ConnectAll/DisconnectAll 用 catch{} 全部吞掉，无日志无重试"
+    },
+    {
+      "id": "U11", "name": "TimerTrigger", "path": "src/VisionStation.Devices/Trigger/TimerTrigger.cs", "loc": 68, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["intervalMs"],
+      "outputs": ["event Triggered"],
+      "state": ["_running", "_busy (CAS)"],
+      "external_deps": ["System.Timers.Timer", "ThreadPool"],
+      "resources": ["Timer (IDisposable)"],
+      "concurrency": "CAS 保护同一时刻只有一个 Elapsed 回调进入，但 Triggered 处理器若异步排队则保护失效",
+      "notes": "Triggered 同步 Invoke 在 ThreadPool 线程；处理器抛异常会逃逸到 ThreadPool；Fire() 绕过 _busy"
+    },
+    {
+      "id": "U12", "name": "FileCamera", "path": "src/VisionStation.Devices/Camera/FileCamera.cs", "loc": 118, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["图片目录", "文件列表"],
+      "outputs": ["CameraFrame"],
+      "state": ["文件列表索引（待核实：循环/耗尽行为）"],
+      "external_deps": ["OpenCvSharp", "文件系统"],
+      "resources": ["Mat (待核实)"],
+      "concurrency": "未知",
+      "notes": "RefreshFileList 由 SwappableCamera.open() 触发；文件被删/损坏行为未核实"
+    },
+    {
+      "id": "U13", "name": "WebcamCamera", "path": "src/VisionStation.Devices/Camera/WebcamCamera.cs", "loc": 56, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["摄像头设备"],
+      "outputs": ["CameraFrame"],
+      "state": ["设备句柄（待核实）"],
+      "external_deps": ["OpenCvSharp.VideoCapture"],
+      "resources": ["VideoCapture (非托管)"],
+      "concurrency": "未知",
+      "notes": "未读实现；拔插/设备被占用行为待核实"
+    },
+    {
+      "id": "U14", "name": "CameraDevice", "path": "src/VisionStation.Devices/Device/CameraDevice.cs", "loc": 26, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["ICamera"],
+      "outputs": ["IDevice 状态 (IsConnected)"],
+      "state": ["包装的 ICamera"],
+      "external_deps": ["ICamera", "IDevice"],
+      "resources": [],
+      "concurrency": "未知",
+      "notes": "Connect/Disconnect 如何映射到 ICamera.open/close 待核实"
+    },
+    {
+      "id": "U15", "name": "TriggerDevice", "path": "src/VisionStation.Devices/Device/TriggerDevice.cs", "loc": 26, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["ITriggerSource"],
+      "outputs": ["IDevice 状态"],
+      "state": ["包装的 ITriggerSource"],
+      "external_deps": ["ITriggerSource", "IDevice"],
+      "resources": [],
+      "concurrency": "未知",
+      "notes": "Start/Stop 如何映射待核实"
+    },
+    {
+      "id": "U16", "name": "ImageStoreService", "path": "src/VisionStation.Storage/ImageStoreService.cs", "loc": 128, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["CameraFrame (含 Mat)", "InspectionReport"],
+      "outputs": ["ImageSaveResult (Skipped/Saved/Failed)"],
+      "state": ["_mode", "_samplingRate", "_okCounter (非原子)"],
+      "external_deps": ["OpenCvSharp.ImWrite", "文件系统"],
+      "resources": ["图片文件（写）"],
+      "concurrency": "无同步；SetMode 可在 UI 线程与 Save 并发",
+      "notes": "文件名用 HHmmssfff，同毫秒会覆盖；ShouldSave 在 try 之外，_samplingRate=0 时除以零会抛到调用方；无 fsync、无磁盘空间预检"
+    },
+    {
+      "id": "U17", "name": "InspectionRepository", "path": "src/VisionStation.Storage/InspectionRepository.cs", "loc": 125, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["InspectionReport", "cutoff:DateTime", "count:int"],
+      "outputs": ["Task", "List<InspectionRecord>", "(OkCount,NgCount)", "deleted:int"],
+      "state": ["_db: InspectionDbContext（外部注入的共享实例）"],
+      "external_deps": ["EF Core", "SQLite"],
+      "resources": ["数据库连接/变更跟踪器"],
+      "concurrency": "DbContext 非线程安全；本类无任何序列化措施，所有方法共用注入实例",
+      "notes": "SaveAsync 用 report.Id 作主键；DeleteOlderThanAsync 先 ToListAsync 再 RemoveRange（大表内存峰值）"
+    },
+    {
+      "id": "U18", "name": "InspectionDbContext", "path": "src/VisionStation.Storage/InspectionDbContext.cs", "loc": 39, "role": "BEHAVIOR", "read_confidence": "index-only",
+      "inputs": ["连接配置"],
+      "outputs": ["DbSet<InspectionRecord>"],
+      "state": ["跟踪的实体图"],
+      "external_deps": ["EF Core", "SQLite"],
+      "resources": ["数据库连接"],
+      "concurrency": "EF Core 约定：实例不可并发使用",
+      "notes": "生命周期注册方式（单例/瞬态）在 App 层，超出本范围但决定并发后果"
+    },
+    {
+      "id": "U19", "name": "HealthChecker", "path": "src/VisionStation.Service/HealthCheck/HealthChecker.cs", "loc": 126, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["DeviceManager", "dbPath", "storagePath", "templatePath", "RecipeConfig"],
+      "outputs": ["List<HealthResult>"],
+      "state": ["构造注入的只读路径与配方快照"],
+      "external_deps": ["VisionStation.Devices", "文件系统", "VisionStation.Core.Models"],
+      "resources": [".write_test 临时文件"],
+      "concurrency": "无，启动时调用一次",
+      "notes": "CheckDatabase 判据为 File.Exists || Directory.Exists(父目录)，父目录由程序自身创建 → 判据近乎恒真；模板只查存在不查可读/可解码"
+    },
+    {
+      "id": "U20", "name": "HousekeepingService", "path": "src/VisionStation.Service/Housekeeping/HousekeepingService.cs", "loc": 175, "role": "BEHAVIOR", "read_confidence": "full",
+      "inputs": ["InspectionRepository", "imageFolder", "HousekeepingOptions"],
+      "outputs": ["副作用：删库记录、删图片、强制 GC"],
+      "state": ["_memTimer/_dbTimer (构造即启动)", "阈值字段"],
+      "external_deps": ["System.Timers.Timer", "文件系统", "InspectionRepository"],
+      "resources": ["两个 Timer", "目录遍历句柄"],
+      "concurrency": "async void 回调无重入保护；与 SaveAsync 共用同一 DbContext；与 ImageStoreService 并发操作同一目录",
+      "notes": "删除图片不同步删除/标记数据库 ImagePath；totalSize 含已删除文件；Dispose 不等待回调结束"
+    }
+  ],
+  "data_contracts": [
+    { "name": "CalibrationConfig", "path": "src/VisionStation.Core/Models/CalibrationConfig.cs", "note": "PixelPerMillimeter 无守卫的除数来源" },
+    { "name": "InspectionReport", "path": "src/VisionStation.Core/Models/InspectionReport.cs", "note": "承载 Id/OverallVerdict/各工具结果，repository 主键来源" },
+    { "name": "RoiRegion", "path": "src/VisionStation.Core/Models/RoiRegion.cs", "note": "Crop 的越界行为未核实（阶段1 必读）" },
+    { "name": "ToolResult", "path": "src/VisionStation.Core/Tools/ToolResult.cs", "note": "OK/NG + Metrics + Overlays" },
+    { "name": "HealthResult", "path": "src/VisionStation.Service/HealthCheck/HealthChecker.cs", "note": "自检条目值对象" }
+  ],
+  "interactions": [
+    { "id": "E01", "from": "U01 Pipeline", "to": "U04/U05/U06/U07", "type": "调用", "payload": "Mat gray + RoiRegion", "note": "逐工具串行 Execute；异常转 ToolResult.Ng" },
+    { "id": "E02", "from": "U01 Pipeline", "to": "RoiRegion(契约)", "type": "数据", "payload": "Crop 裁切", "note": "越界/非法矩形行为取决于 RoiRegion.Crop" },
+    { "id": "E03", "from": "U05 DimensionTool", "to": "U02 Calibration", "type": "数据/换算", "payload": "像素→毫米", "note": "是否复用 U02 未核实（index-only）" },
+    { "id": "E04", "from": "U07 OnnxYoloTool", "to": "InferenceSession(非托管)", "type": "资源", "payload": "模型会话", "note": "惰性创建 + Dispose 释放，无 in-flight 保护" },
+    { "id": "E05", "from": "U09 SwappableCamera", "to": "U08/U12/U13", "type": "委托+生命周期", "payload": "全部 ICamera 调用", "note": "SwapTo 期间新旧实例并存" },
+    { "id": "E06", "from": "U08 HikCamera", "to": "进程级 SDK 全局状态", "type": "资源共享", "payload": "MV_CC_Initialize/Finalize_NET", "note": "任意实例 Dispose 即终结全局，影响所有实例" },
+    { "id": "E07", "from": "U08 HikCamera 采图线程", "to": "U08 Capture", "type": "并发/数据", "payload": "帧缓冲快照", "note": "_lock 保护，_hasNewFrame 单帧覆盖" },
+    { "id": "E08", "from": "U11 TimerTrigger", "to": "消费者(App 层){范围外}", "type": "事件", "payload": "Triggered", "note": "ThreadPool 同步 Invoke；跨层且范围外，时序只能推断" },
+    { "id": "E09", "from": "U14 CameraDevice", "to": "ICamera", "type": "包装", "payload": "Connect/Disconnect", "note": "映射关系待核实" },
+    { "id": "E10", "from": "U15 TriggerDevice", "to": "U11 TimerTrigger", "type": "包装", "payload": "Start/Stop", "note": "待核实" },
+    { "id": "E11", "from": "U14/U15", "to": "U10 DeviceManager", "type": "注册", "payload": "IDevice", "note": "注册后 AllConnected 参与自检" },
+    { "id": "E12", "from": "U16 ImageStoreService", "to": "CameraFrame.Image (Mat 所有权)", "type": "数据/所有权", "payload": "Mat 只读使用", "note": "谁负责 Dispose Mat 是本项目最大的所有权模糊点" },
+    { "id": "E13", "from": "U16 ImageStoreService", "to": "文件系统(图片目录)", "type": "资源", "payload": "PNG 写入", "note": "与 E17 的删除并发" },
+    { "id": "E14", "from": "U17 InspectionRepository", "to": "U18 InspectionDbContext", "type": "资源/共享", "payload": "连接+跟踪器", "note": "全部方法共用注入实例" },
+    { "id": "E15", "from": "U17 InspectionRepository", "to": "InspectionReport(契约)", "type": "数据", "payload": "字段映射，Id 作主键", "note": "Id 冲突/空值行为待核实" },
+    { "id": "E16", "from": "U20 HousekeepingService", "to": "U17 InspectionRepository", "type": "调用/并发", "payload": "DeleteOlderThanAsync", "note": "与 SaveAsync 时间上可重叠" },
+    { "id": "E17", "from": "U20 HousekeepingService", "to": "文件系统(图片目录)", "type": "资源", "payload": "File.Delete", "note": "与 E13 写入并发，且不回写数据库" },
+    { "id": "E18", "from": "U19 HealthChecker", "to": "U10 DeviceManager", "type": "读取", "payload": "ConnectionStats", "note": "启动快照" },
+    { "id": "E19", "from": "U19 HealthChecker", "to": "文件系统(三路径)", "type": "资源", "payload": "存在性+写测试", "note": "写测试留下 .write_test 风险" },
+    { "id": "E20", "from": "U19 HealthChecker", "to": "RecipeConfig(契约)", "type": "数据", "payload": "Tools.Count", "note": "只校验非空" },
+    { "id": "E21", "from": "U02 Calibration", "to": "CalibrationConfig(契约)", "type": "数据", "payload": "PixelPerMillimeter 作除数", "note": "无零值守卫" },
+    { "id": "E22", "from": "U03 CoordinateMath", "to": "App.CoordinateMapper{范围外}", "type": "数据", "payload": "布局参数/坐标", "note": "跨边界" }
+  ],
+  "failure_categories": [
+    "无效", "缺失", "延迟", "重复", "失败", "阻塞", "崩溃", "资源耗尽", "恢复失败"
+  ],
+  "open_unknowns": [
+    "U04/U05/U06/U12/U13/U14/U15/U18 的实现细节未读（index-only）→ 阶段1 必须先补读，否则这 8 个单元的 72 格只能填 UNKNOWN",
+    "Mat 的所有权归属（谁 new 谁 Dispose）全链路未确证 → 影响 E12 及 Pipeline 调用方",
+    "InspectionReport.Id 的生成规则未读 → 影响 E15 主键冲突判定",
+    "App 层的 DbContext 生命周期注册未读（范围外）→ 影响 E14 并发后果的严重度判定",
+    "Triggered 的消费者是否同步执行完检测（决定 U11 CAS 是否真的生效）→ 范围外，需读 MainViewModel"
+  ]
+}

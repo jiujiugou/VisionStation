@@ -6,40 +6,71 @@ using VisionStation.Storage.Entities;
 namespace VisionStation.Storage;
 
 /// <summary>
+/// 检测记录数据访问契约。
+/// 管家服务（清理线程）与检测管线（保存线程）会并发使用它，
+/// 所以调用方只依赖接口：实现可以做到「每次操作一个 DbContext」。
+/// </summary>
+public interface IInspectionRepository
+{
+    Task EnsureCreatedAsync();
+    Task SaveAsync(InspectionReport report);
+    Task<List<InspectionRecord>> GetRecentAsync(int count = 100);
+    Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null);
+    Task<int> DeleteOlderThanAsync(DateTime cutoff);
+}
+
+/// <summary>
 /// 检测记录数据访问层 —— SQLite 的完整 CRUD
 ///
-/// 职责：
-///   1. 保存每次检测的结果（InspectionReport → InspectionRecord）
-///   2. 查询最近 N 条记录
-///   3. 统计 OK/NG 数量
-///   4. 删除过期记录（HousekeepingService 调用）
-///   5. 确保数据库和表已创建
+/// 修复（F-111）：原来 DI 注册的是「全进程一个 InspectionDbContext」，
+/// 而管家清理（Timer 线程）与检测保存（采集线程）会同时用它，
+/// EF Core 明确禁止同一 context 并发操作 —— 结果是 SaveChanges 抛异常、检测记录直接丢。
 ///
-/// 为什么单独一层？
-///   如果直接让 MainViewModel 操作 DbContext，ViewModel 就需要知道 EF Core、
-///   SQLite 路径、Connections tring——违反了分层原则。
-///   Repository 把这些 SQL 细节封装，ViewModel 只调 SaveAsync / GetStatisticsAsync。
+/// 现在：持有 dbPath，每次操作新建并释放一个 DbContext（EF Core 的标准做法）。
+/// 保留接受现成 DbContext 的构造，仅供单元测试与短生命周期场景使用。
 /// </summary>
-public class InspectionRepository
+public class InspectionRepository : IInspectionRepository
 {
-    private readonly InspectionDbContext _db;
+    private readonly Func<(InspectionDbContext Db, bool Owned)> _newContext;
     private readonly ILogger<InspectionRepository>? _logger;
 
-    public InspectionRepository(InspectionDbContext db, ILogger<InspectionRepository>? logger = null)
+    /// <summary>生产用：每次操作独立 context，可并发调用</summary>
+    public InspectionRepository(string dbPath, ILogger<InspectionRepository>? logger = null)
     {
-        _db = db;
+        _newContext = () => (new InspectionDbContext(dbPath), true);
         _logger = logger;
     }
 
-    /// <summary>确保数据库和表已创建（SQLite 文件不存在 → 自动创建）</summary>
-    public async Task EnsureCreatedAsync()
+    /// <summary>测试/短生命周期用：复用传入的 context（调用方负责释放）</summary>
+    public InspectionRepository(InspectionDbContext db, ILogger<InspectionRepository>? logger = null)
     {
-        await _db.Database.EnsureCreatedAsync();
-        _logger?.LogInformation("[DB] 数据库初始化完成");
+        _newContext = () => (db, false);
+        _logger = logger;
     }
 
+    private async Task<T> RunAsync<T>(Func<InspectionDbContext, Task<T>> work)
+    {
+        var (db, owned) = _newContext();
+        try
+        {
+            return await work(db).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (owned) await db.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>确保数据库和表已创建（SQLite 文件不存在 → 自动创建）</summary>
+    public Task EnsureCreatedAsync() => RunAsync(async db =>
+    {
+        await db.Database.EnsureCreatedAsync().ConfigureAwait(false);
+        _logger?.LogInformation("[DB] 数据库初始化完成");
+        return true;
+    });
+
     /// <summary>保存一次检测报告到数据库</summary>
-    public async Task SaveAsync(InspectionReport report)
+    public Task SaveAsync(InspectionReport report) => RunAsync(async db =>
     {
         // 从 ToolResult 提取各工具结果（兼容老表结构）
         var p = report.PresenceResult;
@@ -75,51 +106,50 @@ public class InspectionRepository
             CreatedAt = DateTime.Now
         };
 
-        _db.InspectionRecords.Add(record);
-        await _db.SaveChangesAsync();
+        db.InspectionRecords.Add(record);
+        await db.SaveChangesAsync().ConfigureAwait(false);
         _logger?.LogInformation("[DB] 保存记录 ID:{Id} 判定:{Verdict}", report.Id, report.OverallVerdict);
-    }
+        return true;
+    });
 
     /// <summary>查询最近 N 条记录（按时间倒序）</summary>
-    public async Task<List<InspectionRecord>> GetRecentAsync(int count = 100)
-    {
-        return await _db.InspectionRecords
+    public Task<List<InspectionRecord>> GetRecentAsync(int count = 100) => RunAsync(db =>
+        db.InspectionRecords
             .OrderByDescending(r => r.CreatedAt)
             .Take(count)
-            .ToListAsync();
-    }
+            .ToListAsync());
 
     /// <summary>统计 OK/NG 数量（可选时间范围）</summary>
-    public async Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null)
+    public Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null) => RunAsync(async db =>
     {
-        var query = _db.InspectionRecords.AsQueryable();
+        var query = db.InspectionRecords.AsQueryable();
         if (since.HasValue)
             query = query.Where(r => r.Timestamp >= since.Value);
 
         var groups = await query
             .GroupBy(r => r.OverallVerdict)
             .Select(g => new { Verdict = g.Key, Count = g.Count() })
-            .ToListAsync();
+            .ToListAsync().ConfigureAwait(false);
 
         int okCount = groups.FirstOrDefault(g => g.Verdict == "OK")?.Count ?? 0;
         int ngCount = groups.FirstOrDefault(g => g.Verdict == "NG")?.Count ?? 0;
         return (okCount, ngCount);
-    }
+    });
 
     /// <summary>批量删除过期记录，返回删除条数（管家服务调用）</summary>
     /// <param name="cutoff">此时间之前的记录全部删除</param>
-    public async Task<int> DeleteOlderThanAsync(DateTime cutoff)
+    public Task<int> DeleteOlderThanAsync(DateTime cutoff) => RunAsync(async db =>
     {
-        var old = await _db.InspectionRecords
+        var old = await db.InspectionRecords
             .Where(r => r.CreatedAt < cutoff)
-            .ToListAsync();
+            .ToListAsync().ConfigureAwait(false);
 
         if (old.Count == 0) return 0;
 
-        _db.InspectionRecords.RemoveRange(old);
-        await _db.SaveChangesAsync();
+        db.InspectionRecords.RemoveRange(old);
+        await db.SaveChangesAsync().ConfigureAwait(false);
         _logger?.LogInformation("[DB] 删除 {Count} 条过期记录 (早于 {Cutoff:yyyy-MM-dd})",
             old.Count, cutoff);
         return old.Count;
-    }
+    });
 }

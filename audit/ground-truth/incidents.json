@@ -1,0 +1,398 @@
+{
+ "log_files": [
+  "crash.log",
+  "diag.log",
+  "Logs/visionstation-20260717.log",
+  "Logs/visionstation-20260718.log",
+  "Logs/visionstation-20260719.log",
+  "Logs/visionstation-20260720.log",
+  "Logs/visionstation-20260721.log",
+  "Logs/visionstation-20260816.log",
+  "Logs/visionstation-20261018.log",
+  "Logs/visionstation-20261019.log"
+ ],
+ "raw_hits": 44,
+ "incident_groups": 38,
+ "incidents": [
+  {
+   "gid": "GT-001",
+   "occurrences": 4,
+   "sources": [
+    "Logs/visionstation-20260717.log"
+   ],
+   "exc": "OpenCVException",
+   "code": null,
+   "sample": "OpenCvSharp.OpenCVException: 0 <= roi.x && 0 <= roi.width && roi.x + roi.width <= m.cols && 0 <= roi.y && 0 <= roi.height && roi.y + roi.height <= m.rows"
+  },
+  {
+   "gid": "GT-002",
+   "occurrences": 4,
+   "sources": [
+    "Logs/visionstation-20260717.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "at OpenCvSharp.Internal.NativeMethods.<>c.<.cctor>b__1693_0(ErrorCode status, String funcName, String errMsg, String fileName, Int32 line, IntPtr userData)"
+  },
+  {
+   "gid": "GT-003",
+   "occurrences": 1,
+   "sources": [
+    "crash.log"
+   ],
+   "exc": "XamlParseException",
+   "code": null,
+   "sample": "System.Windows.Markup.XamlParseException: “在类型“VisionStation.App.MainWindow”上未找到匹配的构造函数。可以使用 Arguments 或 FactoryMethod 指令来构造此类型。”，行号为“4”，行位置为“9”。"
+  },
+  {
+   "gid": "GT-004",
+   "occurrences": 1,
+   "sources": [
+    "crash.log"
+   ],
+   "exc": "MissingMethodException",
+   "code": null,
+   "sample": "---> System.MissingMethodException: 未找到类型“VisionStation.App.MainWindow”的默认构造函数。可以使用 Arguments 或 FactoryMethod 指令来构造此类型。"
+  },
+  {
+   "gid": "GT-005",
+   "occurrences": 1,
+   "sources": [
+    "crash.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "--- End of inner exception stack trace ---"
+  },
+  {
+   "gid": "GT-006",
+   "occurrences": 1,
+   "sources": [
+    "crash.log"
+   ],
+   "exc": "RewrapException",
+   "code": null,
+   "sample": "at System.Windows.Markup.XamlReader.RewrapException(Exception e, IXamlLineInfo lineInfo, Uri baseUri)"
+  },
+  {
+   "gid": "GT-007",
+   "occurrences": 1,
+   "sources": [
+    "crash.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "at System.Windows.Threading.ExceptionWrapper.InternalRealCall(Delegate callback, Object args, Int32 numArgs)"
+  },
+  {
+   "gid": "GT-008",
+   "occurrences": 1,
+   "sources": [
+    "crash.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "at System.Windows.Threading.ExceptionWrapper.TryCatchWhen(Object source, Delegate callback, Object args, Int32 numArgs, Delegate catchHandler)"
+  },
+  {
+   "gid": "GT-009",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260717.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-17 17:20:36.900 +08:00 [ERR] [异常] 第4帧处理失败"
+  },
+  {
+   "gid": "GT-010",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260717.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-17 17:30:32.353 +08:00 [ERR] [异常] 第4帧处理失败"
+  },
+  {
+   "gid": "GT-011",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260717.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-17 17:30:48.347 +08:00 [ERR] [异常] 第8帧处理失败"
+  },
+  {
+   "gid": "GT-012",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260717.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-17 17:33:10.330 +08:00 [ERR] [异常] 第4帧处理失败"
+  },
+  {
+   "gid": "GT-013",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 16:19:58.266 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-014",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 16:20:03.363 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-015",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 16:20:05.786 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-016",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 16:20:10.050 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-017",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 17:07:13.175 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-018",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 17:07:16.498 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-019",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 17:07:17.250 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-020",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 17:07:17.442 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-021",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 17:07:19.337 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-022",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260718.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-18 22:20:31.209 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-023",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260719.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-19 10:59:44.227 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-024",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260719.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-19 11:00:00.703 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-025",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260719.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-19 11:00:18.007 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-026",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260719.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-19 11:00:19.239 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-027",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260719.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-19 11:00:19.807 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-028",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20260719.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-07-19 11:00:20.239 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-029",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261018.log"
+   ],
+   "exc": null,
+   "code": "错误码:-2147483383",
+   "sample": "2026-10-18 22:18:49.655 +08:00 [INF] [HikCamera] 心跳超时设置不支持(USB/虚拟相机忽略) 错误码:-2147483383"
+  },
+  {
+   "gid": "GT-030",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261018.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-18 22:21:36.535 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  },
+  {
+   "gid": "GT-031",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261018.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-18 22:22:20.657 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  },
+  {
+   "gid": "GT-032",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261018.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-18 22:23:08.080 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  },
+  {
+   "gid": "GT-033",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261018.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-18 22:23:54.322 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  },
+  {
+   "gid": "GT-034",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261019.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-19 08:41:22.133 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  },
+  {
+   "gid": "GT-035",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261019.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-19 08:42:37.759 +08:00 [WRN] 采图失败 - 无图像"
+  },
+  {
+   "gid": "GT-036",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261019.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-19 08:42:46.589 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  },
+  {
+   "gid": "GT-037",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261019.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-19 08:45:44.698 +08:00 [WRN] 配方 D:\\Code\\VisionStation\\Config\\recipes\\__missing__.json 加载失败（缺失/损坏/为空），回退到内嵌默认配方"
+  },
+  {
+   "gid": "GT-038",
+   "occurrences": 1,
+   "sources": [
+    "Logs/visionstation-20261019.log"
+   ],
+   "exc": null,
+   "code": null,
+   "sample": "2026-10-19 08:45:45.316 +08:00 [ERR] [HikCamera] 打开设备失败:-2147483133"
+  }
+ ]
+}

@@ -42,7 +42,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ITriggerSource _trigger;
     private readonly ICamera _camera;
     private readonly Pipeline _pipeline;
-    private readonly InspectionRepository _repo;
+    private readonly IInspectionRepository _repo;
     private readonly ImageStoreService _imageStore;
     private readonly CalibrationConfig _calib;
     private readonly ILogger<MainViewModel> _logger;
@@ -58,12 +58,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private int _totalOk, _totalNg;      // 累计统计
     private double _emaCycleMs;          // 单帧耗时指数滑动平均（FPS 平滑，抗抖动）
 
+    /// <summary>
+    /// 连续存图失败次数。成功一次即清零。
+    ///
+    /// 为什么需要它？
+    ///   单次存图失败可以容忍（偶发 IO 抖动），但**连续失败意味着存储子系统已经不可用**：
+    ///   磁盘满、目录被删、权限变化。这时如果只逐帧记一行日志，
+    ///   产线会以 5 帧/秒的速度安静地丢掉全部 NG 图，事后一件都查不到。
+    ///   连续计数是把"偶发"和"系统性故障"区分开的唯一手段。
+    /// </summary>
+    private int _imageSaveFailures;
+    private const int ImageSaveFailureAlertThreshold = 10;
+
     // ═══════════════════════════════════════════════════════════
     //  构造函数 —— DI 注入所有依赖，连线触发信号
     // ═══════════════════════════════════════════════════════════
     public MainViewModel(
         ITriggerSource trigger, ICamera camera, Pipeline pipeline,
-        InspectionRepository repo, ImageStoreService imageStore,
+        IInspectionRepository repo, ImageStoreService imageStore,
         CalibrationConfig calib, ILogger<MainViewModel> logger,
         ImagePanelViewModel imagePanel, StatusBarViewModel statusBar, RecipeConfig recipe)
     {
@@ -83,6 +95,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // ★ 核心连线：触发信号 → OnTriggered → ProcessFrame
         _trigger.Triggered += OnTriggered;
+
+        // 状态栏相机指示必须在启动时就反映真实连接状态。
+        // CameraStatusMessage 只在每帧检测后发送，不初始化的话，
+        // 相机明明连上了，状态栏也会一直挂着灰点，直到第一次检测跑完为止。
+        _statusBar.CameraOnline = _camera.IsAvailable;
 
         // ROI 编辑器保存 → 重新从配方文件加载
         WeakReferenceMessenger.Default.Register<MainViewModel, RoisUpdatedMessage>(this,
@@ -161,7 +178,31 @@ public partial class MainViewModel : ObservableObject, IDisposable
             _imagePanel.SelectedTab = _imagePanel.Tabs[1]; // 自动切到"检测"tab
 
             // ── 5. 持久化：图片文件 + 数据库 ──
-            _imageStore.Save(frame, report);
+            // 存图结果必须检查，不能像以前那样直接丢弃返回值：
+            // Cv2.ImWrite 写失败只返回 false 不抛异常，不看结果就会变成
+            // "系统认为存了，实际磁盘上没有" —— NG 图在无人知晓的情况下永久丢失。
+            var imageResult = _imageStore.Save(frame, report);
+            if (imageResult.IsFailed)
+            {
+                _imageSaveFailures++;
+                _logger.LogError("[存图失败] 连续 {N} 次：{Err}", _imageSaveFailures, imageResult.Error);
+                WeakReferenceMessenger.Default.Send(new LogMessage(
+                    $"存图失败（连续 {_imageSaveFailures} 次）: {imageResult.Error}", LogMsgLevel.Warning));
+
+                if (_imageSaveFailures == ImageSaveFailureAlertThreshold)
+                {
+                    // 升级为显式告警：这里已经不能叫"偶发失败"，是存储不可用
+                    WeakReferenceMessenger.Default.Send(new LogMessage(
+                        $"存图已连续失败 {ImageSaveFailureAlertThreshold} 次，图片追溯中断，请检查磁盘空间与写权限",
+                        LogMsgLevel.Error));
+                    _logger.LogError("存图连续失败 {N} 次，存储子系统不可用", _imageSaveFailures);
+                }
+            }
+            else if (imageResult.IsSaved)
+            {
+                _imageSaveFailures = 0;   // 恢复即清零
+            }
+
             await _repo.SaveAsync(report);
 
             // ── 6. 累计统计 ──

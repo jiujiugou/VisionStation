@@ -70,6 +70,12 @@ public class ToolConfigData
     /// <summary>关联的 ROI 名称（与 RoiData.Name 匹配）</summary>
     public string Roi { get; set; } = "";
 
+    /// <summary>
+    /// 模型文件路径（仅深度学习类工具用，如 Yolo）。
+    /// 留空 = 走约定路径 models/neu-det.onnx（见 ToolFactory.ResolveModelPath）。
+    /// </summary>
+    public string Model { get; set; } = "";
+
     /// <summary>工具参数（如 {"threshold": 0.70, "areaMin": 50}）</summary>
     public Dictionary<string, double> Params { get; set; } = new();
 }

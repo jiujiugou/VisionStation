@@ -176,4 +176,51 @@ public class PipelineTests
         public ToolResult Execute(Mat gray, RoiRegion roi)
             => throw new InvalidOperationException("模拟工具异常");
     }
+
+    // ════════════════════════════════════════════════════════════
+    //  回归：两条曾经会打垮整条 Pipeline 的输入
+    // ════════════════════════════════════════════════════════════
+
+    [Fact]
+    public void Run_DuplicateRoiNames_DoesNotThrow()
+    {
+        // ROI 编辑器用 "ROI-{数量+1}" 自动命名，删掉中间一个再添加就会重名。
+        // 旧实现直接 rois.ToDictionary(...) → ArgumentException 冒出去，
+        // 每帧都失败，检测功能静默瘫痪（界面还在跑，只是什么都判不出来）。
+        var tool = new PresenceTool(0.70);
+        tool.LoadTemplate(CreateHoleTemplate());
+        var pipeline = new Pipeline(new List<IVisionTool> { tool });
+        using var img = CreateTestImage();
+
+        var rois = new List<RoiRegion>
+        {
+            new() { Name = "Presence", X = 120, Y = 120, Width = 80, Height = 80 },
+            new() { Name = "Presence", X = 10,  Y = 10,  Width = 50, Height = 50 },  // 重名
+        };
+
+        var report = pipeline.Run(img, rois, new CalibrationConfig());
+
+        // 不抛异常，且用先出现的那一个（顺序优先）
+        Assert.Single(report.Results);
+        Assert.Equal(120, rois[0].X);
+    }
+
+    [Fact]
+    public void Run_GrayscaleInput_DoesNotThrow()
+    {
+        // 黑白工业相机直出 8UC1。旧实现无条件 BGR2GRAY，对这种图每帧抛异常。
+        var tool = new PresenceTool(0.70);
+        tool.LoadTemplate(CreateHoleTemplate());
+        var pipeline = new Pipeline(new List<IVisionTool> { tool });
+
+        using var color = CreateTestImage();
+        using var grayOnly = new Mat();
+        Cv2.CvtColor(color, grayOnly, ColorConversionCodes.BGR2GRAY);
+        Assert.Equal(1, grayOnly.Channels());
+
+        var rois = new List<RoiRegion> { new() { Name = "Presence", X = 120, Y = 120, Width = 80, Height = 80 } };
+        var report = pipeline.Run(grayOnly, rois, new CalibrationConfig());
+
+        Assert.True(report.PresenceResult.IsOk);   // 灰度入图必须能正常检出
+    }
 }

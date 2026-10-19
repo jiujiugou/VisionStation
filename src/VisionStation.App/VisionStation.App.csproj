@@ -11,10 +11,10 @@
   </ItemGroup>
 
   <Target Name="CopyWatchdog" AfterTargets="Build">
-    <Copy SourceFiles="..\VisionStation.Watchdog\bin\$(Configuration)\net8.0\VisionStation.Watchdog.exe"
+    <Copy SourceFiles="..\VisionStation.Watchdog\bin\$(Configuration)\net8.0-windows\VisionStation.Watchdog.exe"
           DestinationFolder="$(OutputPath)"
           SkipUnchangedFiles="true"
-          Condition="Exists('..\VisionStation.Watchdog\bin\$(Configuration)\net8.0\VisionStation.Watchdog.exe')" />
+          Condition="Exists('..\VisionStation.Watchdog\bin\$(Configuration)\net8.0-windows\VisionStation.Watchdog.exe')" />
   </Target>
 
   <ItemGroup>
@@ -24,6 +24,18 @@
     <None Update="Config\recipes\**\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- 兜底配方内嵌进程序集：磁盘配方损坏时回退到同一份文件，
+         杜绝"代码里手抄一份兜底参数"和 default.json 悄悄对不上的问题 -->
+    <EmbeddedResource Include="Config\recipes\default.json" />
+    <!-- 深度学习权重必须随输出目录一起走。
+         ToolFactory.ResolveModelPath 会从 BaseDirectory 往上找 models/，
+         开发机上能找到仓库根目录那份，但在 publish 出来的目录里找不到 ——
+         结果是 Yolo 工具被静默跳过（返回 null 不报错），以为在跑 4 个工具实际只有 3 个。
+         放在这里后 bin/ 和 publish/ 都自带 models/，发布不再依赖工作目录。 -->
+    <Content Include="..\..\models\**\*.onnx">
+      <Link>models\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

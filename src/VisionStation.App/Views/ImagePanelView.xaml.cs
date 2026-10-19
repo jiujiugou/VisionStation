@@ -68,9 +68,23 @@ public partial class ImagePanelView : UserControl
         _mousePos = e.GetPosition(ImageDisplay);
         double imgW = _vm.CurrentImage?.PixelWidth ?? 0;
         double imgH = _vm.CurrentImage?.PixelHeight ?? 0;
-        var px = (int)(_mousePos.X / ImageDisplay.ActualWidth * imgW);
-        var py = (int)(_mousePos.Y / ImageDisplay.ActualHeight * imgH);
-        CoordLabel.Text = $"({px}, {py}) px | {_zoom:F1}x";
+        double dispW = ImageDisplay.ActualWidth;
+        double dispH = ImageDisplay.ActualHeight;
+
+        // 守卫：窗口刚打开时 ActualWidth 还是 0，除零得到 Infinity，
+        // (int)Infinity 在 .NET 上会截成 int.MinValue —— 界面上就出现
+        // "(-2147483648, -2147483648) px" 这种鬼数字。
+        if (dispW > 0 && dispH > 0 && imgW > 0 && imgH > 0)
+        {
+            var px = (int)(_mousePos.X / dispW * imgW);
+            var py = (int)(_mousePos.Y / dispH * imgH);
+            CoordLabel.Text = $"({px}, {py}) px | {_zoom:F1}x";
+        }
+        else
+        {
+            // 还没有图（或布局尚未完成）——显示占位符，不要显示越界数字
+            CoordLabel.Text = $"(—, —) px | {_zoom:F1}x";
+        }
 
         if (!_isPanning) return;
 

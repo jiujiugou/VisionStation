@@ -1,0 +1,4 @@
+# 全量回归  2026-10-19 12:36:34
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+失败!  - 失败:     4，通过:    51，已跳过:     0，总计:    55，持续时间: 432 ms - VisionStation.UnitTests.dll (net8.0)

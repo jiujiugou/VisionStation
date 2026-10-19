@@ -16,4 +16,9 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 清理轮次需要被单元测试直接驱动（否则只能等 1 小时 Timer 或反射） -->
+    <InternalsVisibleTo Include="VisionStation.UnitTests" />
+  </ItemGroup>
+
 </Project>

@@ -70,11 +70,33 @@ public class Pipeline
         string imagePath = "")
     {
         // ══ 转灰度（所有 Tool 共用，不在每个 Tool 里重复转）══
+        // 黑白工业相机直出 8UC1，对它调 BGR2GRAY 会抛异常 —— 每帧都崩，检测直接瘫痪。
+        // 所以按通道数分支，单通道直接复用。
         using var gray = new Mat();
-        Cv2.CvtColor(image, gray, ColorConversionCodes.BGR2GRAY);
+        switch (image.Channels())
+        {
+            case 1:
+                image.CopyTo(gray);
+                break;
+            case 4:
+                Cv2.CvtColor(image, gray, ColorConversionCodes.BGRA2GRAY);
+                break;
+            default:
+                Cv2.CvtColor(image, gray, ColorConversionCodes.BGR2GRAY);
+                break;
+        }
 
         // ══ ROI 字典（按名称索引，O(1) 查找）══
-        var roiMap = rois.ToDictionary(r => r.Name, r => r);
+        // 不能用 ToDictionary：ROI 重名会抛 ArgumentException，整个 Run 直接失败 ——
+        // 而 ROI 编辑器的自动命名（ROI-{数量+1}）删一个再加一个就会撞名。
+        // 容错策略：保留先出现的那个（顺序有意义），重名记警告但不崩。
+        var roiMap = new Dictionary<string, RoiRegion>(rois.Count);
+        foreach (var r in rois)
+        {
+            if (!roiMap.TryAdd(r.Name, r))
+                _logger?.LogWarning(
+                    "[Pipeline] ROI 名称重复：\"{Name}\"，已忽略后出现的那一个（请检查配方）", r.Name);
+        }
 
         // ══ 新建报告 ══
         var report = new InspectionReport

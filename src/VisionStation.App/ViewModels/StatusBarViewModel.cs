@@ -20,11 +20,22 @@ public partial class StatusBarViewModel : ObservableObject
     [ObservableProperty]
     private string _statusText = "就绪";
 
-    /// <summary>PLC 是否在线</summary>
+    /// <summary>
+    /// PLC 是否在线。
+    ///
+    /// 默认必须是 false：当前项目里没有任何 PLC 通讯实现（零 Modbus/TCP、零串口），
+    /// 默认写 true 等于在界面上挂一个假状态灯 —— 操作员会以为产线联动了，
+    /// 而实际上没有任何数据通道。将来接上 PLC 后由通讯层真正回写这个值。
+    /// </summary>
     [ObservableProperty]
-    private bool _plcOnline = true;
+    private bool _plcOnline;
 
-    /// <summary>相机是否在线</summary>
+    /// <summary>
+    /// 相机是否在线。
+    /// 构造时由 MainViewModel 用真实连接状态初始化，之后靠 CameraStatusMessage 更新。
+    /// 默认 false 只代表"还没确认"，不代表离线 —— 所以启动时必须立刻赋真值，
+    /// 否则相机明明连上了，状态栏会一直显示灰点，直到第一次检测跑完。
+    /// </summary>
     [ObservableProperty]
     private bool _cameraOnline;
 

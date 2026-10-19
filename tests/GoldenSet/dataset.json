@@ -1,0 +1,855 @@
+{
+  "version": "1.0",
+  "createdAt": "2026-10-18",
+  "description": "VisionStation 黄金样本库。NEU-DET 钢材表面缺陷测试集子集。数据集本身不含框级标注，标签由文件名前缀给出（图像级真值）。sha256 前16位用于锁定数据版本：图片被替换或改动会立即报错。",
+  "classNames": [
+    "crazing",
+    "inclusion",
+    "patches",
+    "pitted_surface",
+    "rolled-in_scale",
+    "scratches"
+  ],
+  "items": [
+    {
+      "id": "crazing_271",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_271.jpg",
+      "expected": "crazing",
+      "sha256": "2227d033081e4b5d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_272",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_272.jpg",
+      "expected": "crazing",
+      "sha256": "e57ac6b9b586284a",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_273",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_273.jpg",
+      "expected": "crazing",
+      "sha256": "b67c916c81548576",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_274",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_274.jpg",
+      "expected": "crazing",
+      "sha256": "7666107c448d2234",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_275",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_275.jpg",
+      "expected": "crazing",
+      "sha256": "6ae4426aaf22b79d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_276",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_276.jpg",
+      "expected": "crazing",
+      "sha256": "8440b30fbde2cb5f",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_277",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_277.jpg",
+      "expected": "crazing",
+      "sha256": "41dee519ca65f342",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_279",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_279.jpg",
+      "expected": "crazing",
+      "sha256": "edb42fccfd1f9754",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_280",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_280.jpg",
+      "expected": "crazing",
+      "sha256": "f67462e22e7e025d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_281",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_281.jpg",
+      "expected": "crazing",
+      "sha256": "72c1c814e984a539",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_282",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_282.jpg",
+      "expected": "crazing",
+      "sha256": "541ea674fef6a896",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_283",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_283.jpg",
+      "expected": "crazing",
+      "sha256": "09ec881115d4ea36",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_284",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_284.jpg",
+      "expected": "crazing",
+      "sha256": "7e298fc6d48cd742",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_285",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_285.jpg",
+      "expected": "crazing",
+      "sha256": "f93b867670dc0f2a",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_287",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_287.jpg",
+      "expected": "crazing",
+      "sha256": "793aa8808f567cd6",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_288",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_288.jpg",
+      "expected": "crazing",
+      "sha256": "48efd269655d26e0",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_289",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_289.jpg",
+      "expected": "crazing",
+      "sha256": "e8a4eb437e3586cd",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_290",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_290.jpg",
+      "expected": "crazing",
+      "sha256": "adcb1bb45c8e9a83",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_291",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_291.jpg",
+      "expected": "crazing",
+      "sha256": "f08ee4fd02d4b59f",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_292",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_292.jpg",
+      "expected": "crazing",
+      "sha256": "091518252229e30c",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_294",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_294.jpg",
+      "expected": "crazing",
+      "sha256": "067a4d6dd8fbae0a",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_295",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_295.jpg",
+      "expected": "crazing",
+      "sha256": "baf96b62005b06f8",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_296",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_296.jpg",
+      "expected": "crazing",
+      "sha256": "92a1d48c1f1b08a4",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_297",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_297.jpg",
+      "expected": "crazing",
+      "sha256": "f747b0d994279d4e",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_298",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_298.jpg",
+      "expected": "crazing",
+      "sha256": "767ef7b4c31afd77",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_299",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_299.jpg",
+      "expected": "crazing",
+      "sha256": "37cb5a5f9ffcf722",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "crazing_300",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/crazing_300.jpg",
+      "expected": "crazing",
+      "sha256": "87595c05d2a5f779",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_271",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_271.jpg",
+      "expected": "inclusion",
+      "sha256": "48487d8742cb496d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_272",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_272.jpg",
+      "expected": "inclusion",
+      "sha256": "c15071996140e92c",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_273",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_273.jpg",
+      "expected": "inclusion",
+      "sha256": "e913ec752513deb8",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_274",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_274.jpg",
+      "expected": "inclusion",
+      "sha256": "b5b5718577b5522f",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_275",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_275.jpg",
+      "expected": "inclusion",
+      "sha256": "6c466e7953b1c97b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_276",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_276.jpg",
+      "expected": "inclusion",
+      "sha256": "45ed75a4a0b57ccc",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_277",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_277.jpg",
+      "expected": "inclusion",
+      "sha256": "ccb16c05fb1c4e6b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_278",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_278.jpg",
+      "expected": "inclusion",
+      "sha256": "c8e8a4a7e4f73be0",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_279",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_279.jpg",
+      "expected": "inclusion",
+      "sha256": "94a38ea1934412a1",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_280",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_280.jpg",
+      "expected": "inclusion",
+      "sha256": "d12b66004f348638",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_281",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_281.jpg",
+      "expected": "inclusion",
+      "sha256": "8ea45458a7691285",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_282",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_282.jpg",
+      "expected": "inclusion",
+      "sha256": "7baa41a3a61051f2",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_283",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_283.jpg",
+      "expected": "inclusion",
+      "sha256": "20ab6fc6330d683b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_284",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_284.jpg",
+      "expected": "inclusion",
+      "sha256": "4bd59750b701df9d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_285",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_285.jpg",
+      "expected": "inclusion",
+      "sha256": "7e4866042e496e3e",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_286",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_286.jpg",
+      "expected": "inclusion",
+      "sha256": "62525a1b2cae83b2",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_287",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_287.jpg",
+      "expected": "inclusion",
+      "sha256": "aa4a04bfc65ad081",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_288",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_288.jpg",
+      "expected": "inclusion",
+      "sha256": "6d738aa8d938af38",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_289",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_289.jpg",
+      "expected": "inclusion",
+      "sha256": "ab9e9667fd3cd58c",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_290",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_290.jpg",
+      "expected": "inclusion",
+      "sha256": "f965707a2b7f4645",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_291",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_291.jpg",
+      "expected": "inclusion",
+      "sha256": "ba590ecd26f87438",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_292",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_292.jpg",
+      "expected": "inclusion",
+      "sha256": "7a688ec367df776e",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_293",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_293.jpg",
+      "expected": "inclusion",
+      "sha256": "5cfae097f87a05dc",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_294",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_294.jpg",
+      "expected": "inclusion",
+      "sha256": "cdf27f9337292c89",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_295",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_295.jpg",
+      "expected": "inclusion",
+      "sha256": "c1233156b17a5bba",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_296",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_296.jpg",
+      "expected": "inclusion",
+      "sha256": "b47270b2b088b493",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_297",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_297.jpg",
+      "expected": "inclusion",
+      "sha256": "cb9c3d5c69cb4c56",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_298",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_298.jpg",
+      "expected": "inclusion",
+      "sha256": "8b05aaa4648d3760",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_299",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_299.jpg",
+      "expected": "inclusion",
+      "sha256": "c7e999cc03a2e6dc",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "inclusion_300",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/inclusion_300.jpg",
+      "expected": "inclusion",
+      "sha256": "0aa52d34c0e0baf7",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_271",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_271.jpg",
+      "expected": "patches",
+      "sha256": "c156a7fb16387443",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_272",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_272.jpg",
+      "expected": "patches",
+      "sha256": "fab6bccd498ba53f",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_273",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_273.jpg",
+      "expected": "patches",
+      "sha256": "5d0b9c47b6f64c3b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_274",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_274.jpg",
+      "expected": "patches",
+      "sha256": "5dc9bf890f7261dc",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_275",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_275.jpg",
+      "expected": "patches",
+      "sha256": "4e9f0be2c1b30d73",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_276",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_276.jpg",
+      "expected": "patches",
+      "sha256": "dd3ed2d74c829c93",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_277",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_277.jpg",
+      "expected": "patches",
+      "sha256": "dc994b40ea8acfc0",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_278",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_278.jpg",
+      "expected": "patches",
+      "sha256": "b7cb46c7b9496613",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_279",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_279.jpg",
+      "expected": "patches",
+      "sha256": "d2bf11e2a6293675",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_280",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_280.jpg",
+      "expected": "patches",
+      "sha256": "0c2f7d48bd413351",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_281",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_281.jpg",
+      "expected": "patches",
+      "sha256": "7a9cee7c60897f04",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_282",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_282.jpg",
+      "expected": "patches",
+      "sha256": "d31139e157f9d1b8",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_283",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_283.jpg",
+      "expected": "patches",
+      "sha256": "65c3ac9d8c00ed21",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_284",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_284.jpg",
+      "expected": "patches",
+      "sha256": "bdb2d8ecf644a70e",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_285",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_285.jpg",
+      "expected": "patches",
+      "sha256": "7def0954602b375c",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_286",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_286.jpg",
+      "expected": "patches",
+      "sha256": "a7076ebb0a338b71",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_287",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_287.jpg",
+      "expected": "patches",
+      "sha256": "5261d0b7ee9c4ca0",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_288",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_288.jpg",
+      "expected": "patches",
+      "sha256": "6da34fabd707f6b8",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_289",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_289.jpg",
+      "expected": "patches",
+      "sha256": "d9a2f0f146403262",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_290",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_290.jpg",
+      "expected": "patches",
+      "sha256": "3a3ef9ad75e44d1f",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_291",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_291.jpg",
+      "expected": "patches",
+      "sha256": "9afa3a077dcf17d8",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_292",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_292.jpg",
+      "expected": "patches",
+      "sha256": "7aa94f790e2e69fc",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_293",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_293.jpg",
+      "expected": "patches",
+      "sha256": "79c65389caf29061",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_294",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_294.jpg",
+      "expected": "patches",
+      "sha256": "28260a8973c0988b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_295",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_295.jpg",
+      "expected": "patches",
+      "sha256": "f3daada7e1852c8b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_296",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_296.jpg",
+      "expected": "patches",
+      "sha256": "b80f700f2871cde3",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_297",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_297.jpg",
+      "expected": "patches",
+      "sha256": "0cec0be4c4130819",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_298",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_298.jpg",
+      "expected": "patches",
+      "sha256": "7f1193eb62c98ca5",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_299",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_299.jpg",
+      "expected": "patches",
+      "sha256": "249e1897dcc805e3",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "patches_300",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/patches_300.jpg",
+      "expected": "patches",
+      "sha256": "c97e4426198ad698",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_271",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_271.jpg",
+      "expected": "pitted_surface",
+      "sha256": "574c40cc98d5a5b6",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_272",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_272.jpg",
+      "expected": "pitted_surface",
+      "sha256": "5276aef701a48754",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_273",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_273.jpg",
+      "expected": "pitted_surface",
+      "sha256": "478bc609f0ac1310",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_274",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_274.jpg",
+      "expected": "pitted_surface",
+      "sha256": "698933de2e9fdf59",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_275",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_275.jpg",
+      "expected": "pitted_surface",
+      "sha256": "58594a1b490b1918",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_276",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_276.jpg",
+      "expected": "pitted_surface",
+      "sha256": "f381ba16a13c335d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_277",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_277.jpg",
+      "expected": "pitted_surface",
+      "sha256": "cfa49c7eb0958b57",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_278",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_278.jpg",
+      "expected": "pitted_surface",
+      "sha256": "a2ca53c5f4dcbc1a",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_279",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_279.jpg",
+      "expected": "pitted_surface",
+      "sha256": "54dc6e81c383ea7f",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_280",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_280.jpg",
+      "expected": "pitted_surface",
+      "sha256": "a3d0169e01ee1ef9",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_281",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_281.jpg",
+      "expected": "pitted_surface",
+      "sha256": "95f7917ac8309632",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_282",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_282.jpg",
+      "expected": "pitted_surface",
+      "sha256": "cddef1a10e36aa1d",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_283",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_283.jpg",
+      "expected": "pitted_surface",
+      "sha256": "a7848a058d4eb08b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_284",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_284.jpg",
+      "expected": "pitted_surface",
+      "sha256": "b91c92306577ac10",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_285",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_285.jpg",
+      "expected": "pitted_surface",
+      "sha256": "67ba9fbc2930c05b",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_286",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_286.jpg",
+      "expected": "pitted_surface",
+      "sha256": "8fa8faa63ff20aca",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_287",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_287.jpg",
+      "expected": "pitted_surface",
+      "sha256": "c77cc92be88c61ee",
+      "width": 200,
+      "height": 200
+    },
+    {
+      "id": "pitted_surface_288",
+      "image": "TestImages/RealParts/NEU-DET/data/NEU-DET/test/images/pitted_surface_288.jpg",
+      "expected": "pitted_surface",
+      "sha256": "b816257cb09fcd1a",
+      "width": 200,
+      "height": 200
+    }
+  ]
+}

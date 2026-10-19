@@ -34,3 +34,6 @@ watchdog.log
 .workbuddy/
 TestImages/VirtualCamera/
 notes/
+
+# 黄金样本库运行产物（每次跑都变，基线才入库）
+tests/GoldenSet/last-run.json

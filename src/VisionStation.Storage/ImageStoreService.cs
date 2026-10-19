@@ -12,6 +12,34 @@ namespace VisionStation.Storage;
 public enum ImageStoreMode { All, NGOnly, Sampling }
 
 /// <summary>
+/// 存图结果的三态。
+///
+/// 为什么不能只返回 string?（原来的写法）：
+///   "按策略不存"（Skipped）和"想存但存失败了"（Failed）都表现为 null，
+///   调用方无法区分，等于把故障和正常策略混成一个返回值 —— 故障被静默吞掉。
+/// </summary>
+public enum ImageSaveOutcome
+{
+    /// <summary>按存储策略决定不保存（正常行为）</summary>
+    Skipped,
+
+    /// <summary>已落盘</summary>
+    Saved,
+
+    /// <summary>本应保存但失败（磁盘满 / 无权限 / 路径非法 / 编码失败）</summary>
+    Failed
+}
+
+/// <summary>一次存图操作的完整结果</summary>
+public sealed record ImageSaveResult(ImageSaveOutcome Outcome, string? Path, string? Error)
+{
+    public bool IsSaved => Outcome == ImageSaveOutcome.Saved;
+    public bool IsFailed => Outcome == ImageSaveOutcome.Failed;
+
+    public static readonly ImageSaveResult Skipped = new(ImageSaveOutcome.Skipped, null, null);
+}
+
+/// <summary>
 /// 图片文件管理服务 —— 负责检测图像的持久化存储
 ///
 /// 策略：
@@ -46,27 +74,44 @@ public class ImageStoreService
     /// <summary>保存检测图像（根据模式判断是否保存）</summary>
     /// <param name="frame">采集帧</param>
     /// <param name="report">检测报告</param>
-    /// <returns>保存的文件路径，未保存时返回 null</returns>
-    public string? Save(CameraFrame frame, InspectionReport report)
+    /// <returns>
+    /// 三态结果。失败时**不抛异常**，而是返回 Failed + 原因 ——
+    /// 存图失败不该让整帧检测结果作废（结果本身仍有价值），
+    /// 但调用方必须看得见，否则 NG 图会在无人知晓的情况下永久丢失。
+    /// </returns>
+    public ImageSaveResult Save(CameraFrame frame, InspectionReport report)
     {
         if (!ShouldSave(report))
-            return null;
+            return ImageSaveResult.Skipped;
 
-        // 按日期分文件夹
-        var dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
-        var folder = Path.Combine(_baseFolder, dateFolder);
-        Directory.CreateDirectory(folder);
+        string? fullPath = null;
+        try
+        {
+            // 按日期分文件夹
+            var dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
+            var folder = Path.Combine(_baseFolder, dateFolder);
+            Directory.CreateDirectory(folder);
 
-        // 文件名：时间戳_判定_原文件名
-        var baseName = Path.GetFileNameWithoutExtension(frame.FilePath);
-        if (string.IsNullOrEmpty(baseName)) baseName = "capture";
+            // 文件名：时间戳_判定_原文件名
+            var baseName = Path.GetFileNameWithoutExtension(frame.FilePath);
+            if (string.IsNullOrEmpty(baseName)) baseName = "capture";
 
-        var fileName = $"{DateTime.Now:HHmmssfff}_{report.OverallVerdict}_{baseName}.png";
-        var fullPath = Path.Combine(folder, fileName);
+            var fileName = $"{DateTime.Now:HHmmssfff}_{report.OverallVerdict}_{baseName}.png";
+            fullPath = Path.Combine(folder, fileName);
 
-        // 写入磁盘
-        Cv2.ImWrite(fullPath, frame.Image);
-        return fullPath;
+            // 写入磁盘。
+            // 注意：Cv2.ImWrite 失败时**只返回 false，不抛异常** ——
+            // 这是最容易踩的坑：不看返回值就等于认定"存成功了"。
+            if (!Cv2.ImWrite(fullPath, frame.Image))
+                return new ImageSaveResult(ImageSaveOutcome.Failed, null,
+                    $"ImWrite 返回 false（磁盘满？路径不可写？）：{fullPath}");
+
+            return new ImageSaveResult(ImageSaveOutcome.Saved, fullPath, null);
+        }
+        catch (Exception ex)
+        {
+            return new ImageSaveResult(ImageSaveOutcome.Failed, null, $"{ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>根据当前模式判断是否保存本帧</summary>

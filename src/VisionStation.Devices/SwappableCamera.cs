@@ -19,7 +19,7 @@ namespace VisionStation.Devices;
 ///   - CurrentMode 必须反映真实相机类型：它同时被 UI 用来做"同一个模式不要重复切"的去重判断，
 ///     写死默认值会让守卫失效（配置 Mode=Hikvision 时界面仍认为是 File）。
 /// </summary>
-public class SwappableCamera : ICamera, IDisposable
+public class SwappableCamera : ICamera
 {
     // 当前活跃的相机（所有 ICamera 方法委托给它）
     private ICamera _active;
@@ -87,14 +87,15 @@ public class SwappableCamera : ICamera, IDisposable
             {
                 // 典型场景：旧海康还占着设备，新建的第二个实例必然 OpenDevice 失败。
                 // 此时既不能替换 _active，更不能 Dispose 旧实例。
-                (candidate as IDisposable)?.Dispose();
+                // 工厂返回 null 也走这里，所以 candidate 可能为空 —— 不能写成 candidate.Dispose()
+                candidate?.Dispose();
                 return false;
             }
 
             var old = _active;
             _active = candidate;
             _currentMode = mode;
-            (old as IDisposable)?.Dispose();
+            old.Dispose();
             return true;
         }
     }
@@ -103,7 +104,7 @@ public class SwappableCamera : ICamera, IDisposable
     {
         lock (_swapLock)
         {
-            (_active as IDisposable)?.Dispose();
+            _active.Dispose();
         }
     }
 }

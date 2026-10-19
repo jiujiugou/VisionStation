@@ -20,7 +20,7 @@ public class DeviceLayerTests
     //  替身
     // ═══════════════════════════════════════════════════
 
-    private sealed class FakeCamera : ICamera, IDisposable
+    private sealed class FakeCamera : ICamera
     {
         public bool Available { get; set; } = true;
         public int OpenCount { get; private set; }
@@ -43,6 +43,9 @@ public class DeviceLayerTests
         public void Start() { IsRunning = true; StartCount++; }
         public void Stop() { IsRunning = false; StopCount++; }
         public void Fire() => Triggered?.Invoke();
+
+        // 接口继承 IDisposable 后必须实现；替身无资源，空实现即可
+        public void Dispose() => GC.SuppressFinalize(this);
     }
 
     private sealed class FakeDevice : IDevice

@@ -26,7 +26,7 @@ namespace VisionStation.Devices;
 ///   恢复：等心跳超时；MVS 虚拟相机需在虚拟设备工具里删除重加（重置会话）。
 ///   根治：程序退出路径必须释放设备（见 App.OnExit 的容器 Dispose → 本类 Dispose）。
 /// </summary>
-public class HikCamera : ICamera, IDisposable
+public class HikCamera : ICamera
 {
     // ── 基础设施 ──
     private readonly ILogger<HikCamera>? _logger;   // 可空：相机在无 DI 场景也能 new

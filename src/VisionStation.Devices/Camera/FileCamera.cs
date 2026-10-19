@@ -11,7 +11,7 @@ namespace VisionStation.Devices;
 /// 因此文件列表不做原地 Clear/Add，而是**整个换引用**：
 /// 采集线程每次先取一份快照，手里的列表永远不会被另一个线程改掉。
 /// </summary>
-public class FileCamera : ICamera
+public sealed class FileCamera : ICamera
 {
     private readonly string _folderPath;
     private readonly string _fileFilter;
@@ -20,6 +20,9 @@ public class FileCamera : ICamera
 
     private volatile List<string> _files = new();   // 只整体替换，不原地修改
     private int _index;
+
+    /// <summary>过滤器分隔符（"*.jpg|*.png" 这种写法），提成静态字段避免每次刷新都分配数组</summary>
+    private static readonly char[] FilterSeparators = { '|', ';' };
 
     /// <summary>还有没有图可采（非循环模式读完后为 false，不能只看文件总数）</summary>
     public bool IsAvailable
@@ -35,7 +38,21 @@ public class FileCamera : ICamera
     public int TotalFiles => _files.Count;
 
     public void open() => RefreshFileList();
+
+    /// <summary>本实现只持有托管对象（文件路径列表），关闭无需动作。</summary>
     public void close() { }
+
+    /// <summary>
+    /// 空释放：FileCamera 没有句柄、流或线程，内存交给 GC。
+    /// 之所以仍然显式实现，是因为 ICamera 继承 IDisposable 是为了强制
+    /// 真正持有 SDK 句柄的实现（HikCamera）无法忘记释放；
+    /// 这里什么都不做是正确结果，不是遗漏。
+    /// </summary>
+    public void Dispose()
+    {
+        close();
+        GC.SuppressFinalize(this);
+    }
 
     public FileCamera(string folderPath, string fileFilter = "*.jpg", bool loop = true,
         ILogger<FileCamera>? logger = null)
@@ -51,7 +68,6 @@ public class FileCamera : ICamera
     public void RefreshFileList()
     {
         var list = new List<string>();
-        string[] all = Array.Empty<string>();
 
         try
         {
@@ -62,7 +78,7 @@ public class FileCamera : ICamera
                 return;
             }
 
-            var extensions = _fileFilter.Split(new[] { '|', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            var extensions = _fileFilter.Split(FilterSeparators, StringSplitOptions.RemoveEmptyEntries)
                                          .Select(f => f.Trim().TrimStart('*'))
                                          .ToArray();
 
@@ -73,11 +89,12 @@ public class FileCamera : ICamera
 
             // 目录存在 ≠ 可读：权限、被占用、路径过长都会在这里抛。
             // 构造函数就会调用本方法，异常若逃出去 = 整个程序启动失败，必须就地降级为空列表。
-            all = Directory.GetFiles(_folderPath);
+            var all = Directory.GetFiles(_folderPath);
 
             foreach (var file in all)
             {
-                var ext = Path.GetExtension(file).ToLower();
+                // ToLowerInvariant：扩展名比较与系统区域无关，避免土耳其语 I→ı 这类坑
+                var ext = Path.GetExtension(file).ToLowerInvariant();
                 if (extensions.Contains(ext))
                     list.Add(file);
             }

@@ -70,6 +70,8 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 11. **NaN 能穿过 `<= 0` 守卫**。WPF 未测量时 `ActualWidth` 是 NaN，`NaN <= 0` 为 false，守卫形同虚设。尺寸校验一律用 `IsFinitePositive`（拒绝 NaN/∞/0/负）。
 12. **在线状态必须可被反证**。设备层的 `IsAvailable` 不能只置真不置假：无帧超过 `StaleAfterMs` 就要转假，否则界面报就绪、采集返回 null、下游全部以为一切正常。
 13. **后台线程的异常就地拦下**。`GrabLoop`/`Timer` 回调跑在无 catch 的线程上，未捕获异常 = 进程终止；且帧缓冲必须在 `finally` 里归还，漏一次 SDK 就再也不出帧。
+14. **资源契约写进接口，不靠实现类自觉**。`ICamera` / `ITriggerSource` 都继承 `IDisposable`：新加一个相机忘写释放，编译器直接报错。不要给 `IDisposable.Dispose` 写 default interface 实现——那会让忘记实现的相机静默拿到空释放，正好把要防的泄漏放过去。替身/无资源实现显式写空 `Dispose` 是正确的，不是遗漏。
+15. **Core 的公开签名泄漏了 `OpenCvSharp.Mat`**（`CameraFrame.Image`）。不影响运行，但意味着 Core 脱离 OpenCV 就用不了（命令行批处理、服务端复检都得带上 OpenCV）。要还这笔债得给 Core 加一层自有图像类型，成本不小，当前不动；换 UI 或做无界面批处理时一并处理。
 
 ## 6. 三步失效分析法（本仓库的工程纪律）
 

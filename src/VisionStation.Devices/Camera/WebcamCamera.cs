@@ -11,7 +11,7 @@ namespace VisionStation.Devices;
 /// 只置真不置假的 IsAvailable 会让界面在摄像头已拔掉之后仍显示"就绪"，
 /// 而 Capture() 永远返回 null —— 检查者自身失效，产线停了却没有任何告警。
 /// </summary>
-public class WebcamCamera : ICamera, IDisposable
+public class WebcamCamera : ICamera
 {
     private readonly int _deviceIndex;
     private readonly ILogger<WebcamCamera>? _logger;

@@ -23,7 +23,7 @@ using System.Timers;
 ///   Elapsed 跑在 ThreadPool 上，未捕获异常 = 进程终止（.NET 默认行为）。
 ///   处理器抛错必须就地拦下并上报，不能让一个坏帧带走整个检测程序。
 /// </summary>
-public class TimerTrigger : ITriggerSource, IDisposable
+public class TimerTrigger : ITriggerSource
 {
     private readonly Timer _timer;
     private readonly Action<Exception>? _onError;   // 处理器异常出口（可空：无 DI 场景也能 new）

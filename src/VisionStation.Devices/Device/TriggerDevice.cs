@@ -21,6 +21,21 @@ public class TriggerDevice : IDevice
 
     public TriggerDevice(ITriggerSource trigger) => _trigger = trigger;
 
-    public void Connect() { }
-    public void Disconnect() { _trigger.Stop(); }
+    // 断开前记住自动模式是否在跑：Connect 是 Disconnect 的逆操作，
+    // 旧实现 Connect 为空而 Disconnect 去 Stop，断开再连接后自动触发永久停摆，
+    // 界面却仍显示"自动模式"。
+    private bool _wasRunning;
+
+    public void Connect()
+    {
+        if (!_wasRunning) return;
+        _trigger.Start();
+        _wasRunning = false;
+    }
+
+    public void Disconnect()
+    {
+        _wasRunning = _trigger.IsRunning;
+        _trigger.Stop();
+    }
 }

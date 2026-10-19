@@ -31,12 +31,16 @@ public class HikCamera : ICamera, IDisposable
     // ── 基础设施 ──
     private readonly ILogger<HikCamera>? _logger;   // 可空：相机在无 DI 场景也能 new
     private MyCamera? _camera;                      // SDK 设备句柄（Open 成功后才有意义）
-    private bool _grabbing;                         // 采图线程运行开关（false = 线程退出）
+    private volatile bool _grabbing;                // 采图线程运行开关（false = 线程退出；volatile 保证采图线程能看见）
     private int _frameCount;                        // 累计成功采集帧数（状态栏 FPS 参考）
     private Thread? _grabThread;                    // 后台采图线程（IsBackground，随进程退出）
     private IntPtr _imageBuffer = IntPtr.Zero;      // 预留的非托管缓冲（当前未使用，Dispose 里兜底释放）
     private readonly object _lock = new();          // 采图线程 ↔ Capture() 的互斥锁（保护下面那组帧字段）
-    private bool _disposed;                         // Dispose 幂等保护：ProcessExit/OnExit/异常路径可能多次触发
+    private volatile bool _disposed;                // Dispose 幂等保护：ProcessExit/OnExit/异常路径可能多次触发
+    private bool _available;                        // 开流成功且未判定失联（IsAvailable 的"真"位）
+    private long _lastFrameTick;                    // 最近一次成功取帧的 Environment.TickCount64
+    private bool _sdkHeld;                          // 本实例是否持有进程级 SDK 引用计数
+    private static int _sdkRefs;                    // 进程级 SDK 引用计数：多实例并存时只有最后一个 Finalize
 
     // ── 最新帧缓存（生产者-消费者核心）──
     // 采图线程写入 / Capture() 读取，全部在 _lock 内访问
@@ -48,7 +52,20 @@ public class HikCamera : ICamera, IDisposable
     private bool _hasNewFrame;       // 有新帧未消费的标志：Capture 取走后置 false，避免重复处理同一帧
 
     // ── 对外状态 ──
-    public bool IsAvailable { get; private set; }   // 相机是否可用（Open+StartGrabbing 都成功才为 true）
+    /// <summary>超过此时长没有新帧即判定失联（毫秒）</summary>
+    public int StaleAfterMs { get; set; } = 3000;
+
+    /// <summary>
+    /// 相机是否可用：开流成功 **且** 最近 StaleAfterMs 内出过帧。
+    /// 只置真不置假会让"在线"变成恒真判据 —— 拔网线/掉电后界面仍显示就绪，
+    /// 而 Capture() 永远返回 null，检测静默停止且没有任何线索。
+    /// </summary>
+    public bool IsAvailable => _available && FrameAlive(_lastFrameTick, Environment.TickCount64, StaleAfterMs);
+
+    /// <summary>帧心跳判据（纯函数，便于单测）：从未出帧 = 不可用；超过阈值无新帧 = 不可用</summary>
+    public static bool FrameAlive(long lastFrameMs, long nowMs, int staleAfterMs)
+        => lastFrameMs > 0 && staleAfterMs > 0 && nowMs >= lastFrameMs && nowMs - lastFrameMs <= staleAfterMs;
+
     public int FrameCount => _frameCount;
 
     public HikCamera(ILogger<HikCamera>? logger = null)
@@ -61,14 +78,15 @@ public class HikCamera : ICamera, IDisposable
     {
         try
         {
-            // ══ 步骤 1：SDK 全局初始化（整个进程只需要一次）══
+            // ══ 步骤 1：SDK 全局初始化（进程级引用计数，多实例并存时只有最后一个才 Finalize）══
             // 返回值非 0 = SDK 加载失败（DLL 缺失/版本不匹配），直接放弃
-            int ret = MyCamera.MV_CC_Initialize_NET();
+            int ret = SdkAcquire();
             if (ret != 0)
             {
                 _logger?.LogWarning("[HikCamera] SDK初始化失败 错误码:{Code}", ret);
                 return;
             }
+            _sdkHeld = true;
 
             // ══ 步骤 2：枚举设备（GigE 网口 | USB 双协议同时扫）══
             // MVS 虚拟相机也会在这里被扫到；扫不到 = 相机没电/没接线/驱动没装
@@ -81,7 +99,7 @@ public class HikCamera : ICamera, IDisposable
             {
                 _logger?.LogWarning("[HikCamera] 未发现相机 错误码:{Code} 数量:{Count}",
                     ret, deviceList.nDeviceNum);
-                MyCamera.MV_CC_Finalize_NET();
+                ReleaseSdk();
                 return;
             }
 
@@ -94,14 +112,27 @@ public class HikCamera : ICamera, IDisposable
 
             _camera = new MyCamera();
             ret = _camera.MV_CC_CreateDevice_NET(ref device);
-            if (ret != 0) { _logger?.LogError("[HikCamera] 创建设备失败:{Code}", ret); return; }
+            if (ret != 0)
+            {
+                _logger?.LogError("[HikCamera] 创建设备失败:{Code}", ret);
+                _camera = null;
+                ReleaseSdk();
+                return;
+            }
 
             // ══ 步骤 4：打开设备（独占式）—— 最容易失败的一步 ══
             // 失败 0x80000203(-2147483133) = 无访问权限：
             //   上一个进程没释放（强杀后心跳会话未过期）或 MVS 客户端正占用。
-            // 注意：失败路径必须 return，让 IsAvailable 保持 false，程序降级运行不崩溃
+            // 失败路径必须销毁步骤3已创建的句柄 —— 否则句柄与设备侧会话一直挂着，
+            // 下次启动继续报 0x80000203，正是本类注释里那条"心跳会话未释放"的成因之一。
             ret = _camera.MV_CC_OpenDevice_NET();
-            if (ret != 0) { _logger?.LogError("[HikCamera] 打开设备失败:{Code}", ret); return; }
+            if (ret != 0)
+            {
+                _logger?.LogError("[HikCamera] 打开设备失败:{Code}", ret);
+                TeardownDevice();
+                ReleaseSdk();
+                return;
+            }
 
             // ══ 步骤 4.5：缩短心跳超时（GigE 相机有效，USB/虚拟相机忽略）══
             // 作用：本进程若异常死亡（崩溃/强杀），设备侧会在超时后自动释放独占会话。
@@ -121,15 +152,22 @@ public class HikCamera : ICamera, IDisposable
 
             // ══ 步骤 6：开始取流 ══
             ret = _camera.MV_CC_StartGrabbing_NET();
-            if (ret != 0) { _logger?.LogError("[HikCamera] 取流失败:{Code}", ret); return; }
+            if (ret != 0)
+            {
+                _logger?.LogError("[HikCamera] 取流失败:{Code}", ret);
+                TeardownDevice();
+                ReleaseSdk();
+                return;
+            }
 
             _grabbing = true;
-            IsAvailable = true;
+            _available = true;
+            _lastFrameTick = Environment.TickCount64;   // 从此刻起算心跳，首帧到达后由采图线程刷新
 
             // ══ 退出兜底：ProcessExit 在「正常退出」和「未处理异常终止」时都会触发 ══
             // 这样即使 App.OnExit 的容器 Dispose 因异常没走到，这里仍会释放设备。
             // 拦不住的只剩 taskkill /F / 断电 —— 那部分由上面缩短的心跳超时兜底。
-            AppDomain.CurrentDomain.ProcessExit += (_, _) => Dispose();
+            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
 
             // ══ 步骤 7：启动后台采图线程 ══
             // IsBackground = 进程退出时线程自动终止，不阻塞关闭
@@ -141,8 +179,42 @@ public class HikCamera : ICamera, IDisposable
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[HikCamera] 初始化异常");
-            IsAvailable = false;
+            _available = false;
         }
+    }
+
+    private void OnProcessExit(object? sender, EventArgs e) => Dispose();
+
+    /// <summary>
+    /// 取进程级 SDK 引用：第一个实例负责 Initialize，后续实例只计数。
+    /// MV_CC_Finalize_NET 是进程级操作，多实例各调一次会把别的实例的取流一起废掉
+    /// （热切换时新旧实例必然短暂并存）。
+    /// </summary>
+    private static int SdkAcquire()
+    {
+        if (Interlocked.Increment(ref _sdkRefs) > 1) return 0;
+        int ret = MyCamera.MV_CC_Initialize_NET();
+        if (ret != 0) Interlocked.Decrement(ref _sdkRefs);
+        return ret;
+    }
+
+    private void ReleaseSdk()
+    {
+        if (!_sdkHeld) return;
+        _sdkHeld = false;
+        if (Interlocked.Decrement(ref _sdkRefs) > 0) return;
+        Interlocked.Exchange(ref _sdkRefs, 0);
+        MyCamera.MV_CC_Finalize_NET();
+    }
+
+    /// <summary>销毁设备句柄（失败路径与 Dispose 共用）——建了就要毁，不能靠 GC</summary>
+    private void TeardownDevice()
+    {
+        if (_camera == null) return;
+        try { _camera.MV_CC_StopGrabbing_NET(); } catch { /* 未开流时调用会报错，忽略 */ }
+        try { _camera.MV_CC_CloseDevice_NET(); } catch { /* 未打开时调用会报错，忽略 */ }
+        try { _camera.MV_CC_DestroyDevice_NET(); } catch { /* 句柄可能已失效，忽略 */ }
+        _camera = null;
     }
 
     /// <summary>
@@ -161,13 +233,33 @@ public class HikCamera : ICamera, IDisposable
         while (_grabbing)
         {
             var frameInfo = new MyCamera.MV_FRAME_OUT();
-            int ret = _camera!.MV_CC_GetImageBuffer_NET(ref frameInfo, 500);
+            int ret;
+            try
+            {
+                var cam = _camera;
+                if (cam == null) break;          // 已被 Dispose 摘空
+                ret = cam.MV_CC_GetImageBuffer_NET(ref frameInfo, 500);
+            }
+            catch (Exception ex)
+            {
+                // 后台线程的未捕获异常会直接终止进程（.NET 默认行为），必须就地拦下
+                _logger?.LogError(ex, "[HikCamera] 取帧异常，采图线程退出");
+                break;
+            }
 
-            if (ret == 0)
+            if (ret != 0)
+            {
+                Thread.Sleep(5);
+                continue;
+            }
+
+            try
             {
                 lock (_lock)
                 {
                     int dataLen = (int)frameInfo.stFrameInfo.nFrameLen;
+                    if (dataLen <= 0)
+                        throw new InvalidOperationException($"SDK 返回的帧长度为 {dataLen}，丢弃该帧");
                     if (_latestFrame == null || _latestFrame.Length < dataLen)
                         _latestFrame = new byte[dataLen];
 
@@ -177,13 +269,18 @@ public class HikCamera : ICamera, IDisposable
                     _latestHeight = (int)frameInfo.stFrameInfo.nHeight;
                     _latestPixelType = (uint)frameInfo.stFrameInfo.enPixelType;
                     _hasNewFrame = true;
+                    _lastFrameTick = Environment.TickCount64;   // 心跳：IsAvailable 的判据
                 }
-
-                _camera.MV_CC_FreeImageBuffer_NET(ref frameInfo);
             }
-            else
+            catch (Exception ex)
             {
-                Thread.Sleep(5);
+                _logger?.LogError(ex, "[HikCamera] 帧拷贝异常（已丢弃该帧）");
+            }
+            finally
+            {
+                // 无论拷贝是否失败都必须归还 SDK 缓冲：不归还 = SDK 内部缓冲耗尽 = 相机从此不出帧
+                try { _camera?.MV_CC_FreeImageBuffer_NET(ref frameInfo); }
+                catch (Exception ex) { _logger?.LogError(ex, "[HikCamera] 归还帧缓冲失败"); }
             }
         }
     }
@@ -216,15 +313,22 @@ public class HikCamera : ICamera, IDisposable
         try
         {
             // 原始像素数据 → OpenCV Mat
-            var mat = RawToMat(frameData, w, h, pixelType);
-            if (mat == null || mat.Empty()) return null;
+            var mat = TryConvertPixels(frameData, w, h, out string? why);
+            if (mat == null)
+            {
+                // 格式不认识就明确失败 + 留痕，不能按字节数猜一个通道数把错图喂给检测
+                if (why != null)
+                    _logger?.LogError("[HikCamera] 帧转换失败: {Why}（pixelType=0x{Pixel:X8}）", why, pixelType);
+                return null;
+            }
+            if (mat.Empty()) { mat.Dispose(); return null; }
 
-            _frameCount++;
+            int n = Interlocked.Increment(ref _frameCount);
             return new CameraFrame
             {
                 Image = mat,
                 Timestamp = DateTime.Now,
-                FilePath = $"HikCamera_Frame_{_frameCount}"
+                FilePath = $"HikCamera_Frame_{n}"
             };
         }
         catch (Exception ex)
@@ -235,40 +339,60 @@ public class HikCamera : ICamera, IDisposable
     }
 
     /// <summary>
-    /// 原始像素缓冲 → OpenCV Mat
+    /// 原始像素缓冲 → OpenCV Mat。
     ///
-    /// 通道数按"每像素字节数"推断，不能无条件按 CV_8UC3 构造：
-    ///   黑白工业相机（Mono8）只给 width*height 字节，按 8UC3 构造会得到行跨错乱的花屏，
-    ///   而且 Marshal.Copy 用 data.Length 拷贝时不再受 Mat 容量约束，直接越界写坏堆。
+    /// 只接受能确定解释的"每像素字节数"：1 = Mono8，3 = RGB/BGR8。
+    /// 其余一律返回 null 并给出原因 —— 宁可这一帧丢掉并报错，也不能按字节数猜一个通道数：
+    ///   Mono16 是 2 字节/像素，按 8UC1 解释会把高位字节当成像素值，图像尺寸/通道数全合法、
+    ///   数值全错，检测照常跑，属于"静默错误判定"，现场根本发现不了。
+    ///   4 字节（BGRA/Mono32）同理，旧实现按 8UC3 拷 pixels*3 字节，行跨直接错位。
     ///
-    /// 未覆盖的格式：Mono16（需要右移 8 位降位深）、Bayer（需要 GBRG→BGR）。
-    /// 这两类目前会退化为灰度 8 位且数值错乱 —— 换这类相机时必须在这里补分支，
-    /// pixelType 参数就是为此保留的。
+    /// 该方法是纯函数（不碰 SDK），单测直接覆盖 1/2/3/4 字节与非法尺寸。
     /// </summary>
-    private static Mat? RawToMat(byte[] data, int width, int height, uint pixelType)
+    public static Mat? TryConvertPixels(byte[]? data, int width, int height, out string? error)
     {
+        error = null;
+        if (data == null) { error = "帧数据为空"; return null; }
+        if (width <= 0 || height <= 0) { error = $"尺寸非法 {width}x{height}"; return null; }
+
+        long pixels = (long)width * height;
+        if (data.LongLength < pixels) { error = $"数据不足 {data.LongLength} < {pixels}"; return null; }
+
+        int bytesPerPixel = (int)(data.LongLength / pixels);
+        MatType type;
+        int channels;
+        switch (bytesPerPixel)
+        {
+            case 1: type = MatType.CV_8UC1; channels = 1; break;
+            case 3: type = MatType.CV_8UC3; channels = 3; break;
+            case 2: error = "Mono16 未支持（需右移 8 位降位深）"; return null;
+            case 4: error = "4 字节像素（BGRA/Mono32）未支持"; return null;
+            default: error = $"未知像素宽度 {bytesPerPixel} 字节/像素"; return null;
+        }
+
         try
         {
-            int pixels = width * height;
-            if (pixels <= 0 || data.Length < pixels) return null;
-
-            int bytesPerPixel = data.Length / pixels;
-            var type = bytesPerPixel >= 3 ? MatType.CV_8UC3 : MatType.CV_8UC1;
-            int channels = type == MatType.CV_8UC3 ? 3 : 1;
-
             var mat = new Mat(height, width, type);
             // 只拷 Mat 装得下的量：绝不越界，也不把上一帧残留的尾巴拷进来
-            int copyLen = Math.Min(data.Length, pixels * channels);
-            Marshal.Copy(data, 0, mat.Data, copyLen);
+            Marshal.Copy(data, 0, mat.Data, (int)(pixels * channels));
             return mat;
         }
-        catch
+        catch (Exception ex)
         {
+            error = ex.Message;
             return null;
         }
     }
 
-    public void open() => Initialize();
+    public void open()
+    {
+        // 重新连接：Dispose 过的实例必须复位幂等标志，否则再次 Dispose 会直接 return，
+        // 设备会话永远不释放 —— 下次启动就是 0x80000203。
+        _disposed = false;
+        if (_camera != null) TeardownDevice();
+        Initialize();
+    }
+
     public void close() => Dispose();
 
     /// <summary>
@@ -281,20 +405,21 @@ public class HikCamera : ICamera, IDisposable
     {
         if (_disposed) return;   // 幂等：OnExit/ProcessExit/异常路径可能重复触发
         _disposed = true;
+        _available = false;
 
         _grabbing = false;
-        _grabThread?.Join(2000);
-
-        if (_camera != null)
+        var thread = _grabThread;
+        bool threadStopped = thread == null || thread.Join(2000);
+        if (!threadStopped)
         {
-            _camera.MV_CC_StopGrabbing_NET();
-            _camera.MV_CC_CloseDevice_NET();
-            _camera.MV_CC_DestroyDevice_NET();
-            _camera = null;
+            // 线程还卡在 SDK 里取帧：这时销毁句柄/反初始化 SDK，它下一次调用就落在已释放的
+            // 句柄上 —— 原生访问违例不可捕获，整个进程直接没。宁可漏掉这次释放交给心跳超时兜底。
+            _logger?.LogError("[HikCamera] 采图线程 2s 未退出，跳过设备销毁与 SDK 反初始化");
+            return;
         }
 
-        MyCamera.MV_CC_Finalize_NET();
-        IsAvailable = false;
+        TeardownDevice();
+        ReleaseSdk();
 
         if (_imageBuffer != IntPtr.Zero)
         {

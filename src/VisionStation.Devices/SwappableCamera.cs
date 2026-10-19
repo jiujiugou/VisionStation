@@ -13,7 +13,11 @@ namespace VisionStation.Devices;
 /// 设计细节：
 ///   - cameraFactory 是委托（Func&lt;string, ICamera&gt;）而非直接引用 CameraFactory 类
 ///     → 规避 Devices 项目 → App 项目的循环依赖
-///   - SwapTo 方法：创建新模式相机 → 替换 _active → 释放旧相机
+///   - SwapTo：创建新模式相机 → 校验可用性 → 替换 _active → 释放旧相机
+///     **校验不通过就回滚**：不替换、不释放旧实例。工业相机是独占设备，
+///     "新的没建成、旧的先拆了"等于把产线弄瞎。
+///   - CurrentMode 必须反映真实相机类型：它同时被 UI 用来做"同一个模式不要重复切"的去重判断，
+///     写死默认值会让守卫失效（配置 Mode=Hikvision 时界面仍认为是 File）。
 /// </summary>
 public class SwappableCamera : ICamera, IDisposable
 {
@@ -23,8 +27,11 @@ public class SwappableCamera : ICamera, IDisposable
     // 相机工厂委托（App 层注入，由 CameraFactory.CreateByMode 提供）
     private readonly Func<string, ICamera> _cameraFactory;
 
-    // 当前模式名（UI 显示用）
-    private string _currentMode = "File";
+    // 当前模式名（UI 显示 + 去重判断用）
+    private string _currentMode;
+
+    // 切换互斥：换指针与释放旧实例不能交错
+    private readonly object _swapLock = new();
 
     // ══ ICamera 接口 — 全部委托给 _active ══
     public bool IsAvailable => _active.IsAvailable;
@@ -36,31 +43,67 @@ public class SwappableCamera : ICamera, IDisposable
 
     /// <param name="initial">启动时的默认相机</param>
     /// <param name="cameraFactory">委托：模式名 → 新 ICamera 实例</param>
-    public SwappableCamera(ICamera initial, Func<string, ICamera> cameraFactory)
+    /// <param name="initialMode">启动时的实际模式名；不传则按实例类型推断</param>
+    public SwappableCamera(ICamera initial, Func<string, ICamera> cameraFactory, string? initialMode = null)
     {
-        _active = initial;
-        _cameraFactory = cameraFactory;
+        _active = initial ?? throw new ArgumentNullException(nameof(initial));
+        _cameraFactory = cameraFactory ?? throw new ArgumentNullException(nameof(cameraFactory));
+        _currentMode = string.IsNullOrWhiteSpace(initialMode) ? ModeOf(initial) : initialMode!;
     }
 
-    public void open() { if (_active is FileCamera fc) fc.RefreshFileList(); }
-    public void close() { }
+    /// <summary>按实例类型推断模式名（配置没给模式时的兜底）</summary>
+    public static string ModeOf(ICamera camera) => camera switch
+    {
+        HikCamera => "Hikvision",
+        WebcamCamera => "Webcam",
+        FileCamera => "File",
+        _ => "File"
+    };
+
+    // 转发到当前相机：open/close 不能是空实现，否则"连接/断开"在包装层就断了
+    public void open() => _active.open();
+    public void close() => _active.close();
     public CameraFrame? Capture() => _active.Capture();
 
     /// <summary>
     /// 运行时切换到另一种相机模式。
-    /// 创建新模式相机 → 替换 _active → 释放旧相机（如果旧相机实现 IDisposable）
+    /// 返回 false = 新模式不可用，已回滚（旧相机保持原样、未被释放）。
     /// </summary>
-    public void SwapTo(string mode)
+    public bool SwapTo(string mode)
     {
-        var old = _active;
-        _active = _cameraFactory(mode); // 委托调用 CameraFactory.CreateByMode
-        _currentMode = mode;
+        lock (_swapLock)
+        {
+            ICamera candidate;
+            try
+            {
+                candidate = _cameraFactory(mode);
+            }
+            catch (Exception)
+            {
+                return false;    // 工厂抛异常：旧相机不受影响，交给调用方报错
+            }
 
-        if (old is IDisposable d) d.Dispose();
+            if (candidate == null || !candidate.IsAvailable)
+            {
+                // 典型场景：旧海康还占着设备，新建的第二个实例必然 OpenDevice 失败。
+                // 此时既不能替换 _active，更不能 Dispose 旧实例。
+                (candidate as IDisposable)?.Dispose();
+                return false;
+            }
+
+            var old = _active;
+            _active = candidate;
+            _currentMode = mode;
+            (old as IDisposable)?.Dispose();
+            return true;
+        }
     }
 
     public void Dispose()
     {
-        if (_active is IDisposable d) d.Dispose();
+        lock (_swapLock)
+        {
+            (_active as IDisposable)?.Dispose();
+        }
     }
 }

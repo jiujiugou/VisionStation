@@ -59,7 +59,17 @@ public partial class CameraPageViewModel : ObservableObject
 
         try
         {
-            _swappable.SwapTo(SelectedMode);
+            // SwapTo 返回 false = 新相机没建成，已回滚（旧相机仍可用）。
+            // 不能无条件报"切换成功" —— 那会把"相机全没了"记成一条 Success 日志。
+            if (!_swappable.SwapTo(SelectedMode))
+            {
+                Refresh();
+                WeakReferenceMessenger.Default.Send(new LogMessage(
+                    $"切换到 {SelectedMode} 失败：相机不可用，已保持原相机", LogMsgLevel.Error));
+                SelectedMode = _swappable.CurrentMode;
+                return;
+            }
+
             Refresh();
 
             // 通知其他模块相机变了

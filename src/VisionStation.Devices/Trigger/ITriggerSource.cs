@@ -18,6 +18,9 @@ public interface ITriggerSource
     /// <summary>触发信号。每次触发时调用 Invoke()。</summary>
     event Action? Triggered;
 
+    /// <summary>自动触发是否正在运行（包装层据此决定"断开后再连接"要不要恢复）</summary>
+    bool IsRunning { get; }
+
     /// <summary>启动自动触发（如 PLC 开始轮询、定时器开始）</summary>
     void Start();
 

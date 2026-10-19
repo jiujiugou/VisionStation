@@ -57,7 +57,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<SwappableCamera>(sp =>
         {
             var factory = sp.GetRequiredService<CameraFactory>();
-            return new SwappableCamera(factory.Create(), mode => factory.CreateByMode(mode));
+            return new SwappableCamera(factory.Create(),
+            mode => factory.CreateByMode(mode),
+            config["Camera:Mode"] ?? "File");   // 初始模式必须显式传入：写死默认值会让 UI 的去重守卫误判
         });
         services.AddSingleton<ICamera>(sp => sp.GetRequiredService<SwappableCamera>());
 

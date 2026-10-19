@@ -1,0 +1,7 @@
+## V-D04 停机顺序：Join 超时不得继续销毁（CODE_REVIEW）
+## CMD: grep -n "threadStopped|volatile bool _grabbing|volatile bool _disposed"
+
+34:    private volatile bool _grabbing;                // 采图线程运行开关（false = 线程退出；volatile 保证采图线程能看见）
+39:    private volatile bool _disposed;                // Dispose 幂等保护：ProcessExit/OnExit/异常路径可能多次触发
+412:        bool threadStopped = thread == null || thread.Join(2000);
+413:        if (!threadStopped)

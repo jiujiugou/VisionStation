@@ -1,0 +1,18 @@
+## V-D12 采图线程异常隔离 + finally 归还缓冲（CODE_REVIEW）
+## CMD: grep -n -B2 -A2 "FreeImageBuffer" src/.../HikCamera.cs
+
+225-    ///   消费者（Capture）—— 检测时来取"最新一帧"，采图与检测解耦
+226-    ///   相机永远在流，检测按需取，互不阻塞。
+227-    ///
+228-    /// GetImageBuffer 的 500 是超时(ms)：超时返回非 0 → sleep(5) 防空转烧 CPU
+229:    /// 取到帧必须 FreeImageBuffer 归还 SDK，否则 SDK 内部缓冲耗尽后不再出帧
+230-    /// </summary>
+231-    private void GrabLoop()
+--
+278-            }
+279-            finally
+280-            {
+281-                // 无论拷贝是否失败都必须归还 SDK 缓冲：不归还 = SDK 内部缓冲耗尽 = 相机从此不出帧
+282:                try { _camera?.MV_CC_FreeImageBuffer_NET(ref frameInfo); }
+283-                catch (Exception ex) { _logger?.LogError(ex, "[HikCamera] 归还帧缓冲失败"); }
+284-            }

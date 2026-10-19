@@ -1,0 +1,8 @@
+## V-D03 设备句柄建了就必须销毁（CODE_REVIEW）
+## CMD: grep -n "TeardownDevice()" src/VisionStation.Devices/Camera/HikCamera.cs
+
+132:                TeardownDevice();
+158:                TeardownDevice();
+211:    private void TeardownDevice()
+392:        if (_camera != null) TeardownDevice();
+421:        TeardownDevice();

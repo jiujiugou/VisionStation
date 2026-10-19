@@ -62,11 +62,14 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 3. **配置阈值在构造函数里校验**。`ImageRetentionDays = 0` 等于删光当天全部图片，不许静默回落默认值。
 4. **自检判据必须可证伪**。`File.Exists(f) || Directory.Exists(父目录)` 是恒真判据（父目录是程序自己建的），它让整个自检变成装饰品。
 5. **图片保留期 ≥ 记录保留期**。否则第 8 天起，数据库记录指向的图全都不在了，追溯断链。
-6. **海康 SDK 是进程级的**：`MV_CC_Finalize_NET` 会让所有相机实例失效。`SwapTo` 必须先建新再放旧，顺序反了整进程的相机都废。
-7. **判定逻辑改一个数字就要配一个测试**。Core 里的阈值比较是"判定即产品"，错一位整条产线判错。
-8. **空结果集不能判合格**。`Enumerable.All` 对空集合返回 true——空配方/全禁用/ROI 全没匹配上都会让`IsOk` 变 true，等于"没检=合格"。`InspectionReport.IsOk` 现在要求 `Results.Count > 0`。
-9. **工具名是报告主键，重名会互相覆盖**。两个 `Presence` 工具同配方共存时，后执行的结果会顶掉前一个，被顶掉的 NG 凭空消失。`Pipeline` 构造期已改为重名即抛。
-10. **NaN 能穿过 `<= 0` 守卫**。WPF 未测量时 `ActualWidth` 是 NaN，`NaN <= 0` 为 false，守卫形同虚设。尺寸校验一律用 `IsFinitePositive`（拒绝 NaN/∞/0/负）。
+6. **海康 SDK 是进程级的**：`MV_CC_Finalize_NET` 会让所有相机实例失效，所以初始化/反初始化必须走引用计数（`SdkAcquire`/`ReleaseSdk`），只有最后一个实例能 Finalize。
+7. **热切换失败必须回滚**。工业相机是独占设备：新的那个建不成时，绝不能替换指针、更不能释放旧实例（`SwapTo` 返回 bool，App 侧必须检查）。`CurrentMode` 要由实际相机推导，写死默认值会让 UI 的去重守卫失效。
+8. **判定逻辑改一个数字就要配一个测试**。Core 里的阈值比较是"判定即产品"，错一位整条产线判错。
+9. **空结果集不能判合格**。`Enumerable.All` 对空集合返回 true——空配方/全禁用/ROI 全没匹配上都会让`IsOk` 变 true，等于"没检=合格"。`InspectionReport.IsOk` 现在要求 `Results.Count > 0`；`DeviceManager.AllConnected` 同理要求 `Count > 0`。
+10. **工具名是报告主键，重名会互相覆盖**。两个 `Presence` 工具同配方共存时，后执行的结果会顶掉前一个，被顶掉的 NG 凭空消失。`Pipeline` 构造期已改为重名即抛。
+11. **NaN 能穿过 `<= 0` 守卫**。WPF 未测量时 `ActualWidth` 是 NaN，`NaN <= 0` 为 false，守卫形同虚设。尺寸校验一律用 `IsFinitePositive`（拒绝 NaN/∞/0/负）。
+12. **在线状态必须可被反证**。设备层的 `IsAvailable` 不能只置真不置假：无帧超过 `StaleAfterMs` 就要转假，否则界面报就绪、采集返回 null、下游全部以为一切正常。
+13. **后台线程的异常就地拦下**。`GrabLoop`/`Timer` 回调跑在无 catch 的线程上，未捕获异常 = 进程终止；且帧缓冲必须在 `finally` 里归还，漏一次 SDK 就再也不出帧。
 
 ## 6. 三步失效分析法（本仓库的工程纪律）
 
@@ -79,8 +82,10 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 |---|---|---|---|
 | 运维 | `audit/artifacts/` | U19/U20 + 5 交互 | `python audit\scripts\gate_check.py --scope audit\artifacts\scope-ops.json` |
 | Core 主链 | `audit/artifacts-core/` | U01-U07 + E01/E02/E03/E04/E21 | `python audit\scripts\gate_check.py --art artifacts-core --scope audit\artifacts-core\scope-core.json` |
+| 设备层 | `audit/artifacts-devices/` | U08-U15 + E05-E11 | `python audit\scripts\gate_check.py --art artifacts-devices --scope audit\artifacts-devices\scope-dev.json` |
 
-两者共用 `audit/artifacts/index.json` 的结构索引；`--art` 只切换三份产物与证据的落点。
+三套共用 `audit/artifacts/index.json` 的结构索引；`--art` 只切换三份产物与证据的落点。
+设备切片的 N/A 矩阵由 `audit/scripts/gen_devices_stage1.py` 生成，改网格后重跑它而不是手改 JSON。
 
 每套产物固定三件：
 

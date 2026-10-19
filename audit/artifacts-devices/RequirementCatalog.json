@@ -1,0 +1,151 @@
+{
+  "slice": "devices",
+  "generated": "2026-10-19",
+  "policy": "每条 MAIN 缺陷一条约束；S1/S2 一律 PREVENT（禁 ACCEPT）。可执行手段给可复现命令，只有无法在无硬件环境执行的两条（SDK 句柄销毁顺序、采图线程 finally）用 CODE_REVIEW，且命令是可复跑的 grep 而不是「我看过了」。",
+  "entries": [
+    {
+      "id": "R-D01",
+      "from": ["F-D01"],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "设备在线状态必须可被反证：相机长时间出不了帧就要报离线，不能只置真不置假",
+      "scope": "HikCamera.IsAvailable / WebcamCamera.IsAvailable / FileCamera.IsAvailable",
+      "trigger": "取帧持续失败、相机断线、文件列表非循环读完",
+      "criterion": "FrameAlive(从未出帧)=false；FrameAlive(超过 StaleAfterMs 无新帧)=false；FileCamera 非循环模式读完后 IsAvailable=false 且 Capture 返回 null",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~FrameAlive|FullyQualifiedName~NonLoopExhausted\""
+    },
+    {
+      "id": "R-D02",
+      "from": ["F-D02"],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "不认识的像素格式必须明确失败并留痕，禁止按字节数猜通道数后照常产出图像",
+      "scope": "HikCamera.TryConvertPixels 与 Capture 的转换分支",
+      "trigger": "相机输出 Mono16 / 4 字节像素 / 帧长与尺寸不匹配",
+      "criterion": "1 字节/像素 → CV_8UC1；3 字节/像素 → CV_8UC3；2 或 4 字节/像素 → 返回 null 且 error 含格式名；尺寸非法或数据不足 → null 且 error 说明原因",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~TryConvertPixels\""
+    },
+    {
+      "id": "R-D03",
+      "from": ["F-D03"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "设备句柄建了就必须销毁：初始化任何一步失败都要走统一的拆解路径，不能靠 GC 或后续 Dispose 兜",
+      "scope": "HikCamera.Initialize 的失败分支（步骤3/4/6）",
+      "trigger": "CreateDevice 成功但 OpenDevice 或 StartGrabbing 失败",
+      "criterion": "每个创建后的失败分支都调用 TeardownDevice()；TeardownDevice 内部三步各自 try 且把 _camera 置 null",
+      "verification_method": "CODE_REVIEW",
+      "command": "grep -n \"TeardownDevice()\" src/VisionStation.Devices/Camera/HikCamera.cs"
+    },
+    {
+      "id": "R-D04",
+      "from": ["F-D04"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "停机顺序必须是「先确认采图线程已停，再销毁设备」，Join 超时不得继续销毁",
+      "scope": "HikCamera.Dispose",
+      "trigger": "关闭程序时采图线程仍在 SDK 调用内",
+      "criterion": "Dispose 判断 Join 结果；未停则直接 return，不调用 StopGrabbing/CloseDevice/DestroyDevice/Finalize；_grabbing 与 _disposed 声明为 volatile",
+      "verification_method": "CODE_REVIEW",
+      "command": "grep -n \"threadStopped\\|volatile bool _grabbing\\|volatile bool _disposed\" src/VisionStation.Devices/Camera/HikCamera.cs"
+    },
+    {
+      "id": "R-D05",
+      "from": ["F-D05"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "进程级 SDK 资源必须有引用计数：多实例并存时只有最后一个实例可以反初始化",
+      "scope": "HikCamera.SdkAcquire / ReleaseSdk / Dispose",
+      "trigger": "热切换或同进程创建第二个 HikCamera",
+      "criterion": "Initialize 走 SdkAcquire（首个实例才调 MV_CC_Initialize_NET）；Dispose 走 ReleaseSdk（计数归零才调 MV_CC_Finalize_NET）；失败路径归还引用",
+      "verification_method": "CODE_REVIEW",
+      "command": "grep -n \"SdkAcquire\\|ReleaseSdk\\|_sdkRefs\\|MV_CC_Finalize_NET\" src/VisionStation.Devices/Camera/HikCamera.cs"
+    },
+    {
+      "id": "R-D06",
+      "from": ["F-D06"],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "热切换失败必须回滚：新相机没建成时不得替换、更不得释放正在用的相机；CurrentMode 必须反映真实相机",
+      "scope": "SwappableCamera.SwapTo / 构造函数 / CameraPageViewModel.ApplySwitch",
+      "trigger": "切换到独占设备模式失败（0x80000203）或工厂抛异常",
+      "criterion": "候选 IsAvailable=false 时 SwapTo 返回 false、_active 不变、旧实例 DisposeCount=0、候选被释放；CurrentMode 由 initialMode 或实例类型推导；App 侧失败记 Error 并回填下拉框",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~SwapTo|FullyQualifiedName~CurrentMode_FromExplicit\""
+    },
+    {
+      "id": "R-D07",
+      "from": ["F-D07"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "目录扫描失败不得让应用起不来：不可读/不存在一律降级为空列表并留错误日志",
+      "scope": "FileCamera.RefreshFileList 与构造函数",
+      "trigger": "图片目录不存在、无权限、路径过长、扫描中被删除",
+      "criterion": "构造不抛异常；MissingFolder 场景 IsAvailable=false 且 TotalFiles=0；目录枚举只发生一次（日志复用同一结果）",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~FileCamera_MissingFolder\""
+    },
+    {
+      "id": "R-D08",
+      "from": ["F-D08"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "刷新与采集并发时不得破坏对方持有的列表：文件列表只能整表替换，不能原地清空",
+      "scope": "FileCamera._files / RefreshFileList / Capture",
+      "trigger": "UI 线程刷新文件列表的同时检测线程正在取图",
+      "criterion": "单线程刷 300 次 + 并发采集循环，采集侧不抛任何异常；Capture 开头取 _files 快照后只读快照",
+      "verification_method": "CONCURRENCY_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~ConcurrentRefreshAndCapture\""
+    },
+    {
+      "id": "R-D09",
+      "from": ["F-D09"],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "Connect/Disconnect 必须真的落到被包装对象上，且断开再连接要恢复断开前的运行状态",
+      "scope": "CameraDevice.Connect/Disconnect、SwappableCamera.open/close、HikCamera.open、TriggerDevice.Connect/Disconnect",
+      "trigger": "点「重新连接」；或 DeviceManager.ConnectAll/DisconnectAll",
+      "criterion": "CameraDevice.Connect 对任意 ICamera 实现都调用 open()；SwappableCamera 转发到 _active；TriggerDevice 断开时记住 IsRunning、连接时恢复；手动模式下 Connect 不启动定时器",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~ForwardsTo|FullyQualifiedName~TriggerDevice_\""
+    },
+    {
+      "id": "R-D10",
+      "from": ["F-D10"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "触发回调里的异常不得逃逸到 ThreadPool（那等于进程终止），且不得让 _busy 卡住",
+      "scope": "TimerTrigger.Elapsed 回调",
+      "trigger": "订阅者在 Triggered 处理器内同步抛异常",
+      "criterion": "注入抛异常的订阅者后：onError 收到该异常；继续 Tick 多次（calls≥2）证明 _busy 已归零",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~HandlerThrows\""
+    },
+    {
+      "id": "R-D11",
+      "from": ["F-D11"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "空设备表不得判「全部在线」：0/0 是判据失效，不是通过",
+      "scope": "DeviceManager.AllConnected",
+      "trigger": "设备表为空（漏注册 / 直接 new DeviceManager()）",
+      "criterion": "new DeviceManager().AllConnected == false；统计为 (0,0)；注册一台离线设备后仍为 false",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --no-build --filter \"FullyQualifiedName~DeviceManager_\""
+    },
+    {
+      "id": "R-D12",
+      "from": ["F-D12"],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "采图线程必须自带异常隔离与缓冲归还：任何单帧异常不得终止进程，也不得漏还 SDK 缓冲",
+      "scope": "HikCamera.GrabLoop",
+      "trigger": "Marshal.Copy/分配抛异常；SDK 返回帧长≤0 的异常帧",
+      "criterion": "取帧与拷贝各自 try/catch；MV_CC_FreeImageBuffer_NET 位于 finally；循环体外的异常不逃出 GrabLoop",
+      "verification_method": "CODE_REVIEW",
+      "command": "grep -n -B2 -A2 \"FreeImageBuffer\" src/VisionStation.Devices/Camera/HikCamera.cs"
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "comment": "Devices 切片（U08-U15 + E05-E11，135 格）阶段 3 验证记录。12 条 MAIN 缺陷全部修复并逐条执行了阶段 2 选定的验证手段：8 条 UNIT_TEST / 1 条 CONCURRENCY_TEST / 3 条 CODE_REVIEW（无法在无硬件环境执行的两条 + 一条顺序性约束）。全量测试 183/183。",
+  "revision": "2026-10-19 · 三步失效分析法 v3 · 切片 U08-U15 + E05-E11（135 格）",
+  "results": [
+    {
+      "id": "V-D01",
+      "req": "R-D01",
+      "subject": "F-D01 可用性判据可被反证",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D01_availability.txt",
+      "note": "UNIT_TEST：4 条通过。FrameAlive 覆盖「从未出帧=false / 3s 内有帧=true / 超过阈值=false」；FileCamera 非循环读完 2 张后 IsAvailable=false 且 Capture 返回 null。HikCamera.IsAvailable 由 `_available && FrameAlive(_lastFrameTick, now, StaleAfterMs)` 组成，采图线程每帧刷新 _lastFrameTick —— 拔线 3s 内状态自动翻假，下游 CameraDevice/DeviceManager/HealthChecker 随之报离线。"
+    },
+    {
+      "id": "V-D02",
+      "req": "R-D02",
+      "subject": "F-D02 未知像素格式明确失败",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D02_pixel_format.txt",
+      "note": "UNIT_TEST：8 条通过。Mono8→CV_8UC1、RGB8→CV_8UC3、Mono16→null+「Mono16 未支持」、4 字节像素→null、数据不足→null+「数据不足」、三种非法尺寸→null+「尺寸非法」。旧实现把 2 字节/像素按 8UC1 解释（高位字节当像素值），图像全错但流程照跑；现在是丢帧 + Error 日志。"
+    },
+    {
+      "id": "V-D03",
+      "req": "R-D03",
+      "subject": "F-D03 失败路径不销毁句柄",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D03_teardown.txt",
+      "note": "CODE_REVIEW：grep 显示 TeardownDevice() 出现在步骤4失败(132)、步骤6失败(158)、open() 重连前(392)、Dispose(421) 与定义(211)；函数体内 StopGrabbing/CloseDevice/DestroyDevice 各自 try 并置 _camera=null。无真机，无法用执行验证设备侧会话是否真的归还，故只到审查级。"
+    },
+    {
+      "id": "V-D04",
+      "req": "R-D04",
+      "subject": "F-D04 Join 超时后继续销毁",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D04_dispose_order.txt",
+      "note": "CODE_REVIEW：412 行 `bool threadStopped = thread == null || thread.Join(2000);`，413 行判断失败即 return（跳过 TeardownDevice/ReleaseSdk）；_grabbing/_disposed 已声明 volatile。取舍：宁可在极端时序下漏一次释放（由 3s 心跳超时兜底），也不在活线程使用的句柄上销毁。"
+    },
+    {
+      "id": "V-D05",
+      "req": "R-D05",
+      "subject": "F-D05 进程级 SDK 反初始化",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D05_sdk_refcount.txt",
+      "note": "CODE_REVIEW：SdkAcquire 只在计数从 0 变 1 时调 MV_CC_Initialize_NET；ReleaseSdk 递减到 0 才 Finalize；四条失败路径（102/119/133/159）都归还引用。SDK 为进程级单例，无真机无法执行验证，只到审查级。"
+    },
+    {
+      "id": "V-D06",
+      "req": "R-D06",
+      "subject": "F-D06 热切换破坏性替换",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D06_swap_rollback.txt",
+      "note": "UNIT_TEST：4 条通过。候选不可用 → 返回 false、IsAvailable 仍为旧相机、旧实例 DisposeCount=0、候选被释放；候选可用 → 切换成功并释放旧实例；工厂抛异常 → 回滚；CurrentMode 取显式 initialMode（配置 Mode=Hikvision 时不再谎报 File）。App 侧 ApplySwitch 改为检查返回值，失败记 Error 并回填下拉框，不再记「已切换 · Success」。"
+    },
+    {
+      "id": "V-D07",
+      "req": "R-D07",
+      "subject": "F-D07 目录扫描异常导致启动失败",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D07_filecamera_io.txt",
+      "note": "UNIT_TEST：1 条通过。不存在的目录构造不抛、IsAvailable=false、TotalFiles=0、再次 RefreshFileList 仍不抛。扫描整体 try/catch 后降级为空列表，日志复用同一次枚举结果（不再二次 GetFiles）。"
+    },
+    {
+      "id": "V-D08",
+      "req": "R-D08",
+      "subject": "F-D08 刷新与采集并发破坏列表",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D08_concurrency.txt",
+      "note": "CONCURRENCY_TEST（手写多线程，未用 Coyote —— 该竞态的根因是「原地 Clear 破坏读者快照」，不是受控任务交错，Coyote 覆盖不到）：采集线程持续 Capture 期间主线程刷新 300 次，采集侧零异常。修法是整表替换 + 读者取快照，属于结构性消除而非加锁。"
+    },
+    {
+      "id": "V-D09",
+      "req": "R-D09",
+      "subject": "F-D09 连接/断开未转发",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D09_forwarding.txt",
+      "note": "UNIT_TEST：6 条通过。CameraDevice.Connect 对非 FileCamera 的 ICamera 也调用 open()（旧实现 `is FileCamera` 判断对 SwappableCamera 恒 false）；SwappableCamera open/close 转发到 _active；TriggerDevice 断开再连接恢复自动模式；手动模式下 Connect 不启动定时器。"
+    },
+    {
+      "id": "V-D10",
+      "req": "R-D10",
+      "subject": "F-D10 触发回调异常终止进程",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D10_trigger_exception.txt",
+      "note": "UNIT_TEST：1 条通过。订阅者每 tick 抛 InvalidOperationException：onError 收到该异常（不再逃逸到 ThreadPool），且 400ms 内被调用 ≥2 次——证明 finally 把 _busy 归零，一次异常不会让定时器永久停摆。"
+    },
+    {
+      "id": "V-D11",
+      "req": "R-D11",
+      "subject": "F-D11 空设备表报全部在线",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D11_device_manager.txt",
+      "note": "UNIT_TEST：4 条通过。空表 AllConnected=false、统计 (0,0)；一台离线仍为 false；全在线为 true；Register(null) 抛 ArgumentNullException。"
+    },
+    {
+      "id": "V-D12",
+      "req": "R-D12",
+      "subject": "F-D12 采图线程无异常隔离/漏还缓冲",
+      "status": "PASS",
+      "evidence": "audit/artifacts-devices/evidence/V-D12_grab_loop.txt",
+      "note": "CODE_REVIEW：282 行 FreeImageBuffer 位于 finally 块（279 行），拷贝异常与帧长非法都只记日志不逃逸；取帧调用单独 try/catch，异常则 break 退出线程而不是终止进程。需要真机才能制造 SDK 异常帧，故只到审查级。"
+    }
+  ],
+  "tally": {
+    "PASS": 12,
+    "FAIL": 0,
+    "UNVERIFIED": 0,
+    "NOT_RUN": 0,
+    "note": "12 条约束全部 PASS，其中 8 条由单元测试（31 条用例）支撑、1 条由并发测试支撑、3 条只能到代码审查级（SDK 句柄与线程异常需真机）。全量回归 183/183。"
+  },
+  "unpaid": [
+    {
+      "item": "HikCamera 的句柄销毁顺序、SDK 引用计数、采图线程 finally 归还三处只有 CODE_REVIEW 级证据",
+      "level": "S2",
+      "risk": "结论依赖「代码写对了」，没有现场执行验证；MVS SDK 在异常帧下的真实行为无法在无相机环境复现",
+      "owner": "现场接入真机后复跑：接相机 → 反复热切换 10 次 → 拔网线 → 关程序，检查是否残留 0x80000203",
+      "evidence_gap": "需要一台海康相机 + 一次异常帧注入"
+    },
+    {
+      "item": "WebcamCamera 的拔插行为（连续失败判离线、close 后 open 重建）未经真机验证",
+      "level": "S3",
+      "risk": "失败计数模型是按 OpenCV VideoCapture 契约推断的，实际驱动的失败模式可能不同",
+      "owner": "接 USB 摄像头后手动拔插各 3 次",
+      "evidence_gap": "无 USB 摄像头可用"
+    },
+    {
+      "item": "同类型热切换（Hikvision → Hikvision）仍然做不到：回滚后相机保持原样，但无法重建同一个独占设备",
+      "level": "S3",
+      "risk": "现场若需要「重启相机」只能重启程序",
+      "owner": "下一轮设计 teardown-first 的受限切换：先释放再重建，并在此期间屏蔽采图",
+      "evidence_gap": "需要改 SwapTo 的契约（先拆后建 + 失败时无相机可用），属于设计取舍，需用户确认"
+    },
+    {
+      "item": "6 条观察项（O-D01..O-D06）均未修",
+      "level": "S3",
+      "risk": "O-D06（ConnectAll 空 catch 吞失败、无日志）会让现场排查失去唯一的异常线索；其余为理论可达或展示语义",
+      "owner": "下一轮：给 DeviceManager 注入 ILogger 或加 ConnectFailed 事件；TriggerDevice.Type/Status 改为按 IsRunning 派生",
+      "evidence_gap": "会改动构造签名/UI 文案，本轮不动"
+    },
+    {
+      "item": "设备层未做变异测试",
+      "level": "—",
+      "risk": "判定段（TryConvertPixels 的格式分派、FrameAlive 的边界）没有验收「测试有没有牙」",
+      "owner": "若需要，可对 TryConvertPixels/FrameAlive 两个纯函数跑 Stryker（成本低，无外部依赖）",
+      "evidence_gap": "本轮未安排"
+    }
+  ],
+  "notes": [
+    "本轮有一条判断在核实调用面后被推翻并改判，记在此处备查：初版把 E08 判为「单消费者不变量失效 → UI 队列无界增长」（S2）。读 MainViewModel 后发现 ProcessFrame 开头已有 `if (_isProcessing) return;`，所有 ProcessFrame 又都经 Dispatcher 归到 UI 线程串行执行，积压与并发都不成立，因此 E08 的无效/延迟/重复/阻塞四格改为 N/A（理由写明消费者侧守卫在 App 层，不在本切片范围），只在崩溃/失败两格保留了 Triggered 异常逃逸这一条（F-D10）——这条是真实且可测的。",
+    "COUNT：135 格 = 39 格由 12 条 FOUND 的实例落格 + 73 格 N/A + 23 格类级豁免。12 条 MAIN / 658 行有效代码 = 18.2 条/KLOC，低于 30 警戒线；OBSERVATION:MAIN = 6:12 = 0.5:1，未出现用观察项稀释问题的迹象。",
+    "密度口径：12 条均已在同一轮修复（disposition=FIXED），门禁的自由度统计因此显示「开放 MAIN 0 条」，18.2/KLOC 是人工按 FOUND 总数回算的，写在落地记录里备查。"
+  ]
+}

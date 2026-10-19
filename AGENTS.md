@@ -70,12 +70,15 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 
 ## 6. 三步失效分析法（本仓库的工程纪律）
 
-规范全文：`docs/三步失效分析法.md`。切片各有一套产物：
+规范全文：`docs/三步失效分析法.md`（只写规则）。各切片跑完的结果、未清偿清单、方法修订史见
+`docs/三步法落地记录.md`（只写现状）。两份文件不要互相掺内容。
+
+切片各有一套产物：
 
 | 切片 | 产物目录 | 范围 | 门禁 |
 |---|---|---|---|
-| 运维 | `audit/artifacts/` | U19/U20 + 5 交互（63 格） | `python audit\scripts\gate_check.py --scope audit\artifacts\scope-ops.json` |
-| Core 主链 | `audit/artifacts-core/` | U01-U07 + E01/E02/E03/E04/E21（108 格） | `python audit\scripts\gate_check.py --art artifacts-core --scope audit\artifacts-core\scope-core.json` |
+| 运维 | `audit/artifacts/` | U19/U20 + 5 交互 | `python audit\scripts\gate_check.py --scope audit\artifacts\scope-ops.json` |
+| Core 主链 | `audit/artifacts-core/` | U01-U07 + E01/E02/E03/E04/E21 | `python audit\scripts\gate_check.py --art artifacts-core --scope audit\artifacts-core\scope-core.json` |
 
 两者共用 `audit/artifacts/index.json` 的结构索引；`--art` 只切换三份产物与证据的落点。
 

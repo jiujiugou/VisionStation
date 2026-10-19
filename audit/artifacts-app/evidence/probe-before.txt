@@ -1,0 +1,45 @@
+探针启动 · 机器 TOMWANG · .NET 8.0.12 · cwd=D:\Code\VisionStation
+
+P1 AppPaths —— 输出路径的锚点
+  cwd=D:\Code\VisionStation                    DbPath=D:\Code\VisionStation\visionstation.db
+  cwd=C:\Users\jiuji\AppData\Local\Temp\vs-probe-app-e5327c DbPath=C:\Users\jiuji\AppData\Local\Temp\vs-probe-app-e5327c\visionstation.db
+  两个 cwd 下 DbPath 是否相同: False
+  StorageFolder 是否落在 cwd 下: True
+P1 结论: 输出三件套（db / 图片 / 日志）完全由 Environment.CurrentDirectory 决定，配置里没有任何基准目录可锚定；cwd 不可写时无处可落。
+
+P2 CameraFactory —— 未知模式字符串
+  Mode="Hikvision " -> 实例=HikCamera      界面显示="海康工业相机"
+  Mode="HikVision " -> 实例=FileCamera     界面显示="HikVision"
+  Mode="HIK       " -> 实例=FileCamera     界面显示="HIK"
+  Mode="File      " -> 实例=FileCamera     界面显示="文件相机"
+P2 结论: 拼错/大小写不符的模式名不报错，静默落到 FileCamera；而相机页把模式名原样当作「海康工业相机」类显示，界面与真实设备不一致。
+
+P3 ToolFactory —— 未知工具类型
+  配方启用工具 4 个 -> 实际生成 3 个：PresenceTool,DimensionTool,DefectTool
+  未知类型是否抛异常: 否（无输出、无返回值、调用方无从得知少了一个）
+P3 结论: 未知 Type 只在 Debug.WriteLine 留一行（Release 下不进任何日志），工具静默缺席，而总判定只按剩余工具算 —— 少检一项不会被判 NG。
+
+P4 ROI 配方保存 —— 目标不可写
+  RecipePath = Z:\no-such-drive\recipes\default.json
+  结果: 未捕获异常 DirectoryNotFoundException: Could not find a part of the path 'Z:\no-such-drive\recipes'.
+  → RelayCommand 的同步 Execute 不会吞异常：异常冒到 WPF 输入循环，App 的 DispatcherUnhandledException 里 Handled=false → 进程退出 → 看门狗重启。
+P4 结论: 配方保存没有任何 try/catch；盘符不存在/只读/磁盘满一律升级为进程崩溃，界面无提示，当前编辑的 ROI 全部丢失。
+
+P5 结果面板 —— 多工具报告的显示行
+  报告内工具数: 4，其中 NG: 1
+  总判定条: NG（颜色 #E81123）
+  表格行数: 4 -> 特征有无:OK | 圆孔直径:OK | 划痕:OK | 缺口:OK
+P5 结论: 表格固定 4 行（特征/直径/划痕/缺口），第 4 个工具（Yolo）既不出现也不显示 NG；于是界面出现「总判定 NG，四行全 OK」，操作员无法解释 NG 从哪来。
+
+P6 帧 Mat 生命周期 —— 采集 50 帧不 Dispose
+  单帧尺寸: 300x300x3 ≈ 0.26 MB（非托管）
+  Capture 之后 Mat 是否已被释放: False（调用方负责）
+  私有字节: 采集前 85 MB → 50 帧后 93 MB → 强制 GC+终结器后 85 MB
+  差值: 增长 8 MB，GC 回收 8 MB
+P6 结论: 每帧 Mat 的唯一释放者是 OpenCvSharp 的终结器。托管堆压力小（像素在非托管内存）时 GC 不着急跑，工作集会一直涨到某次 Gen2/内存压力才回落；而 tests/VisionStation.Test/Program.cs:105 是显式 Dispose 的 —— 消费方释放是既定契约，App 这一侧没有履行。
+
+P7 状态栏 FPS —— 周期为 0
+  _emaCycleMs=0 -> Fps="∞"（double.IsInfinity=True）
+P7 结论: 显示为 ∞，不是崩溃但状态栏读数失真；操作员据此判断节拍会被误导。
+
+探针结束。

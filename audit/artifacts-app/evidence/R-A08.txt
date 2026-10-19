@@ -1,0 +1,24 @@
+== R-A08 切页不恢复图像面板 ==
+-- 命令: sed -n '45,60p' MainWindow.xaml.cs --
+        // 导航 —— 侧边栏点击切换页面
+        WeakReferenceMessenger.Default.Register<MainWindow, NavigateMessage>(this,
+            (_, msg) =>
+            {
+                bool isDetection = msg.Value == "检测";
+                InspectionPage.Visibility = isDetection ? Visibility.Visible : Visibility.Collapsed;
+                CameraPage.Visibility = msg.Value == "相机" ? Visibility.Visible : Visibility.Collapsed;
+                RoiEditor.Visibility = Visibility.Collapsed; // 切页退出编辑
+                _isEditMode = false;
+            });
+
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F2 && InspectionPage.Visibility == Visibility.Visible)
+                ToggleEditMode();
+        };
+
+71:            ImagePanel.Visibility = Visibility.Collapsed;
+77:            ImagePanel.Visibility = Visibility.Visible;
+
+结论: ImagePanel 只在 ToggleEditMode 里被改；导航处理器只收起 RoiEditor，
+      没有 ImagePanel.Visibility = Visible 的恢复点。

@@ -1,0 +1,46 @@
+== R-A16 结果面板固定 4 行 ==
+-- 探针实测 --
+P5 结果面板 —— 多工具报告的显示行
+  报告内工具数: 4，其中 NG: 1
+  总判定条: NG（颜色 #E81123）
+  表格行数: 4 -> 特征有无:OK | 圆孔直径:OK | 划痕:OK | 缺口:OK
+P5 结论: 表格固定 4 行（特征/直径/划痕/缺口），第 4 个工具（Yolo）既不出现也不显示 NG；于是界面出现「总判定 NG，四行全 OK」，操作员无法解释 NG 从哪来。
+
+-- 源码 --
+                // 四行：特征有无 / 圆孔直径 / 划痕 / 缺口
+                vm.Rows.Clear();
+                var p = r.PresenceResult;
+                vm.Rows.Add(new ResultRow
+                {
+                    Item = "特征有无",
+                    IsOk = p.IsOk,
+                    Value = p.Metrics.GetValueOrDefault("MatchScore", 0).ToString("F3")
+                });
+
+                var d = r.DimensionResult;
+                vm.Rows.Add(new ResultRow
+                {
+                    Item = "圆孔直径",
+                    IsOk = d.IsOk,
+                    Value = $"{d.Metrics.GetValueOrDefault("Deviation_mm", 0):F2} mm"
+                });
+
+                var f = r.DefectResult;
+                vm.Rows.Add(new ResultRow
+                {
+                    Item = "划痕",
+                    IsOk = f.Metrics.GetValueOrDefault("ScratchCount", 0) == 0,
+                    Value = $"{(int)f.Metrics.GetValueOrDefault("ScratchCount", 0)} 处"
+                });
+                vm.Rows.Add(new ResultRow
+                {
+                    Item = "缺口",
+                    IsOk = f.Metrics.GetValueOrDefault("NotchCount", 0) == 0,
+                    Value = $"{(int)f.Metrics.GetValueOrDefault("NotchCount", 0)} 处"
+                });
+
+                // 总判定条
+                vm.VerdictText = r.OverallVerdict;
+                vm.VerdictColor = r.IsOk ? "#107C10" : "#E81123";
+            });
+结论: 只映射 Presence/Dimension/Defect 三组 → 固定四行；第 4 个工具的判定不进表格。

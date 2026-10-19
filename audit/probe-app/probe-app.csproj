@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 探针：不是测试，是「修复前取得客观事实」的一次性程序。
+       位于 audit/ 下，不参与 ci.cmd（ci 只跑 src 与 tests），不影响产线构建。
+       证据输出见 audit/artifacts-app/evidence/probe-before.txt。 -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>VisionStation.ProbeApp</AssemblyName>
+    <RootNamespace>VisionStation.ProbeApp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VisionStation.App\VisionStation.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

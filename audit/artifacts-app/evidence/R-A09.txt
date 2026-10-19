@@ -1,0 +1,31 @@
+== R-A09 输出路径锚定进程工作目录 ==
+-- 探针实测 --
+P1 AppPaths —— 输出路径的锚点
+  cwd=D:\Code\VisionStation                    DbPath=D:\Code\VisionStation\visionstation.db
+  cwd=C:\Users\jiuji\AppData\Local\Temp\vs-probe-app-e5327c DbPath=C:\Users\jiuji\AppData\Local\Temp\vs-probe-app-e5327c\visionstation.db
+  两个 cwd 下 DbPath 是否相同: False
+  StorageFolder 是否落在 cwd 下: True
+P1 结论: 输出三件套（db / 图片 / 日志）完全由 Environment.CurrentDirectory 决定，配置里没有任何基准目录可锚定；cwd 不可写时无处可落。
+
+-- 源码 --
+80:        => Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, rel));
+    /// <summary>解析输出目录 / 文件（日志 / 图片 / db）：始终基于 cwd，目录不存在时由消费方创建</summary>
+    private static string ResolveOutput(string? value, string defaultRel)
+    {
+        var rel = string.IsNullOrWhiteSpace(value) ? defaultRel : value;
+        return GetFullPath(rel);
+    }
+
+    /// <summary>解析配方路径：BaseDirectory 优先（发布时配方可随 exe 部署），再回退 cwd</summary>
+    private static string ResolveRecipe(string? value)
+    {
+        var rel = string.IsNullOrWhiteSpace(value) ? @"Config\recipes\default.json" : value;
+        var basePath = GetFullPath(Path.Combine(AppContext.BaseDirectory, rel));
+        if (File.Exists(basePath)) return basePath;
+        return GetFullPath(rel);
+    }
+
+    private static string GetFullPath(string rel)
+        => Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, rel));
+}
+结论: ResolveOutput 一律走 GetFullPath(cwd+rel)，配置里没有基准目录；只有输入资源回退 BaseDirectory。

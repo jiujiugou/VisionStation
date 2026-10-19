@@ -1,0 +1,61 @@
+== R-A03 落库失败吞掉整帧的界面结果 ==
+-- 命令: sed -n '180,235p' MainViewModel.cs --
+            // ── 5. 持久化：图片文件 + 数据库 ──
+            // 存图结果必须检查，不能像以前那样直接丢弃返回值：
+            // Cv2.ImWrite 写失败只返回 false 不抛异常，不看结果就会变成
+            // "系统认为存了，实际磁盘上没有" —— NG 图在无人知晓的情况下永久丢失。
+            var imageResult = _imageStore.Save(frame, report);
+            if (imageResult.IsFailed)
+            {
+                _imageSaveFailures++;
+                _logger.LogError("[存图失败] 连续 {N} 次：{Err}", _imageSaveFailures, imageResult.Error);
+                WeakReferenceMessenger.Default.Send(new LogMessage(
+                    $"存图失败（连续 {_imageSaveFailures} 次）: {imageResult.Error}", LogMsgLevel.Warning));
+
+                if (_imageSaveFailures == ImageSaveFailureAlertThreshold)
+                {
+                    // 升级为显式告警：这里已经不能叫"偶发失败"，是存储不可用
+                    WeakReferenceMessenger.Default.Send(new LogMessage(
+                        $"存图已连续失败 {ImageSaveFailureAlertThreshold} 次，图片追溯中断，请检查磁盘空间与写权限",
+                        LogMsgLevel.Error));
+                    _logger.LogError("存图连续失败 {N} 次，存储子系统不可用", _imageSaveFailures);
+                }
+            }
+            else if (imageResult.IsSaved)
+            {
+                _imageSaveFailures = 0;   // 恢复即清零
+            }
+
+            await _repo.SaveAsync(report);
+
+            // ── 6. 累计统计 ──
+            if (report.IsOk) _totalOk++; else _totalNg++;
+
+            // ── 6.1 状态栏实时指标：OK/NG 累计 + 单帧耗时 + EMA 平滑 FPS ──
+            _statusBar.OkCount = _totalOk;
+            _statusBar.NgCount = _totalNg;
+            var cycleMs = sw.ElapsedMilliseconds;
+            _statusBar.CycleTime = $"{cycleMs} ms";
+            _emaCycleMs = _emaCycleMs == 0 ? cycleMs : _emaCycleMs * 0.7 + cycleMs * 0.3;
+            _statusBar.Fps = $"{1000.0 / _emaCycleMs:0.0}";
+
+            // ── 7. 发消息 → 订阅者各自更新 ──
+            WeakReferenceMessenger.Default.Send(new InspectionResultMessage(report));
+            WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
+
+            _logger.LogInformation("判定:{V} 文件:{F} 耗时:{Ms}ms",
+                report.OverallVerdict, Path.GetFileName(frame.FilePath), sw.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "检测异常");
+            WeakReferenceMessenger.Default.Send(new LogMessage($"异常: {ex.Message}", LogMsgLevel.Error));
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+结论: 存图→SaveAsync→计数→发消息 的顺序固定；SaveAsync 抛异常即跳到 catch，
+      状态栏计数、InspectionResultMessage、CameraStatusMessage 全部被跳过。

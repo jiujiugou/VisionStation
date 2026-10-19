@@ -1,0 +1,18 @@
+== R-A05 重连按钮的判断恒为假 ==
+-- 命令: grep -n "_camera is FileCamera" + grep -n "AddSingleton<ICamera>" --
+134:        if (_camera is FileCamera fc) fc.RefreshFileList();
+64:        services.AddSingleton<ICamera>(sp => sp.GetRequiredService<SwappableCamera>());
+
+    [RelayCommand]
+    private void Reconnect()
+    {
+        if (_camera is FileCamera fc) fc.RefreshFileList();
+        CameraOnline = _camera.IsAvailable;
+        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
+        WeakReferenceMessenger.Default.Send(new LogMessage(
+            _camera.IsAvailable ? "相机已就绪" : "相机无图像",
+            _camera.IsAvailable ? LogMsgLevel.Success : LogMsgLevel.Error));
+    }
+
+结论: 注入类型是 ICamera，容器给出的实现是 SwappableCamera（不是 FileCamera）；
+      类型模式匹配在任何配置下都为 false → RefreshFileList 永不执行，重连按钮只剩读一次状态。

@@ -1,0 +1,22 @@
+== R-A15 模型只校验存在、不校验可加载 ==
+-- 命令: sed -n '116,129p' ToolFactory.cs + grep EnsureSession --
+    private static string? ResolveModelPath(string configured)
+    {
+        if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
+            return Path.GetFullPath(configured);
+
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (int i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "models", "neu-det.onnx");
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        return null;
+    }
+
+146:    private InferenceSession EnsureSession()
+165:            _session = new InferenceSession(ModelPath, options);
+213:        var session = EnsureSession();
+
+结论: File.Exists 通过即返回；InferenceSession 懒建（首次 Execute），损坏模型只在运行期表现为该工具恒 NG。

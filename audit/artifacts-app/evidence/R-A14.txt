@@ -1,0 +1,29 @@
+== R-A14 空工具配方被静默替换为内嵌默认配方 ==
+-- 命令: sed -n '137,158p' App.xaml.cs --
+    private static RecipeConfig LoadRecipe(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                var json = File.ReadAllText(path);
+                // 配方 JSON 用 camelCase 键：必须大小写不敏感，否则 rois/tools 绑不上，静默走兜底配方
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var recipe = JsonSerializer.Deserialize<RecipeConfig>(json, options);
+                if (recipe != null && recipe.Tools.Count > 0) return recipe;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogCrash("recipe", ex);
+        }
+
+        // 兜底路径必须留痕：操作员要知道现在跑的是默认配方，不是磁盘上那份
+        Log.Warning("配方 {Path} 加载失败（缺失/损坏/为空），回退到内嵌默认配方", path);
+        return LoadEmbeddedRecipe();
+    }
+
+-- 对照：自检把『工具为空』当失败 --
+195:        if (_recipe.Tools.Count == 0)
+
+结论: 合法但 tools=[] 的配方走兜底分支，返回内嵌默认配方（4 工具全开），只记一行 Warning。

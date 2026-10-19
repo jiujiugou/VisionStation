@@ -1,0 +1,30 @@
+== R-A04 配方写盘无异常处理且非原子 ==
+-- 命令: sed -n '285,302p' RoiEditorViewModel.cs --
+    [RelayCommand]
+    private void SaveToFile()
+    {
+        _recipe.Rois = Rois.Select(r => new RoiData
+        {
+            Name = r.Name, X = (int)r.ImageX, Y = (int)r.ImageY,
+            Width = (int)r.ImageWidth, Height = (int)r.ImageHeight
+        }).ToList();
+
+        // 写到与加载一致的配方路径（AppPaths.RecipePath），避免存到 bin 副本导致下次加载旧数据
+        var dir = Path.GetDirectoryName(_paths.RecipePath)!;
+        Directory.CreateDirectory(dir);
+        var json = JsonSerializer.Serialize(_recipe, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(_paths.RecipePath, json);
+
+        WeakReferenceMessenger.Default.Send(new RoisUpdatedMessage());
+        MessageBox.Show($"已保存到 {_paths.RecipePath}", "保存成功", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+-- 探针实测（不可写路径）--
+P4 ROI 配方保存 —— 目标不可写
+  RecipePath = Z:\no-such-drive\recipes\default.json
+  结果: 未捕获异常 DirectoryNotFoundException: Could not find a part of the path 'Z:\no-such-drive\recipes'.
+  → RelayCommand 的同步 Execute 不会吞异常：异常冒到 WPF 输入循环，App 的 DispatcherUnhandledException 里 Handled=false → 进程退出 → 看门狗重启。
+P4 结论: 配方保存没有任何 try/catch；盘符不存在/只读/磁盘满一律升级为进程崩溃，界面无提示，当前编辑的 ROI 全部丢失。
+
+结论: 无 try/catch、无临时文件+原子替换；异常直冒输入循环（Handled=false → 进程退出），
+      写一半中断则留下半截 JSON，下次启动静默回退默认配方。

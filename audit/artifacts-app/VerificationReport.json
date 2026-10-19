@@ -1,0 +1,174 @@
+{
+  "meta": {
+    "slice": "app",
+    "baseline": "src 构建 129 条分析器告警（ci.cmd 棘轮基线不变）；单元测试 192/192 通过；本切片未改任何生产代码，故基线数字与上一轮一致。",
+    "probe": "audit/probe-app（控制台探针，引用 App 工程）+ audit/artifacts-app/evidence/probe-before.txt（P1~P7 七项实测）",
+    "scope_note": "只覆盖 App 层 12 单元与 E18~E26 九条交互；XAML 布局/渲染、CommunityToolkit 源生成代码、Watchdog 进程不在本切片。",
+    "phase3_limitations": [
+      "App 层没有自动化测试工程（tests/ 下三个工程都不引用 VisionStation.App，WPF UI 层需要 net8.0-windows + STA）。因此本轮 16 条结论全部是「举证」（proof）：探针输出与代码摘录，不进 CI，改坏了不会红。",
+      "9 条以 CODE_REVIEW 判定的约束，证据是「代码现在长这样」；本规程禁止它判 PASS，故一律记 FAIL —— 表达的是「当前实现明确不满足约束」，不是「已实测到现场故障」。",
+      "需要真实窗口的两条（F-A01 模态阻塞、F-A08 编辑态切页空白）未做运行期注入：启动会拉起 Watchdog 子进程，注入失败会产生重启链，须在隔离机或临时移除 Watchdog 的构建上做。"
+    ]
+  },
+  "tally": {
+    "PASS": 0,
+    "FAIL": 16,
+    "UNVERIFIED": 0,
+    "NOT_RUN": 0,
+    "defense": 0,
+    "proof": 16,
+    "note": "defense=0 是本切片最重要的结论之一：App 层一条自动化防线都没有。16 条全部是举证 —— 探针跑一次留下输出，换一版不会自动重跑。修复阶段必须同时产出 tests/VisionStation.AppTests（net8.0-windows，引用 App），否则修完也只是「这一次修好了」。"
+  },
+  "results": [
+    {
+      "id": "V-A01",
+      "req": "R-A01",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A01.txt",
+      "note": "静态必然：自检循环体内只有 LogInformation/LogError 与 MessageBox.Show 两个动作，循环结束后无条件 Show(MainWindow) 并开始接受触发，没有任何开关被这个结论改写。模态框阻塞是 WPF 语义保证。运行期注入未做（见 meta.phase3_limitations 第 3 条）。"
+    },
+    {
+      "id": "V-A02",
+      "req": "R-A02",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A02.txt",
+      "note": "实测：src/ 下 0 处释放 frame.Image，唯一释放点在 tests/VisionStation.Test/Program.cs:105（证明「消费方释放」是既定契约）。探针 50 帧（300×300）私有字节 +8MB，强制 GC+终结器后才回落，说明释放节奏由 GC 决定。未做 30 分钟长跑与 1280×1024 真机量测。"
+    },
+    {
+      "id": "V-A03",
+      "req": "R-A03",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A03.txt",
+      "note": "静态必然：SaveAsync 在计数与消息之前，且与它们同处一个 try；异常必然跳过其后全部动作。未做「让 SaveAsync 必然失败」的注入跑帧。"
+    },
+    {
+      "id": "V-A04",
+      "req": "R-A04",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A04.txt",
+      "note": "实测：RecipePath 指向不存在的盘符时 SaveToFileCommand.Execute 抛 DirectoryNotFoundException，方法体内无 try/catch、无临时文件替换。原子性（半截 JSON）未实测，是从「直接覆盖写」的写法必然推出。"
+    },
+    {
+      "id": "V-A05",
+      "req": "R-A05",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A05.txt",
+      "note": "静态必然：容器给 ICamera 的实现是 SwappableCamera，`_camera is FileCamera` 恒假。未做「清空目录→放新图→点重连」的界面实测。"
+    },
+    {
+      "id": "V-A06",
+      "req": "R-A06",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A06.txt",
+      "note": "实测：CreateByMode(\"HikVision\") 返回 FileCamera，不抛异常；同一次运行里 \"Hikvision\" 返回 HikCamera —— 差异只在一个字母的大小写。"
+    },
+    {
+      "id": "V-A07",
+      "req": "R-A07",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A07.txt",
+      "note": "实测：4 个启用工具（含 Type=\"OCR\"）→ CreateAll 返回 3 个，无异常；唯一痕迹是 Debug.WriteLine。"
+    },
+    {
+      "id": "V-A08",
+      "req": "R-A08",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A08.txt",
+      "note": "静态必然：ImagePanel.Visibility 只有 ToggleEditMode 一个写入点（两处：Collapsed / Visible），导航处理器只写 RoiEditor。未做界面实测。"
+    },
+    {
+      "id": "V-A09",
+      "req": "R-A09",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A09.txt",
+      "note": "实测：同一份配置在两个不同 cwd 下解析出两个不同的 DbPath，StorageFolder 始终落在 cwd 下。"
+    },
+    {
+      "id": "V-A10",
+      "req": "R-A10",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A10.txt",
+      "note": "实测：_emaCycleMs=0 时 1000.0/0 为 Infinity，格式化结果为「∞」。"
+    },
+    {
+      "id": "V-A11",
+      "req": "R-A11",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A11.txt",
+      "note": "静态必然：换图只赋 Source；_zoom/PanTransform 的唯一复位点在 F 键处理里。"
+    },
+    {
+      "id": "V-A12",
+      "req": "R-A12",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A12.txt",
+      "note": "静态必然：同步 Dispatcher.Invoke 且无 try/catch。阻塞量级与关闭期异常均未实测。"
+    },
+    {
+      "id": "V-A13",
+      "req": "R-A13",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A13.txt",
+      "note": "实测（grep 全仓）：配置里有 Trigger.Mode=Manual，源码里只有 Trigger:TimerIntervalMs 一个键被读取，ITriggerSource 唯一实现是 TimerTrigger。"
+    },
+    {
+      "id": "V-A14",
+      "req": "R-A14",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A14.txt",
+      "note": "静态必然：解析成功但 Tools.Count==0 时条件不成立，控制流落到 LoadEmbeddedRecipe。与 HealthChecker「配方无效或为空」判 FAIL 的设计直接矛盾。"
+    },
+    {
+      "id": "V-A15",
+      "req": "R-A15",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A15.txt",
+      "note": "静态必然：ResolveModelPath 只做 File.Exists；InferenceSession 在 EnsureSession 里懒建，首次 Execute 才抛。伪造 onnx 的启动实测未做（会污染 models/ 目录，需隔离副本）。"
+    },
+    {
+      "id": "V-A16",
+      "req": "R-A16",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-app/evidence/R-A16.txt",
+      "note": "实测：4 个工具其中 Yolo 判 NG 的报告，总判定条为 NG，表格 4 行全 OK。"
+    }
+  ],
+  "unpaid": [
+    {
+      "item": "两条 S1 的独立上下文二审未做（F-A01 自检失效、F-A04 配方写盘）",
+      "level": "S1",
+      "risk": "规程 §4 要求 S1 由没有历史记录的新会话只看 diff + observable 复核。本会话既是分析者又是记录者，无法自证。两条的 observable 已写进 FailureCatalog，可直接投喂。",
+      "next": "新开会话，只给 F-A01 / F-A04 的 observable 与对应代码片段，问「哪里会坏」"
+    },
+    {
+      "item": "16 条 MAIN 全部未修复（本切片只做分析，未改生产代码）",
+      "level": "S1/S2/S3",
+      "risk": "分析结果停在纸面。其中 F-A01（自检不改变状态）与 F-A04（配方写盘崩进程 + 静默回退默认配方）是 S1，按规程必须修；F-A02（Mat 不释放）与 F-A07（未知工具静默跳过）会直接导致误判或长跑劣化。",
+      "next": "按 S1 → S2 顺序修：① App 自检结论接线到「禁止进入自动模式 + 界面常驻横幅」，去掉模态框；② 配方写盘改 临时文件 + File.Replace + try/catch；③ 帧作用域 using 释放 Mat；④ 未知模式/未知工具改抛异常；⑤ 导航恢复 ImagePanel。"
+    },
+    {
+      "item": "App 层零自动化防线：tests/ 下没有任何工程引用 VisionStation.App",
+      "level": "S1",
+      "risk": "16 条结论全是 proof，换一版不会自动重跑；修复后如果在下一个提交里被改回去，CI 不会红。这是本切片最贵的债 —— 比任何单条缺陷都贵。",
+      "next": "新建 tests/VisionStation.AppTests（net8.0-windows + UseWPF + xunit，引用 App）：把 R-A02/A04/A06/A07/A09/A10/A16 七条写成用例（其中 A06/A07/A09/A10/A16 已是纯函数级，可直接照搬探针），接入 ci.cmd 第 4 步。"
+    },
+    {
+      "item": "6 条待定项（O-A01..O-A06）全部 DEFERRED",
+      "level": "S3",
+      "risk": "DEFERRED 不等于安全，只是明确选择本版不处理。其中 O-A06（ROI 可画到图像外）与 O-A03（reloadOnChange 空承诺）最容易在现场被误认为「程序坏了」。",
+      "next": "见各条 review_condition；O-A06 建议与 F-A04 一起改（写盘前 clamp）"
+    },
+    {
+      "item": "跨切片纠错：Storage 切片 O-S05 的表述与本切片矛盾",
+      "level": "S2",
+      "risk": "artifacts-storage 的 O-S05 写着「当前调用链上 Mat 由 MainViewModel 在 ProcessFrame 作用域内释放」，实际 App 侧没有任何释放点（F-A02 即此）。这条错误表述会让后续切片以为 Mat 所有权已有着落，从而不再处理。",
+      "next": "把 O-S05 的 impact 改为「App 侧未释放，见 artifacts-app F-A02」，并重新跑一次 Storage 的门禁确认无副作用"
+    },
+    {
+      "item": "三条 S1/S2 的运行期注入未做",
+      "level": "S1",
+      "risk": "F-A01 模态阻塞、F-A04 断电半截文件、F-A15 伪造模型 —— 三者都需要启动真实进程/破坏文件，当前只有静态证据。静态证据证明「代码必然如此」，但证明不了「现场看到的正是这个现象」。",
+      "next": "在隔离机（或先移除 bin 下 VisionStation.Watchdog.exe 的构建）上做：只读存储目录启动、保存中杀进程、替换 onnx 文件"
+    }
+  ]
+}

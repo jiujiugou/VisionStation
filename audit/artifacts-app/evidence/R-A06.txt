@@ -1,0 +1,26 @@
+== R-A06 未知相机模式静默回落 FileCamera ==
+-- 探针实测 --
+P2 CameraFactory —— 未知模式字符串
+  Mode="Hikvision " -> 实例=HikCamera      界面显示="海康工业相机"
+  Mode="HikVision " -> 实例=FileCamera     界面显示="HikVision"
+  Mode="HIK       " -> 实例=FileCamera     界面显示="HIK"
+  Mode="File      " -> 实例=FileCamera     界面显示="文件相机"
+P2 结论: 拼错/大小写不符的模式名不报错，静默落到 FileCamera；而相机页把模式名原样当作「海康工业相机」类显示，界面与真实设备不一致。
+
+-- 源码 --
+    public ICamera CreateByMode(string mode)
+    {
+        return mode switch
+        {
+            "Webcam" => new WebcamCamera(0,
+                _loggerFactory?.CreateLogger<WebcamCamera>()),
+            "Hikvision" => new HikCamera(
+                _loggerFactory?.CreateLogger<HikCamera>()),
+            _ => new FileCamera(
+                _paths.ImageFolder,
+                _config["Camera:FileFilter"] ?? "*.jpg;*.png;*.bmp",
+                bool.Parse(_config["Camera:Loop"] ?? "true"),
+                _loggerFactory?.CreateLogger<FileCamera>())
+        };
+
+结论: switch 的 default 分支返回 FileCamera，不报错、不记日志；模式名仅被 SwappableCamera 记下来用于显示。

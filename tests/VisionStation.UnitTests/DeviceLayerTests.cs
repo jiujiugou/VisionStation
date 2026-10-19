@@ -359,7 +359,7 @@ public class DeviceLayerTests
     }
 
     [Fact]
-    public void FileCamera_ConcurrentRefreshAndCapture_NoException()
+    public async Task FileCamera_ConcurrentRefreshAndCapture_NoException()
     {
         // 刷新（UI 线程）与采集（检测线程）并发：旧实现在原地 _files.Clear()，
         // 采集线程手里的列表会在计数检查之后被清空 → ArgumentOutOfRangeException
@@ -390,7 +390,9 @@ public class DeviceLayerTests
         for (int i = 0; i < 300; i++) cam.RefreshFileList();
 
         Volatile.Write(ref stop, 1);
-        Assert.True(reader.Wait(TimeSpan.FromSeconds(10)), "采集线程未在 10s 内结束");
+        var finished = await Task.WhenAny(reader, Task.Delay(TimeSpan.FromSeconds(10))) == reader;
+        Assert.True(finished, "采集线程未在 10s 内结束");
+        await reader;
         Assert.Null(failure);
     }
 

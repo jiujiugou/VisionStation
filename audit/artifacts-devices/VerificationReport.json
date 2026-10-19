@@ -108,7 +108,7 @@
   },
   "unpaid": [
     {
-      "item": "HikCamera 的句柄销毁顺序、SDK 引用计数、采图线程 finally 归还三处只有 CODE_REVIEW 级证据",
+      "item": "HikCamera 的句柄销毁顺序、Dispose 的 Join 超时与 volatile 可见性、SDK 引用计数、采图线程 finally 归还四处只有 CODE_REVIEW 级证据",
       "level": "S2",
       "risk": "结论依赖「代码写对了」，没有现场执行验证；MVS SDK 在异常帧下的真实行为无法在无相机环境复现",
       "owner": "现场接入真机后复跑：接相机 → 反复热切换 10 次 → 拔网线 → 关程序，检查是否残留 0x80000203",

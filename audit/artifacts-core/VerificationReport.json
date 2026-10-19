@@ -1,0 +1,199 @@
+{
+  "comment": "core-main 切片验收报告。历史不覆盖：红记录保留，修复后追加 retry。",
+  "revision": "2026-10-19 · 三步失效分析法 v2.1 · 切片 U01-U07 + E01/E02/E03/E04/E21（108 格）",
+  "results": [
+    {
+      "id": "V-201",
+      "req": "R-201",
+      "subject": "F-C01",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "空工具列表与无 ROI 两种构造下 IsOk=True。原因：InspectionReport.IsOk 用 All()，空集合恒为 true"
+    },
+    {
+      "id": "V-202",
+      "req": "R-202",
+      "subject": "F-C02",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "两个同名工具构造成功，未抛异常；Run 时后者覆盖前者（报告只留一条记录）"
+    },
+    {
+      "id": "V-203",
+      "req": "R-203",
+      "subject": "F-C03",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "ROI 名与工具名不匹配、落到索引兜底时，日志中没有任何 Warning（收集到 0 条）"
+    },
+    {
+      "id": "V-204",
+      "req": "R-204",
+      "subject": "F-C04",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "PixelPerMillimeter = 0 / -15 / NaN / ∞ 四种输入全部不抛异常，返回 ∞ 或 NaN"
+    },
+    {
+      "id": "V-205",
+      "req": "R-205",
+      "subject": "F-C05",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "传入容器尺寸 NaN 后 ScaleFactor/OffsetX/OffsetY 变成 NaN，守卫未拦住（NaN 比较恒 false）"
+    },
+    {
+      "id": "V-206",
+      "req": "R-206",
+      "subject": "F-C06",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "贴边暗块被丢弃后 Metrics 只有 ScratchCount/NotchCount/TotalContours，无抑制计数"
+    },
+    {
+      "id": "V-207",
+      "req": "R-207",
+      "subject": "F-C07",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "ToleranceMm = 0 / -0.1 / NaN、DesignedDiameterMm = 0 四种非法构造全部成功"
+    },
+    {
+      "id": "V-208",
+      "req": "R-208",
+      "subject": "F-C08",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "文本文件冒充 .bmp：LoadTemplate 成功返回，Execute 抛 OpenCvSharp.OpenCVException（corr.rows 断言失败）"
+    },
+    {
+      "id": "V-209",
+      "req": "R-209",
+      "subject": "F-C09",
+      "status": "FAIL",
+      "evidence": "audit/artifacts-core/evidence/V2_core_RED.txt",
+      "note": "ConfThreshold=1.5/0、NmsThreshold=0/1.5、MaxDetections=0、ClassNames 空，全部构造成功"
+    },
+    {
+      "id": "V-201-retry",
+      "req": "R-201",
+      "subject": "F-C01",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "IsOk 改为 Results.Count > 0 && All(...)：空检测一律 NG。18/18 目标用例通过，全量 100/100",
+      "retry_of": "V-201"
+    },
+    {
+      "id": "V-202-retry",
+      "req": "R-202",
+      "subject": "F-C02",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "Pipeline 构造时按 Name 分组，重名抛 ArgumentException 并列出 名称×数量，检测开始前失败",
+      "retry_of": "V-202"
+    },
+    {
+      "id": "V-203-retry",
+      "req": "R-203",
+      "subject": "F-C03",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "降级路径写 Warning：工具名、现有 ROI 名、匹配方式（Index/Last）、实际使用的 ROI；名字匹配时无警告",
+      "retry_of": "V-203"
+    },
+    {
+      "id": "V-204-retry",
+      "req": "R-204",
+      "subject": "F-C04",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "PixelToMm/MmToPixel 前置 EnsureScale：非有限或 ≤0 抛 ArgumentOutOfRangeException，消息含\"标定比例\"",
+      "retry_of": "V-204"
+    },
+    {
+      "id": "V-205-retry",
+      "req": "R-205",
+      "subject": "F-C05",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "UpdateLayout 改为全参数校验通过后才写入；IsFinitePositive 把 NaN/∞/0/负值一律拒绝；7 种单参数非法均保持旧布局",
+      "retry_of": "V-205"
+    },
+    {
+      "id": "V-206-retry",
+      "req": "R-206",
+      "subject": "F-C06",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "贴边分支计数 EdgeSuppressed 并入 Metrics；贴边块 =1 且 IsOk 仍 true（策略不变），中心块 =0 且检出",
+      "retry_of": "V-206"
+    },
+    {
+      "id": "V-207-retry",
+      "req": "R-207",
+      "subject": "F-C07",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "DimensionTool 构造即校验：设计直径与公差必须是有限正数，四种非法构造全部抛出",
+      "retry_of": "V-207"
+    },
+    {
+      "id": "V-208-retry",
+      "req": "R-208",
+      "subject": "F-C08",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "ImRead 后检查 Empty()：空模板归一化为 null + 失败标记；Execute 返回 NG(\"模板无效\")，不抛异常",
+      "retry_of": "V-208"
+    },
+    {
+      "id": "V-209-retry",
+      "req": "R-209",
+      "subject": "F-C09",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_core_GREEN.txt",
+      "note": "四个参数改为带校验的属性（后置字段），越界在赋值时即抛；默认构造仍可正常推理",
+      "retry_of": "V-209"
+    },
+    {
+      "id": "V-210",
+      "req": "R-205",
+      "subject": "F-C05",
+      "status": "PASS",
+      "evidence": "audit/artifacts-core/evidence/V2_mutation.txt",
+      "note": "MUTATION_TEST：Calibration.cs 14/14 全杀（100%）；CoordinateMath.cs 50 杀 / 5 存活 / 1 未覆盖，合并得分 91.43%（门槛 90%）。三轮 74.29%→88.57%→91.43%，5 个存活均为等价变异，裁决理由见证据文件"
+    }
+  ],
+  "tally": {
+    "PASS": 10,
+    "FAIL": 9,
+    "UNVERIFIED": 0,
+    "NOT_RUN": 0,
+    "note": "9 条 FAIL 是修复前的历史记录，保留不覆盖；10 条 PASS = 9 条 retry + 1 条变异测试"
+  },
+  "unpaid": [
+    {
+      "item": "5 个等价变异体（CoordinateMath.cs 84×3 / 86 / 100）",
+      "reason": "外层守卫被内层完整校验掩盖、scale 非正仅下溢可达、totalScale 不可能为 0；已裁决为等价，不需要补测试",
+      "owner": "分析者",
+      "reopen": "若五参守卫被放宽，或 Zoom 钳制范围改为允许 0，这三处重新变成可观测缺陷"
+    },
+    {
+      "item": "变异测试第二批：DefectTool / DimensionTool / PresenceTool 的判定段",
+      "reason": "需要为 OpenCV 判定构造可区分图像（阈值边界、贴边、多圆），成本高于纯数学类；本轮先交付纯数学批次",
+      "owner": "分析者",
+      "reopen": "判定阈值/分类逻辑变更时"
+    },
+    {
+      "item": "OnnxYoloTool 未进变异范围",
+      "reason": "推理依赖 12MB 模型与原生 ORT，变异成本高；其参数校验已由 R-209 的单元测试覆盖",
+      "owner": "分析者",
+      "reopen": "更换模型或调整解码逻辑时"
+    }
+  ],
+  "notes": [
+    "5 条 OBSERVATION（O-C1..O-C5）按方法定义不进入 MAIN 清单，也不要求约束；它们保留在 FailureCatalog 中供后续复核",
+    "覆盖声明：App 层 Dispatcher 调度未在范围内，因此 Core 的\"并发 Execute\"不可由代码证实，O-C2 按 CONSTRUCTIBLE 处理而非 REACHABLE",
+    "本切片的 108 格全部有归属（FOUND / N/A / 类级豁免），但 9 类失效不是故障全集：本切片未覆盖 WPF 渲染、配方反序列化、触发层调度"
+  ]
+}

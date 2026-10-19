@@ -1,0 +1,17 @@
+# core-main 阶段3 红证据  2026-10-19 13:25:36
+# 期望：R-201..R-209 的否定用例全部通过；实际 14 红 4 绿，红 = 缺陷成立
+  失败 VisionStation.UnitTests.CoreInputGuardTests.Calibration_InvalidPixelPerMm_Throws(ppmm: ∞) [18 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.Calibration_InvalidPixelPerMm_Throws(ppmm: 0) [< 1 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.Calibration_InvalidPixelPerMm_Throws(ppmm: NaN) [< 1 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.Calibration_InvalidPixelPerMm_Throws(ppmm: -15) [< 1 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.YoloTool_InvalidThresholds_Throw [1 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.DimensionTool_InvalidParameters_Throw [1 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.YoloTool_InvalidLimits_Throw [< 1 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.CoordinateMath_NaNInput_KeepsPreviousFiniteLayout [7 ms]
+  失败 VisionStation.UnitTests.CorePipelineContractTests.Run_NoRoiMatched_ReportIsNg [243 ms]
+  失败 VisionStation.UnitTests.CoreInputGuardTests.PresenceTool_CorruptTemplateFile_ReportsInvalidWithoutThrowing [32 ms]
+  失败 VisionStation.UnitTests.DefectEdgeTests.DefectTool_EdgeTouchingBlob_ReportsSuppressedCount [263 ms]
+  失败 VisionStation.UnitTests.CorePipelineContractTests.Run_RoiNameMismatch_LogsWarningWithMatchMode [42 ms]
+  失败 VisionStation.UnitTests.CorePipelineContractTests.Run_NoTools_ReportIsNg [1 ms]
+  失败 VisionStation.UnitTests.CorePipelineContractTests.Ctor_DuplicateToolNames_Throws [< 1 ms]
+失败!  - 失败:    14，通过:     4，已跳过:     0，总计:    18，持续时间: 271 ms - VisionStation.UnitTests.dll (net8.0)

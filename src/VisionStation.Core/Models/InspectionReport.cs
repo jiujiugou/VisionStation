@@ -35,8 +35,13 @@ public class InspectionReport
     /// </summary>
     public Dictionary<string, ToolResult> Results { get; set; } = new();
 
-    /// <summary>总体是否合格（所有 Tool 都 OK 才 OK）</summary>
-    public bool IsOk => Results.Values.All(r => r.IsOk);
+    /// <summary>
+    /// 总体是否合格（所有 Tool 都 OK 才 OK）
+    ///
+    /// 注意：空结果集必须判 NG（F-C01）。Enumerable.All 对空集合返回 true，
+    /// 直接写 All(...) 会让「一个工具都没跑」的帧被判合格 —— 没检 ≠ 合格。
+    /// </summary>
+    public bool IsOk => Results.Count > 0 && Results.Values.All(r => r.IsOk);
 
     /// <summary>总判定文字：OK 或 NG</summary>
     public string OverallVerdict => IsOk ? "OK" : "NG";

@@ -50,23 +50,41 @@ public class CoordinateMath
     public void UpdateLayout(double containerW, double containerH,
         double imageRenderW, double imageRenderH, double pixelW, double pixelH)
     {
+        // 全参数校验通过后才写入任何字段（F-C05）：
+        //  1) 旧实现先赋值再判非法，留下「像素尺寸已更新、换算比例还是旧的」半更新状态；
+        //  2) 旧守卫写的是 imageRenderW <= 0，NaN 参与比较恒为 false，守卫形同虚设 ——
+        //     WPF 未测量时 ActualWidth 就是 NaN，一旦传进来 ScaleFactor/Offset 全变 NaN。
+        // 宁可整组拒绝、保留上一次有效布局，也不接受半套参数。
+        if (!IsFinitePositive(containerW) || !IsFinitePositive(containerH) ||
+            !IsFinitePositive(imageRenderW) || !IsFinitePositive(imageRenderH) ||
+            !IsFinitePositive(pixelW) || !IsFinitePositive(pixelH))
+            return;
+
+        double scale = imageRenderW / pixelW;
+        if (!IsFinitePositive(scale)) return;
+
         ContainerWidth = containerW;
         ContainerHeight = containerH;
         ImagePixelWidth = pixelW;
         ImagePixelHeight = pixelH;
-
-        // 非法尺寸保护：不更新换算比例，保留上一次有效布局
-        if (pixelW <= 0 || pixelH <= 0 || imageRenderW <= 0 || imageRenderH <= 0)
-            return;
-
-        ScaleFactor = imageRenderW / pixelW;
+        ScaleFactor = scale;
         OffsetX = (containerW - imageRenderW) / 2.0;
         OffsetY = (containerH - imageRenderH) / 2.0;
     }
 
+    /// <summary>有限正数判定：NaN/±∞/0/负数一律视为非法尺寸</summary>
+    private static bool IsFinitePositive(double v)
+        => !double.IsNaN(v) && !double.IsInfinity(v) && v > 0;
+
     /// <summary>仅知像素尺寸时，自动计算 Uniform 参数</summary>
     public void UpdateLayout(double containerW, double containerH, double pixelW, double pixelH)
     {
+        // 先校验再算比例：pixelW=0 时 containerW/pixelW = ∞，0*∞ 会产出 NaN，
+        // NaN 又能穿过下游的 <= 0 判断 —— 必须在入口拦住。
+        if (!IsFinitePositive(containerW) || !IsFinitePositive(containerH) ||
+            !IsFinitePositive(pixelW) || !IsFinitePositive(pixelH))
+            return;
+
         double s = Math.Min(containerW / pixelW, containerH / pixelH);
         UpdateLayout(containerW, containerH, pixelW * s, pixelH * s, pixelW, pixelH);
     }

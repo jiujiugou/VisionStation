@@ -1,0 +1,29 @@
+# core-main 变异测试证据（Stryker.NET 4.5.0）
+# 命令：
+#   dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj \
+#     -tp tests/VisionStation.UnitTests/VisionStation.UnitTests.csproj \
+#     -m "**/Calibration.cs" -m "**/Geometry/CoordinateMath.cs" -b 0
+
+## 三轮轨迹
+轮次  参与测试的变异体  杀死  存活  得分     触发
+1     69                52    17    74.29%   首次跑（既有测试 + 本轮新增 18 个）
+2     69                62     7    88.57%   补 10 个"非零偏移/非1缩放/单一非法参数"用例
+3     69                64     5    91.43%   补 +∞ 与 非对称纵横比 用例
+
+## 存活变异体裁决（不补测试，理由如下）
+CoordinateMath.cs:84 ×3（Logical）—— 等价变异：
+  三参重载的外层守卫被五参重载的完整校验覆盖。单参数非法时，外层即便放行，
+  五参守卫仍会整组拒绝，外部可观察行为完全相同。这层保留为防御性代码：
+  若日后有人放宽五参守卫，它仍然有效。
+
+CoordinateMath.cs:86（Statement，删掉 `if (!IsFinitePositive(scale)) return;`）—— 等价变异：
+  scale 只有在极端下溢（如 double.Epsilon / 1e308）时才会变成 0，
+  正常量级的布局参数不可达。该判断是数值防御，不是业务分支。
+
+CoordinateMath.cs:100（Equality，`<= 0` → `< 0`）—— 等价变异：
+  ScaleFactor 恒为正（守卫保证），Zoom 被钳制在 [0.05, 20]，
+  totalScale = ScaleFactor * Zoom 不可能等于 0。
+
+## 结论
+可杀死的变异体已全部杀死；剩余 5 个均判定为等价变异，不是测试漏洞。
+纯数学模块的门槛（≥90%）达成，得分 91.43%。

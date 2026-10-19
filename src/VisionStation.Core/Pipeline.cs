@@ -42,6 +42,21 @@ public class Pipeline
     {
         _tools = tools.ToList();
         _logger = logger;
+
+        // 工具名是 InspectionReport.Results 的键（F-C02）：
+        // 重名时后执行的结果会覆盖前一个，被覆盖的 NG 会凭空消失——报告变成假 OK。
+        // 这种错误必须在装配期炸掉，不能等到产线上放行了 NG 件才发现。
+        var duplicated = _tools
+            .GroupBy(t => t.Name)
+            .Where(g => g.Count() > 1)
+            .Select(g => $"{g.Key}×{g.Count()}")
+            .ToList();
+
+        if (duplicated.Count > 0)
+            throw new ArgumentException(
+                $"工具名必须唯一，否则检测结果会互相覆盖：{string.Join("、", duplicated)}。"
+                + "同一配方挂多个同类工具时，请为每个工具设置不同的 Name。",
+                nameof(tools));
     }
 
     /// <summary>
@@ -120,6 +135,7 @@ public class Pipeline
         {
             var tool = _tools[i];
             RoiRegion? roi = null;
+            string matchMode = "Name";
 
             // ── 三层 ROI 匹配策略 ──
             // 策略1：按 Tool.Name 匹配同名 ROI（如 Tool "Presence" → ROI "Presence"）
@@ -127,10 +143,16 @@ public class Pipeline
                 roi = namedRoi;
             // 策略2：按顺序匹配（第 i 个 Tool → 第 i 个 ROI）
             else if (i < rois.Count)
+            {
                 roi = rois[i];
+                matchMode = "Index";
+            }
             // 策略3：ROI 不够用时，重用最后一个（一框多用场景）
             else if (rois.Count > 0)
+            {
                 roi = rois[^1];
+                matchMode = "Last";
+            }
 
             if (roi == null)
             {
@@ -138,6 +160,14 @@ public class Pipeline
                     tool.Name, rois.Count);
                 continue;
             }
+
+            // 名称没匹配上而靠索引兜底 = 很可能配方改名/拼错（F-C03）：
+            // 这时工具是在"另一块区域"上测量，结果的 OK/NG 不能当真。
+            // 必须留 Warning，且把实际匹配方式写进日志，否则现场无从察觉。
+            if (matchMode != "Name")
+                _logger?.LogWarning(
+                    "[Pipeline] {Tool}: ROI 名称未匹配（现有 ROI: {Names}），已按 {Mode} 兜底使用 \"{RoiName}\"，请检查配方命名",
+                    tool.Name, string.Join(",", roiMap.Keys), matchMode, roi.Name);
 
             _logger?.LogInformation("[Pipeline] {Tool} → ROI[{Idx}] \"{RoiName}\" ({X},{Y}) {W}x{H}",
                 tool.Name, i, roi.Name, roi.X, roi.Y, roi.Width, roi.Height);

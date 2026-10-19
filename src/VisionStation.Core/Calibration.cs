@@ -27,12 +27,37 @@ public class Calibration
     /// <summary>像素距离 → 毫米</summary>
     /// <param name="pixels">像素数</param>
     /// <returns>对应的毫米数</returns>
-    public double PixelToMm(double pixels) => pixels / _config.PixelPerMillimeter;
+    /// <exception cref="ArgumentOutOfRangeException">标定比例非有限正数时</exception>
+    public double PixelToMm(double pixels)
+    {
+        EnsureScale();
+        return pixels / _config.PixelPerMillimeter;
+    }
 
     /// <summary>毫米 → 像素距离</summary>
     /// <param name="mm">毫米数</param>
     /// <returns>对应的像素数</returns>
-    public double MmToPixel(double mm) => mm * _config.PixelPerMillimeter;
+    /// <exception cref="ArgumentOutOfRangeException">标定比例非有限正数时</exception>
+    public double MmToPixel(double mm)
+    {
+        EnsureScale();
+        return mm * _config.PixelPerMillimeter;
+    }
+
+    /// <summary>
+    /// 标定比例守卫（F-C04）。
+    /// 比例为 0 时除法得 ∞，下游 DimensionTool 会把 ∞ 当实测直径，全线判超差；
+    /// 负值/NaN 同样产出无意义的测量值。这种配置错误必须当场报错，
+    /// 不能让现场去猜"是标定填错了还是零件真超差"。
+    /// </summary>
+    private void EnsureScale()
+    {
+        double v = _config.PixelPerMillimeter;
+        if (double.IsNaN(v) || double.IsInfinity(v) || v <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(CalibrationConfig.PixelPerMillimeter), v,
+                "标定比例 PixelPerMillimeter 必须是有限正数（px/mm）");
+    }
 
     /// <summary>检查实测值是否在设计公差的范围内</summary>
     /// <param name="measuredMm">实测毫米值</param>

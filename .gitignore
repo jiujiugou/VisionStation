@@ -37,3 +37,6 @@ notes/
 
 # 黄金样本库运行产物（每次跑都变，基线才入库）
 tests/GoldenSet/last-run.json
+
+# 变异测试产物（每次跑都变；结论已抽到 audit/artifacts-core/evidence/）
+StrykerOutput/

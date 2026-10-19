@@ -13,6 +13,10 @@ namespace VisionStation.Core.Tools;
 public class PresenceTool : IVisionTool
 {
     private Mat? _template;
+
+    /// <summary>上一次 LoadTemplate 是否因解码失败而失败（用于给出准确原因）</summary>
+    private bool _templateLoadFailed;
+
     private double _threshold;
 
     /// <summary>工具名，须与配方中 ROI 的 Name 对应（"Presence"）</summary>
@@ -30,17 +34,43 @@ public class PresenceTool : IVisionTool
         Threshold = threshold;
     }
 
-    /// <summary>从文件加载模板</summary>
+    /// <summary>
+    /// 从文件加载模板。
+    /// Cv2.ImRead 解码失败时返回空 Mat 而不是抛异常、也不是 null（F-C08）；
+    /// 若原样保存，Execute 的 null 校验会放行，随后每帧 MatchTemplate 抛一次
+    /// OpenCVException —— 现场看到的是"工具一直 NG + 日志刷异常栈"，
+    /// 而不是"模板文件无效"。这里统一归一化为 null + 失败标记。
+    /// </summary>
     public void LoadTemplate(string path)
     {
         _template?.Dispose();
-        _template = Cv2.ImRead(path, ImreadModes.Grayscale);
+        _template = null;
+        _templateLoadFailed = false;
+
+        var loaded = Cv2.ImRead(path, ImreadModes.Grayscale);
+        if (loaded.Empty())
+        {
+            loaded.Dispose();
+            _templateLoadFailed = true;
+            return;
+        }
+
+        _template = loaded;
     }
 
-    /// <summary>从 Mat 加载模板</summary>
+    /// <summary>从 Mat 加载模板（空 Mat 同样视为加载失败）</summary>
     public void LoadTemplate(Mat mat)
     {
         _template?.Dispose();
+        _template = null;
+        _templateLoadFailed = false;
+
+        if (mat == null || mat.Empty())
+        {
+            _templateLoadFailed = true;
+            return;
+        }
+
         _template = mat.Clone();
     }
 
@@ -72,7 +102,11 @@ public class PresenceTool : IVisionTool
     {
         // 前置校验①：模板未加载（配方里没配模板路径/加载失败）—— 无法检测，明确报因
         if (_template == null)
-            return ToolResult.Ng("模板未加载");
+            return ToolResult.Ng(_templateLoadFailed ? "模板无效" : "模板未加载");
+
+        // 前置校验①b：兜底拦空模板（正常路径已在 LoadTemplate 归一化）
+        if (_template.Empty())
+            return ToolResult.Ng("模板无效");
 
         // 前置校验②：裁 ROI，越界/为空说明配方配置有问题
         using var roiMat = roi.Crop(grayImage);

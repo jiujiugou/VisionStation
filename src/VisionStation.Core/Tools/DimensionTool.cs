@@ -52,7 +52,17 @@ public class DimensionTool : IVisionTool
     public DimensionTool(Calibration calibration,
         double designedDiameterMm = 10.0, double toleranceMm = 0.10)
     {
-        _calibration = calibration;
+        _calibration = calibration ?? throw new ArgumentNullException(nameof(calibration));
+
+        // 构造即校验（F-C07）：公差 0/负/NaN 会让每一个零件都判超差，
+        // 产线全停却没有任何线索指向"参数配错了"。
+        if (double.IsNaN(designedDiameterMm) || double.IsInfinity(designedDiameterMm) || designedDiameterMm <= 0)
+            throw new ArgumentOutOfRangeException(nameof(designedDiameterMm), designedDiameterMm,
+                "设计直径必须是有限正数（mm）");
+        if (double.IsNaN(toleranceMm) || double.IsInfinity(toleranceMm) || toleranceMm <= 0)
+            throw new ArgumentOutOfRangeException(nameof(toleranceMm), toleranceMm,
+                "公差必须是有限正数（mm）；0 会让所有实测值判超差");
+
         DesignedDiameterMm = designedDiameterMm;
         ToleranceMm = toleranceMm;
     }

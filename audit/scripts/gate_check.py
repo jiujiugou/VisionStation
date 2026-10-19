@@ -54,6 +54,9 @@ BLOCK, WARN = "BLOCK", "WARN"
 
 def load(name, required=True):
     p = os.path.join(ART, name)
+    # 结构索引是全局的：切片产物目录只放三份产物，索引回落到主 artifacts 目录
+    if not os.path.exists(p) and name == "index.json":
+        p = os.path.join(BASE, "artifacts", name)
     if not os.path.exists(p):
         if required:
             problems.append((0, BLOCK, f"产物缺失: {name}"))
@@ -346,7 +349,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--gate", type=int, default=0)
     ap.add_argument("--scope", default="", help="scope json 路径，含 targets 数组，只对账该子集")
+    ap.add_argument("--art", default="", help="产物目录（默认 artifacts）；多切片时各用各的，避免互相覆盖")
+    ap.add_argument("--root", default="", help="被审代码根目录（默认 D:/Code/VisionStation）")
     a = ap.parse_args()
+
+    global ART, ROOT
+    if a.art:
+        ART = a.art if os.path.isabs(a.art) else os.path.join(BASE, a.art)
+    if a.root:
+        ROOT = a.root
 
     only = None
     if a.scope and os.path.exists(a.scope):

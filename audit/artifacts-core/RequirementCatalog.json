@@ -1,0 +1,133 @@
+{
+  "slice": "core-main",
+  "generated": "2026-10-19",
+  "policy": "每条开放 MAIN 故障至少一条约束；每条约束必须给可复现命令，不接受\"已审查\"",
+  "entries": [
+    {
+      "id": "R-201",
+      "from": [
+        "F-C01"
+      ],
+      "provenance": "PRODUCT_REQ",
+      "control": "PREVENT",
+      "statement": "没有任何工具结果的报告不得判合格：空检测在语义上等于未检，必须输出 NG",
+      "scope": "Pipeline.Run 的产出与 InspectionReport.IsOk 的判定联动",
+      "trigger": "工具列表为空，或 ROI 为空/全部未匹配导致循环体全部 continue",
+      "criterion": "两种构造下 Run 返回的 report.Results.Count==0 且 report.IsOk==false 且 OverallVerdict==\"NG\"",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CorePipelineContractTests"
+    },
+    {
+      "id": "R-202",
+      "from": [
+        "F-C02"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "工具名是报告主键，必须唯一：Pipeline 构造时发现重名即抛异常，不得静默覆盖前一个工具的结果",
+      "scope": "Pipeline 构造函数与 InspectionReport.Results 的键语义",
+      "trigger": "传入两个 Name 相同的 IVisionTool（同配方挂两个 Presence，或多模型未改名）",
+      "criterion": "构造抛 ArgumentException，消息含重复的工具名；该异常发生在任何检测开始之前",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CorePipelineContractTests"
+    },
+    {
+      "id": "R-203",
+      "from": [
+        "F-C03"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "DETECT",
+      "statement": "ROI 匹配降级必须可观察：名字匹配失败而落到索引或末位策略时，必须记 Warning 并在结果里标记匹配方式",
+      "scope": "Pipeline.Run 的三层 ROI 匹配",
+      "trigger": "tool.Name 不在 ROI 名称字典中",
+      "criterion": "用名字不匹配的 ROI 运行后，该工具结果 Metrics[\"RoiMatch\"] 为 \"Index\" 或 \"Last\"；名字匹配成功时为 \"Name\"；降级路径写 Warning 日志",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CorePipelineContractTests"
+    },
+    {
+      "id": "R-204",
+      "from": [
+        "F-C04"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "标定比例必须是有限正数：非法比例下换算必须显式失败，不得返回 ∞/NaN 让下游把配置错误当零件超差",
+      "scope": "Calibration.PixelToMm / MmToPixel",
+      "trigger": "PixelPerMillimeter 为 0、负数、NaN 或 ∞",
+      "criterion": "四种非法值下两个换算函数均抛 ArgumentOutOfRangeException；合法值换算结果与既有 5 个测试一致",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CoreInputGuardTests"
+    },
+    {
+      "id": "R-205",
+      "from": [
+        "F-C05"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "布局参数必须有限且整体生效：非法尺寸不得只更新一部分字段，也不得让 NaN 穿过守卫",
+      "scope": "CoordinateMath 的两个 UpdateLayout 重载与两个换算函数",
+      "trigger": "任一尺寸参数为 NaN 或 ∞（WPF 未测量时的 ActualWidth，或上游算出的非有限值）；pixelW/pixelH 为 0 时同样必须整体拒绝",
+      "criterion": "先建立有效布局，再以非法参数调用：ScaleFactor/OffsetX/OffsetY/ImagePixelWidth 与调用前逐字段相等且有限；ScreenToImage 输出非 NaN",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CoreInputGuardTests"
+    },
+    {
+      "id": "R-206",
+      "from": [
+        "F-C06"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "DETECT",
+      "statement": "贴边抑制必须留痕：因贴 ROI 边界被丢弃的连通域要计入指标，判定策略可以不变，但漏掉的信号必须可见",
+      "scope": "DefectTool 的贴边过滤（过滤②）",
+      "trigger": "面积达标且贴 ROI 边界的连通域",
+      "criterion": "构造一个贴边、面积达标的暗块后 Metrics[\"EdgeSuppressed\"] >= 1；IsOk 判定不变（仍为 OK），只增加可观测性",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~DefectEdgeTests"
+    },
+    {
+      "id": "R-207",
+      "from": [
+        "F-C07"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "尺寸工具的设计值与公差必须构造即校验，非法值不得进入检测循环",
+      "scope": "DimensionTool 构造函数",
+      "trigger": "ToleranceMm <= 0 / NaN，或 DesignedDiameterMm <= 0",
+      "criterion": "四种非法构造均抛 ArgumentOutOfRangeException；合法构造的测量行为不变",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CoreInputGuardTests"
+    },
+    {
+      "id": "R-208",
+      "from": [
+        "F-C08"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "模板必须可解码才算加载成功：解码失败要归类为\"模板无效\"，不能让每帧的模板匹配抛异常",
+      "scope": "PresenceTool.LoadTemplate(string) 与 Execute 的前置校验",
+      "trigger": "模板文件存在但不可解码（截断、改扩展名、拷贝中断）",
+      "criterion": "用文本文件冒充 .bmp 加载后：Execute 不抛异常、IsOk==false、Summary 含\"模板无效\"",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CoreInputGuardTests"
+    },
+    {
+      "id": "R-209",
+      "from": [
+        "F-C09"
+      ],
+      "provenance": "ARCH_RULE",
+      "control": "PREVENT",
+      "statement": "YOLO 参数越界必须立刻失败：阈值或上限非法时静默返回\"未检出\"等于伪造合格结论",
+      "scope": "OnnxYoloTool 的 ConfThreshold / NmsThreshold / MaxDetections / ClassNames",
+      "trigger": "confidence 不在 (0,1]，NMS 不在 (0,1]，MaxDetections < 1，ClassNames 为空",
+      "criterion": "四种非法配置均抛 ArgumentOutOfRangeException（构造或属性赋值时）；默认构造仍可正常推理",
+      "verification_method": "UNIT_TEST",
+      "command": "dotnet test tests/VisionStation.UnitTests --filter FullyQualifiedName~CoreInputGuardTests"
+    }
+  ]
+}

@@ -47,17 +47,68 @@ public class OnnxYoloTool : IVisionTool, IDisposable
     /// <summary>ONNX 模型绝对路径</summary>
     public string ModelPath { get; }
 
-    /// <summary>置信度阈值：低于此分数的候选框直接丢弃（0.25 是工业缺陷检测的常用起点）</summary>
-    public float ConfThreshold { get; set; } = 0.25f;
+    /// <summary>
+    /// 置信度阈值：低于此分数的候选框直接丢弃（0.25 是工业缺陷检测的常用起点）。
+    /// 越界必须立刻失败（F-C09）：阈值 &gt; 1 会让所有候选被过滤掉，
+    /// 工具返回"未检出缺陷"= OK —— 模型什么都没判，系统却报合格。
+    /// </summary>
+    public float ConfThreshold
+    {
+        get => _confThreshold;
+        set
+        {
+            if (float.IsNaN(value) || value <= 0f || value > 1f)
+                throw new ArgumentOutOfRangeException(nameof(ConfThreshold), value,
+                    "置信度阈值必须在 (0,1] 内；填 1.5 之类会让所有检测被静默丢弃");
+            _confThreshold = value;
+        }
+    }
+    private float _confThreshold = 0.25f;
 
     /// <summary>NMS 的 IoU 阈值：重叠度高于此值的同类框只保留分数最高的</summary>
-    public float NmsThreshold { get; set; } = 0.45f;
+    public float NmsThreshold
+    {
+        get => _nmsThreshold;
+        set
+        {
+            if (float.IsNaN(value) || value <= 0f || value > 1f)
+                throw new ArgumentOutOfRangeException(nameof(NmsThreshold), value,
+                    "NMS 阈值必须在 (0,1] 内");
+            _nmsThreshold = value;
+        }
+    }
+    private float _nmsThreshold = 0.45f;
 
-    /// <summary>单帧最大保留框数（防止异常图像产生上千个框拖垮 UI）</summary>
-    public int MaxDetections { get; set; } = 100;
+    /// <summary>
+    /// 单帧最大保留框数（防止异常图像产生上千个框拖垮 UI）。
+    /// 必须 ≥ 1：填 0 会把所有框裁掉，等价于"永远没有缺陷"。
+    /// </summary>
+    public int MaxDetections
+    {
+        get => _maxDetections;
+        set
+        {
+            if (value < 1)
+                throw new ArgumentOutOfRangeException(nameof(MaxDetections), value,
+                    "单帧最大保留框数必须 ≥ 1；填 0 会让所有检测结果被裁掉并报合格");
+            _maxDetections = value;
+        }
+    }
+    private int _maxDetections = 100;
 
-    /// <summary>类别名，顺序必须与训练时 data.yaml 的 names 完全一致</summary>
-    public string[] ClassNames { get; set; } =
+    /// <summary>类别名，顺序必须与训练时 data.yaml 的 names 完全一致（不能为空）</summary>
+    public string[] ClassNames
+    {
+        get => _classNames;
+        set
+        {
+            if (value == null || value.Length == 0)
+                throw new ArgumentOutOfRangeException(nameof(ClassNames),
+                    "类别名不能为空：没有类别名就无法解码任何候选框");
+            _classNames = value;
+        }
+    }
+    private string[] _classNames =
     {
         "crazing", "inclusion", "patches",
         "pitted_surface", "rolled-in_scale", "scratches"

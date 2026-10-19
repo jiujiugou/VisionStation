@@ -110,6 +110,7 @@ public class DefectTool : IVisionTool
         using var compMask = new Mat();
 
         // i 从 1 开始：0 号固定是背景，跳过
+        int edgeSuppressed = 0;   // 被"贴边规则"丢掉的连通域数（F-C06）
         for (int i = 1; i < compCount; i++)
         {
             int left = stats.At<int>(i, (int)ConnectedComponentsTypes.Left);
@@ -123,10 +124,15 @@ public class DefectTool : IVisionTool
 
             // 过滤②：剔除贴 ROI 边界的连通域 ——
             // 真实的表面缺陷是完整的、孤立的；贴边说明它是被 ROI 裁断的背景或边缘区域，
-            // 形状不完整、判定不可靠，宁可漏判不可误判
+            // 形状不完整、判定不可靠，宁可漏判不可误判。
+            // 但"漏判"必须留痕（F-C06）：统计被抑制的数量，让事后能看出
+            // "这一帧其实有 N 个贴边信号被丢掉了"，而不是干净地报一句"表面无缺陷"。
             if (left <= 0 || top <= 0 ||
                 left + width >= cleaned.Cols || top + height >= cleaned.Rows)
+            {
+                edgeSuppressed++;
                 continue;
+            }
 
             // 过滤③：剔除零件固有孔（如垫圈中心孔）——
             // 连通域重心是 ROI 局部坐标，+roi.X/Y 转成原图坐标后，
@@ -187,7 +193,8 @@ public class DefectTool : IVisionTool
             {
                 ["ScratchCount"] = scratchCount,
                 ["NotchCount"] = notchCount,
-                ["TotalContours"] = contours.Length
+                ["TotalContours"] = contours.Length,
+                ["EdgeSuppressed"] = edgeSuppressed
             },
             Summary = total == 0
                 ? "表面无缺陷"

@@ -20,7 +20,7 @@ WPF 金属零件视觉检测工作站。取图 → 工具流水线判定（模�
 | `src/VisionStation.Service` | 自检（HealthChecker）、管家（Housekeeping） | 可改 |
 | `src/VisionStation.App` | WPF 组合根、DI 注册、ViewModel | 可改 |
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
-| `tests/VisionStation.UnitTests` | 全部测试（当前 70 项） | **只准加，不准改断言** |
+| `tests/VisionStation.UnitTests` | 全部测试（当前 100 项） | **只准加，不准改断言** |
 | `docs/` | 设计文档与规范，`三步失效分析法.md` 是方法准绳 | 可改 |
 | `audit/` | 失效分析产物 + 门禁脚本 | 由流程生成，不手改数据 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |
@@ -35,7 +35,13 @@ WPF 金属零件视觉检测工作站。取图 → 工具流水线判定（模�
 dotnet build tests\VisionStation.UnitTests -v q --nologo    :: 编译检查（最快）
 dotnet test  tests\VisionStation.UnitTests --nologo         :: 全量测试
 dotnet test  tests\VisionStation.UnitTests --filter "FullyQualifiedName~Housekeeping" --nologo
-verify.cmd                                                  :: 编译 + 测试 + 门禁，一条命令
+verify.cmd                                                  :: 编译 + 测试 + 门禁（运维切片）
+verify.cmd audit\artifacts-core\scope-core.json artifacts-core  :: 同上，Core 切片
+
+:: 变异测试（只对纯数学/判定段跑，约 2 分钟；不要全仓跑）
+dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
+  -tp tests/VisionStation.UnitTests/VisionStation.UnitTests.csproj ^
+  -m "**/Calibration.cs" -m "**/Geometry/CoordinateMath.cs" -b 0
 ```
 
 `verify.cmd` 退出码 0 才算做完。任何"已完成"的说法，必须先贴它的输出。
@@ -58,10 +64,22 @@ verify.cmd                                                  :: 编译 + 测试 +
 5. **图片保留期 ≥ 记录保留期**。否则第 8 天起，数据库记录指向的图全都不在了，追溯断链。
 6. **海康 SDK 是进程级的**：`MV_CC_Finalize_NET` 会让所有相机实例失效。`SwapTo` 必须先建新再放旧，顺序反了整进程的相机都废。
 7. **判定逻辑改一个数字就要配一个测试**。Core 里的阈值比较是"判定即产品"，错一位整条产线判错。
+8. **空结果集不能判合格**。`Enumerable.All` 对空集合返回 true——空配方/全禁用/ROI 全没匹配上都会让`IsOk` 变 true，等于"没检=合格"。`InspectionReport.IsOk` 现在要求 `Results.Count > 0`。
+9. **工具名是报告主键，重名会互相覆盖**。两个 `Presence` 工具同配方共存时，后执行的结果会顶掉前一个，被顶掉的 NG 凭空消失。`Pipeline` 构造期已改为重名即抛。
+10. **NaN 能穿过 `<= 0` 守卫**。WPF 未测量时 `ActualWidth` 是 NaN，`NaN <= 0` 为 false，守卫形同虚设。尺寸校验一律用 `IsFinitePositive`（拒绝 NaN/∞/0/负）。
 
 ## 6. 三步失效分析法（本仓库的工程纪律）
 
-规范全文：`docs/三步失效分析法.md`。三个产物在 `audit/artifacts/`：
+规范全文：`docs/三步失效分析法.md`。切片各有一套产物：
+
+| 切片 | 产物目录 | 范围 | 门禁 |
+|---|---|---|---|
+| 运维 | `audit/artifacts/` | U19/U20 + 5 交互（63 格） | `python audit\scripts\gate_check.py --scope audit\artifacts\scope-ops.json` |
+| Core 主链 | `audit/artifacts-core/` | U01-U07 + E01/E02/E03/E04/E21（108 格） | `python audit\scripts\gate_check.py --art artifacts-core --scope audit\artifacts-core\scope-core.json` |
+
+两者共用 `audit/artifacts/index.json` 的结构索引；`--art` 只切换三份产物与证据的落点。
+
+每套产物固定三件：
 
 - `FailureCatalog.json` — 故障清单（每条带 `文件:行号` 依据 + 危险等级 S1/S2/S3）
 - `RequirementCatalog.json` — 约束清单（每条带 scope/trigger/criterion + 验证手段 + 可执行命令）
@@ -75,11 +93,10 @@ verify.cmd                                                  :: 编译 + 测试 +
 - 跑不出测试或复现的，一律降为 OBSERVATION，**不计入总数**
 - 密度上限 60 条/KLOC，超了就是分析方式有问题，不是代码有问题
 
-门禁命令：`python audit\scripts\gate_check.py --scope audit\artifacts\scope-ops.json`
-
 ## 7. 做完的定义
 
-1. `verify.cmd` 退出码 0；
+1. `verify.cmd` 退出码 0（对应切片）；
 2. 新增的缺陷条目有 `文件:行号` 依据 + 一个能跑的测试（不能跑的写 NOT_RUN 并说明缺什么）；
 3. 三份产物与实际代码同步，`docs/三步失效分析法.md` 的规则没被绕过；
-4. `git diff` 里没有测试文件的断言被改动。
+4. `git diff` 里没有测试文件的断言被改动；
+5. 改动 `Calibration`/`CoordinateMath`/判定阈值后，变异测试得分不低于 90%，存活变异逐条裁决（补断言或标等价）。

@@ -73,7 +73,7 @@ public partial class App : Application
 
             // 看门狗信号通过委托注入：是否算"正常退出"取决于 _startupCompleted（启动失败仍要让看门狗重试）。
             // 放在 App 而不是 AppHost，避免组合根反向依赖 WPF 入口类。
-            var host = new AppHost(new DelegateWatchdogSignal(NotifyWatchdogCleanExit));
+            var host = new AppHost(NotifyWatchdogCleanExit);
             _host = host;
             host.Configure();
             _paths = host.Paths;

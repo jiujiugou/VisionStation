@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -27,16 +28,18 @@ public sealed class AppHost : IAsyncDisposable
     private readonly IConfiguration? _configuration;
     private readonly Action<IServiceCollection>? _configureServices;
     private readonly Func<IServiceProvider, IAppWindow> _windowFactory;
-    private readonly IWatchdogSignal _watchdog;
+
+    /// <summary>关闭收尾完成后通知看门狗"这是正常退出"。启动没走完时由 App 侧自行忽略。</summary>
+    private readonly Action? _onCleanExit;
+
     private readonly Action _requestShutdown;
 
-    /// <summary>关闭预算（暂定 8s：在途帧 3s + 容器释放 4s 的余量，待决策后可能调整）。</summary>
+    /// <summary>关闭预算：在途帧 3s + 容器释放 4s 的余量。</summary>
     private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(8);
 
     private ServiceProvider? _services;
     private AppPaths? _paths;
     private IAppWindow? _window;
-    private ShutdownCoordinator? _coordinator;
     private int _stopped;
     private int _closing;
 
@@ -45,9 +48,9 @@ public sealed class AppHost : IAsyncDisposable
     {
     }
 
-    /// <summary>生产入口：需要注入看门狗信号（是否发"正常退出"由 App 决定）。</summary>
-    public AppHost(IWatchdogSignal? watchdog)
-        : this(null, null, null, watchdog)
+    /// <summary>生产入口：看门狗信号由 App 决定（启动失败不该发 clean）。</summary>
+    public AppHost(Action? onCleanExit)
+        : this(null, null, null, onCleanExit)
     {
     }
 
@@ -55,13 +58,13 @@ public sealed class AppHost : IAsyncDisposable
         IConfiguration? configuration,
         Action<IServiceCollection>? configureServices,
         Func<IServiceProvider, IAppWindow>? windowFactory,
-        IWatchdogSignal? watchdog = null,
+        Action? onCleanExit = null,
         Action? requestShutdown = null)
     {
         _configuration = configuration;
         _configureServices = configureServices;
         _windowFactory = windowFactory ?? (sp => sp.GetRequiredService<MainWindow>());
-        _watchdog = watchdog ?? new NoopWatchdogSignal();
+        _onCleanExit = onCleanExit;
         // 默认取进程级 Shutdown；测试注入假对象即可断言"收尾完成后确实请求了退出"
         _requestShutdown = requestShutdown ?? (() => System.Windows.Application.Current?.Shutdown());
     }
@@ -139,23 +142,6 @@ public sealed class AppHost : IAsyncDisposable
 
         services.GetRequiredService<IHousekeepingService>();
         await services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync();
-
-        // 启动服务都解析完了才建关闭编排器：Configure 阶段保持"只注册不解析"的契约。
-        _coordinator = CreateShutdownCoordinator(services);
-    }
-
-    private ShutdownCoordinator CreateShutdownCoordinator(IServiceProvider services)
-    {
-        var stages = new AppShutdownStages(
-            services,
-            services.GetRequiredService<ITriggerSource>(),
-            services.GetRequiredService<IAppLifetime>(),
-            services.GetRequiredService<IInFlightWorkMonitor>(),
-            services.GetRequiredService<ILogShutdown>(),
-            _watchdog,
-            logger: services.GetService<ILogger<AppShutdownStages>>());
-
-        return new ShutdownCoordinator(stages, services.GetService<ILogger<ShutdownCoordinator>>());
     }
 
     public void Show()
@@ -216,39 +202,81 @@ public sealed class AppHost : IAsyncDisposable
     /// <summary>
     /// 有序关闭。幂等（第二次调用立刻返回）。
     ///
-    /// 正常路径委托 <see cref="ShutdownCoordinator"/> 走六步；
-    /// 如果从未走完 <c>InitializeAsync</c>（启动失败、配置未完成），只做最小收尾：
-    /// 释放容器 + 刷日志，不发看门狗信号（看门狗仍应重试）。
+    /// 顺序写死在这里，不拆编排器：WPF 应用只有这一条关闭路径，
+    /// 拆成"可注入的六步"只对 mock 有用，对实际运行没有任何好处。
+    /// 每步一行带编号的日志就是验证手段（配合一次真实关窗走查）。
+    ///
+    /// 顺序不能颠倒：先停摄入、再取消、再等在途，最后才拆设备与容器。
+    /// 反过来做，在途帧会落在已释放的 DbContext / 相机句柄上。
     /// </summary>
     public async Task StopAsync(TimeSpan timeout)
     {
         if (Interlocked.Exchange(ref _stopped, 1) == 1)
             return;
 
-        if (_coordinator == null)
+        var services = _services;
+        if (services == null) return;   // Configure 都没走完，没有可收尾的东西
+
+        var budget = Stopwatch.StartNew();
+
+        // 1 停掉定时触发。已进入 Elapsed 的回调仍可能触发，靠第 2 步拦住。
+        Guarded("1 stop-trigger", () => services.GetService<ITriggerSource>()?.Stop(), budget);
+
+        // 2 应用级取消：MainViewModel 据此拒绝排队中的触发。
+        Guarded("2 cancel", () => services.GetService<ShutdownState>()?.BeginStop(), budget);
+
+        // 3 等在途帧。必须有上界；等不到就如实记 timeout，不能假装收尾干净。
+        var inFlight = services.GetService<InFlightWorkMonitor>();
+        if (inFlight != null)
         {
+            var remaining = timeout - budget.Elapsed;
+            var idle = false;
+
             try
             {
-                if (_services is IDisposable disposable) disposable.Dispose();
+                idle = remaining > TimeSpan.Zero
+                    && await inFlight.WhenIdleAsync(remaining).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                Log.Error(ex, "释放容器失败（降级路径）");
+                Log.Error(ex, "[关闭] 3 在途收尾异常");
             }
 
-            await Log.CloseAndFlushAsync().ConfigureAwait(false);
-            return;
+            Log.Information("[关闭] 3 在途收尾: {Result}（{Elapsed}ms）",
+                idle ? "ok" : "timeout", budget.ElapsedMilliseconds);
         }
 
+        // 4 释放设备与容器。必须在后台线程：HousekeepingService.Dispose 内部会同步等最多 5 秒，
+        // 在 UI 线程上释放等于关窗时把界面冻住。
         try
         {
-            await _coordinator.StopAsync(timeout).ConfigureAwait(false);
+            await Task.Run(() => (services as IDisposable)?.Dispose()).ConfigureAwait(false);
+            Log.Information("[关闭] 4 释放容器（{Elapsed}ms）", budget.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
-            // Coordinator 自己已经吞掉单步异常；能走到这里的只有编排器本身出问题
-            Log.Error(ex, "关闭编排失败");
-            await Log.CloseAndFlushAsync().ConfigureAwait(false);
+            Log.Error(ex, "[关闭] 4 释放容器失败");
+        }
+
+        // 5 刷日志。摘要必须写在这一行之前：CloseAndFlush 之后 sink 就关了。
+        Log.Information("[关闭] 5 刷日志（总 {Elapsed}ms）", budget.ElapsedMilliseconds);
+        await Log.CloseAndFlushAsync().ConfigureAwait(false);
+
+        // 6 通知看门狗。这之后不能再写日志（sink 已关）。
+        try { _onCleanExit?.Invoke(); } catch { /* 信号发不出去不能反过来影响退出 */ }
+    }
+
+    /// <summary>单步执行：失败只留痕，不阻断后续（关闭是尽力而为）。</summary>
+    private static void Guarded(string step, Action action, Stopwatch budget)
+    {
+        try
+        {
+            action();
+            Log.Information("[关闭] {Step}（{Elapsed}ms）", step, budget.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[关闭] {Step} 失败", step);
         }
     }
 

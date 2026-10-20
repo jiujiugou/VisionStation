@@ -1,4 +1,3 @@
-using VisionStation.App.Composition.Lifecycle;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
 using VisionStation.Storage;
@@ -74,22 +73,6 @@ internal sealed class FakeInspectionRepository : IInspectionRepository
         Task.FromResult((0, 0));
 
     public Task<int> DeleteOlderThanAsync(DateTime cutoff) => Task.FromResult(0);
-}
-
-/// <summary>日志收尾替身：证明第 5 步真的被调到。</summary>
-internal sealed class FakeLogShutdown : ILogShutdown
-{
-    public int Count { get; private set; }
-
-    public void CloseAndFlush() => Count++;
-}
-
-/// <summary>看门狗信号替身：证明第 6 步真的被调到，且只调一次。</summary>
-internal sealed class FakeWatchdogSignal : IWatchdogSignal
-{
-    public int Count { get; private set; }
-
-    public void NotifyCleanExit() => Count++;
 }
 
 /// <summary>可观察的 IDisposable：记录是否被释放、在哪条线程上释放。</summary>

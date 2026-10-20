@@ -366,13 +366,15 @@ App.Tests：7/7
 C4 退出无残留、C5 顺序不可颠倒、C6 关闭幂等、C7 单步失败不阻断后续、C8 兜底路径有界退出、
 C9 看门狗语义不变、C10 关闭不冻界面。每条契约的验证层与证据见本节末尾的对照表。
 
-- 新增 `src/VisionStation.App/Composition/Lifecycle/`：`IAppLifetime`/`AppLifetime`、`IInFlightWorkMonitor`/`InFlightWorkMonitor`、
-  `IShutdownStages` + `ShutdownStepResult`/`ShutdownResult`、`ShutdownCoordinator`、`AppShutdownStages`、
-  `ILogShutdown`/`SerilogLogShutdown`、`IWatchdogSignal`/`NoopWatchdogSignal`/`DelegateWatchdogSignal`。
+- `src/VisionStation.App/Composition/Lifecycle/` 只有两个类，都不带接口：`ShutdownState`（bool + CTS，幂等取消）、
+  `InFlightWorkMonitor`（在途租约 + 归零唤醒 + 带超时等待）。关闭顺序**不拆编排器**，直接写在 `AppHost.StopAsync`
+  的直线代码里，每步一行带编号日志。理由：WPF 只有一条关闭路径，"可注入的六步"只对 mock 有用；
+  `docs/WPF开发规范.md:25` 明确反对 Host 管启停那套。
 - 接缝：`IAppWindow` 加 `Closing` 事件（`WindowCloseRequestedEventArgs`，不依赖 WPF 的 `CancelEventArgs`）；
   `MainWindow` 显式实现接口并把 WPF `Closing` 转发过去（`MainWindow.xaml.cs:73`）；`AppHost.Show` 订阅、
   `HandleWindowClosingAsync` 接管（首次 Cancel 留住窗口、重复请求只 Cancel 不重复收尾）；
-  `StopAsync` 委托 Coordinator，未 Initialize 时降级为「释放容器 + 刷日志」且不发看门狗信号；
+  `StopAsync` 顺序：停触发 → 应用级取消 → 等在途（有上界）→ 后台线程释放容器 → 刷日志 → 通知看门狗；
+  任一步失败只留痕、不阻断后续；`Configure` 未完成时没有可收尾对象，直接返回；
   `App.OnExit` 降级为有界兜底（`Wait(2s)`，不无限等）。
 - 应用级取消与在途计数：`MainViewModel.OnTriggered` 第一行查 `IsStopping`（必须先于 `Application.Current.Dispatcher`）；
   `ProcessFrame` 用 `using var lease = _inFlight.Begin()` 登记，所有退出路径（含中途 return/异常）都归还。
@@ -380,11 +382,12 @@ C9 看门狗语义不变、C10 关闭不冻界面。每条契约的验证层与�
   1. `AddSerilog(dispose: true)` 会让容器释放（第 4 步）提前拆掉日志 sink —— 实测日志只到第 2 步，
      关闭摘要全部丢失。改成 `dispose: false`，日志生命周期统一由第 5 步控制；摘要必须写在 flush **之前**。
   2. `wait-idle` 成功时不写日志，等于「没看到就当好」的恒真判据。改成成功/超时各记一条（`ok` / `timeout`）。
-- 测试：App.Tests 33（新增 18：Coordinator 7 + 原语 8 + MainViewModel 1 + AppHost 2）、UnitTests 195，总 228；
-  告警 119 → 115（顺手清掉 S2696×3、S6966×2，基线自动下调）。
-- 走查（临时副本 + `Camera:Mode=File`，绝对路径指向临时目录）：
-  - 正常启动 → 关窗 **279ms**，退出码 0；日志六步完整：`stop-trigger 0-1ms` → `cancel-lifetime 0ms` →
-    `在途收尾: ok（0ms）` → `设备与容器已释放` / `dispose 6ms` → `前四步完成（…）总耗时 11.5ms`。
+- 测试：App.Tests 23（新增 8：`ShutdownStateTests` 1 + `InFlightWorkMonitorTests` 4 + `MainViewModelShutdownTests` 1 +
+  `AppHostTests` 2）、UnitTests 195，总 **218**；告警 119 → 115（顺手清掉 S2696×3、S6966×2，基线自动下调）。
+- 走查（临时副本 + `Camera:Mode=File`，绝对路径指向临时目录；收敛后复测）：
+  - 正常启动 6.8s → 关窗 **308ms**，退出码 0；日志五步带编号：
+    `1 stop-trigger（0ms）` → `2 cancel（3ms）` → `3 在途收尾: ok（3ms）` → `4 释放容器（6ms）` → `5 刷日志（总 7ms）`；
+    第 6 步不写日志（flush 之后 sink 已关），由"关窗后 10s 无新进程"证明。
   - 二次启动 3.2s → 关窗 328ms，退出码 0；`Get-Process VisionStation.App` 计数 0（无残留）。
   - 连点关闭 3 次（间隔 40ms）：每次运行只产生 1 份摘要；两次运行合计 `[关闭]` 16 行（每次 8 行）。
   - 日志 grep `disposed` / `ObjectDisposed`：**0 命中**。
@@ -392,10 +395,10 @@ C9 看门狗语义不变、C10 关闭不冻界面。每条契约的验证层与�
   - 关窗后观察 10s：无新 `VisionStation.App` 进程，`VisionStation.Watchdog` 计数 0（收到 clean 信号，未重启）。
 - `NOT_RUN`（缺什么写清楚，不写成 PASS）：
   - 「自动运行中关窗」：需要点「自动模式」按钮，本机 UI 自动化注入被策略拦截（`Add-Type` 被禁用），
-    未取得 L3 证据。L1 用**真实** `InFlightWorkMonitor` 的用例 `StopAsync_有在途工作_等它结束才继续释放`
-    （在途租约释放前 `stopTask.IsCompleted == false` 且 `dispose` 未执行）提供等价证据。
+    未取得 L3 证据。L1 用**真实** `InFlightWorkMonitor` 的用例 `最后一租约释放后才完成`
+    （两个租约，释放一个后 `wait.IsCompleted == false`，第二个释放才放行）提供等价证据。
   - 「正逢清理轮次关窗」：清理轮次为毫秒级，无法稳定制造 5s 级阻塞；C10 以关窗总耗时（< 350ms）为代理证据，
-    「释放走后台卸钩子」由 L1 `释放容器经后台卸荷钩子执行` 覆盖。
+    释放步骤固定走 `Task.Run`（`AppHost.StopAsync` 第 4 步），由代码审阅 + `4 释放容器（6ms）` 日志佐证。
   - Hik 真机句柄释放：无真机，仅验 File 模式。
 - 待决策：关闭总预算 8s 是否合适（备选严格 5s）；超时后看门狗是否仍算 clean（当前：发 clean + 记 Warning）。
 - 契约 → 证据对照：
@@ -404,14 +407,18 @@ C9 看门狗语义不变、C10 关闭不冻界面。每条契约的验证层与�
 |---|---|---|
 | C1 预算内退出、退出码 0 | PASS | 关窗 279 / 328 / 375 ms，退出码均 0 |
 | C2 关闭后不再有新帧 | L1 PASS / L3 `NOT_RUN` | `MainViewModelShutdownTests`：`BeginStop()` 后 `Fire()` 采图 0 次 |
-| C3 在途有界收尾、放弃留痕 | L1 PASS / L3 部分 | 正向「等在途」+ 反向「超时仍继续」；日志 `在途收尾: ok（0ms）` |
+| C3 在途有界收尾、放弃留痕 | L1 PASS / L3 部分 | 正向「最后租约释放才放行」+ 反向「超时不阻塞线程」；日志 `3 在途收尾: ok（3ms）` |
 | C4 退出无残留 | PASS | 进程计数 0；二次启动 3.2s、无「设备被占用」 |
-| C5 顺序不可颠倒 | PASS | 日志六行按序；grep `disposed`/`ObjectDisposed` 0 命中 |
-| C6 关闭幂等 | PASS | 连点 3 次 X：每次运行只 1 份摘要 |
+| C5 顺序不可颠倒 | PASS | 日志五行带序号；grep `disposed`/`ObjectDisposed` 0 命中 |
+| C6 关闭幂等 | PASS | `ShutdownState.BeginStop` 重复调用；连点 3 次 X 每次运行只 1 份关闭日志 |
 | C7 单步失败不阻断后续 | PASS（L1） | 停触发抛异常后 5 步仍执行，不向调用方抛 |
 | C8 兜底路径有界退出 | PASS | 启动失败退出码 1、无窗口 |
 | C9 看门狗语义不变 | PASS | 关窗后 10s：App 0、Watchdog 0 |
-| C10 关闭不冻界面 | PASS（代理 + L1） | 关窗总耗时 < 350ms；`释放容器经后台卸荷钩子执行` 绿 |
+| C10 关闭不冻界面 | PASS（代理） | 关窗总耗时 < 350ms；释放步骤固定 `Task.Run` |
 
+- 设计收敛（同日纠偏）：首版照 Generic Host 思路拆成 12 个类型（`IAppLifetime`≈`IHostApplicationLifetime`、
+  `IShutdownStages`+`AppShutdownStages` 为 mock 而存在的三层、`IShutdownCoordinator`、`ILogShutdown`、`IWatchdogSignal`…），
+  被指出"这是用 ASP.NET Core 的方式写 WPF"。已砍到 2 个类，净减约 600 行、10 个类型。
+  代价如实记录：六步顺序从单测降级为「带编号日志 + 一次真实走查」，不再有 `ShutdownCoordinatorTests`。
 - W-21 → `FIXED`。W-01/W-02（设备构造副作用、`ConnectAll` 在 DI 工厂）仍 `OPEN`，属 S2.4/S2.5。
 - 下一步：S2.4 `DeviceManager` 移出 DI 工厂的 `ConnectAll`（`ServiceCollectionExtensions.cs:73-79`）。

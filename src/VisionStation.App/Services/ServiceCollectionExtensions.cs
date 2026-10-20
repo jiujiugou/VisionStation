@@ -106,10 +106,9 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAppServices(this IServiceCollection services,
         AppPaths appPaths, IConfiguration config)
     {
-        // S2.3：关闭流程的三个可替身点。放这里而不是 AddViews，因为它们不属于"界面"。
-        services.AddSingleton<IAppLifetime, AppLifetime>();
-        services.AddSingleton<IInFlightWorkMonitor, InFlightWorkMonitor>();
-        services.AddSingleton<ILogShutdown, SerilogLogShutdown>();
+        // S2.3：关闭用的两个单例。都是普通类，不挂接口 —— 这里只有一个实现，接口除了让测试好写没别的用。
+        services.AddSingleton<ShutdownState>();
+        services.AddSingleton<InFlightWorkMonitor>();
 
         services.AddSingleton<IHealthChecker>(sp =>
         {

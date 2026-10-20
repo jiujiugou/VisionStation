@@ -28,7 +28,7 @@ public class MainViewModelShutdownTests
         {
             var trigger = new FakeTriggerSource();
             var camera = new FakeCamera();
-            var lifetime = new AppLifetime();
+            var shutdown = new ShutdownState();
             var monitor = new InFlightWorkMonitor();
 
             var vm = new MainViewModel(
@@ -42,10 +42,10 @@ public class MainViewModelShutdownTests
                 new ImagePanelViewModel(),
                 new StatusBarViewModel(),
                 new RecipeConfig(),
-                lifetime,
+                shutdown,
                 monitor);
 
-            lifetime.BeginStop();
+            shutdown.BeginStop();
             trigger.Fire();
 
             // 采图次数为 0 = 这一帧根本没开始；在途计数为 0 = 也没有残留租约

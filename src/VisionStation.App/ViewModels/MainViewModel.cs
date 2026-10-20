@@ -53,8 +53,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     // S2.3（关闭顺序）依赖：关闭开始后拒绝新触发、并让关闭流程能看到"还有没有一帧在跑"。
     // 骨架期只建立依赖，拦截与租约在实现阶段接入（见 docs/S2.3-关闭顺序-设计.md）。
-    private readonly IAppLifetime _lifetime;
-    private readonly IInFlightWorkMonitor _inFlight;
+    private readonly ShutdownState _shutdown;
+    private readonly InFlightWorkMonitor _inFlight;
 
     // ── 检测区域：来自配方文件 ──
     private List<RoiRegion> _rois;
@@ -84,7 +84,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         IInspectionRepository repo, ImageStoreService imageStore,
         CalibrationConfig calib, ILogger<MainViewModel> logger,
         ImagePanelViewModel imagePanel, StatusBarViewModel statusBar, RecipeConfig recipe,
-        IAppLifetime lifetime, IInFlightWorkMonitor inFlight)
+        ShutdownState shutdown, InFlightWorkMonitor inFlight)
     {
         _trigger = trigger; _camera = camera; _pipeline = pipeline;
         _repo = repo; _imageStore = imageStore;
@@ -92,7 +92,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _imagePanel = imagePanel;
         _statusBar = statusBar;
         _recipe = recipe;
-        _lifetime = lifetime;
+        _shutdown = shutdown;
         _inFlight = inFlight;
 
         // 从配方文件取 ROI
@@ -143,7 +143,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // 关闭已开始：不再开新的一帧。
         // 这一步必须在碰 Dispatcher 之前 —— 关闭流程可能停在任意线程上，
         // 而此时 Application.Current 未必还可用。
-        if (_lifetime.IsStopping)
+        if (_shutdown.IsStopping)
         {
             _logger.LogDebug("关闭已开始，忽略本次触发");
             return;

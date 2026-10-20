@@ -62,8 +62,8 @@ internal sealed class FakeCamera : ICamera
     public int CaptureCount { get; private set; }
     public int FrameCount => CaptureCount;
 
-    public void open() { }
-    public void close() { }
+    public void Open() { }
+    public void Close() { }
 
     public CameraFrame? Capture()
     {

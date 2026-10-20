@@ -4,7 +4,7 @@
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             Width="52" Background="#2C2C2C"
+             Width="52" Background="{StaticResource SidebarBg}"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:SidebarViewModel, IsDesignTimeCreatable=False}">
     <UserControl.Resources>
@@ -37,19 +37,19 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#3A3A3A" />
-                                            <Setter Property="Foreground" Value="White" />
+                                            <Setter TargetName="border" Property="Background" Value="{StaticResource SidebarHover}" />
+                                            <Setter Property="Foreground" Value="{StaticResource CardBg}" />
                                         </Trigger>
                                         <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="#0078D4" />
-                                            <Setter Property="Foreground" Value="White" />
+                                            <Setter TargetName="border" Property="Background" Value="{StaticResource Accent}" />
+                                            <Setter Property="Foreground" Value="{StaticResource CardBg}" />
                                         </Trigger>
                                         <MultiTrigger>
                                             <MultiTrigger.Conditions>
                                                 <Condition Property="IsSelected" Value="True" />
                                                 <Condition Property="IsMouseOver" Value="True" />
                                             </MultiTrigger.Conditions>
-                                            <Setter TargetName="border" Property="Background" Value="#106EBE" />
+                                            <Setter TargetName="border" Property="Background" Value="{StaticResource AccentHover}" />
                                         </MultiTrigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -76,7 +76,7 @@
                  Margin="0,6,0,0" />
 
         <!-- 自动运行指示灯（space区域中央） -->
-        <Ellipse Grid.Row="1" Width="8" Height="8" Fill="#107C10"
+        <Ellipse Grid.Row="1" Width="8" Height="8" Fill="{StaticResource Ok}"
                  HorizontalAlignment="Center" VerticalAlignment="Bottom"
                  Margin="0,0,0,12"
                  Visibility="{Binding IsDimmed, Converter={StaticResource BoolToVis}}" />

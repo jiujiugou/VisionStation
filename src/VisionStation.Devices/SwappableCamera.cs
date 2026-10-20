@@ -61,8 +61,8 @@ public class SwappableCamera : ICamera
     };
 
     // 转发到当前相机：open/close 不能是空实现，否则"连接/断开"在包装层就断了
-    public void open() => _active.open();
-    public void close() => _active.close();
+    public void Open() => _active.Open();
+    public void Close() => _active.Close();
     public CameraFrame? Capture() => _active.Capture();
 
     /// <summary>
@@ -89,7 +89,7 @@ public class SwappableCamera : ICamera
             // S2.5：工厂只造对象、不连接，所以"连上"这一步必须在这里做。
             // 切换的语义是"连上并验证可用"，不是"造了个对象就算切过去了"。
             // open 失败不抛（各实现内部自己 catch 并降级），可用性仍由 IsAvailable 判。
-            candidate.open();
+            candidate.Open();
 
             if (!candidate.IsAvailable)
             {

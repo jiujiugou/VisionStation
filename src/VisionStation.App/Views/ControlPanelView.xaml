@@ -4,15 +4,9 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
-             xmlns:conv="clr-namespace:VisionStation.App.Converters"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:ControlPanelViewModel, IsDesignTimeCreatable=False}">
-    <UserControl.Resources>
-        <conv:StringToColorConverter x:Key="StringToColor" />
-        <conv:BoolToCameraColorConverter x:Key="BoolToCameraColor" />
-    </UserControl.Resources>
-
-    <Border Background="White" BorderBrush="#E1E1E1" BorderThickness="1"
+    <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
             CornerRadius="4" Padding="10">
         <StackPanel>
 
@@ -22,7 +16,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="操作" FontSize="12" FontWeight="SemiBold"
-                           Foreground="#1E1E1E" Margin="0,0,8,0" />
+                           Foreground="{StaticResource TextPrimary}" Margin="0,0,8,0" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal"
                             VerticalAlignment="Center">
                     <Ellipse Width="7" Height="7" Margin="0,0,4,0"
@@ -58,12 +52,12 @@
                         Style="{StaticResource AutoModeButton}" />
             </Grid>
 
-            <Border Height="1" Background="#E1E1E1" Margin="0,0,0,8" />
+            <Border Height="1" Background="{StaticResource CardBorder}" Margin="0,0,0,8" />
 
             <Button Content="急 停" Command="{Binding EmergencyStopCommand}"
                     Style="{StaticResource EStopButton}" Margin="0,0,0,8" />
 
-            <Border Height="1" Background="#E1E1E1" Margin="0,0,0,8" />
+            <Border Height="1" Background="{StaticResource CardBorder}" Margin="0,0,0,8" />
 
             <Grid>
                 <Grid.ColumnDefinitions>

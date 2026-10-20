@@ -88,7 +88,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddStorage(this IServiceCollection services,
         AppPaths appPaths, AppOptions options)
     {
-        // 修复（F-111）：不再注册全进程单例 InspectionDbContext。
+        // 不注册全进程单例 InspectionDbContext：
         // 管家清理线程与检测保存线程会并发用它，EF Core 禁止同一 context 并发操作。
         // Repository 现在每个操作自建/自释 context，所以注册为单例也安全。
         services.AddSingleton<IInspectionRepository>(sp =>

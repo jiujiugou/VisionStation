@@ -4,18 +4,13 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
-             xmlns:conv="clr-namespace:VisionStation.App.Converters"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:StatusBarViewModel, IsDesignTimeCreatable=False}">
-    <UserControl.Resources>
-        <conv:BoolToOnlineColorConverter x:Key="BoolToOnlineColor" />
-    </UserControl.Resources>
-
-    <Border Background="#1E1E1E" CornerRadius="3" Padding="12,5" Height="26">
+    <Border Background="{StaticResource TextPrimary}" CornerRadius="3" Padding="12,5" Height="26">
         <Grid>
             <!-- 左侧组 -->
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                <Ellipse Width="7" Height="7" Fill="#107C10" Margin="0,0,6,0" />
+                <Ellipse Width="7" Height="7" Fill="{StaticResource Ok}" Margin="0,0,6,0" />
                 <TextBlock Text="{Binding StatusText}" Foreground="#CCC" FontSize="11" />
 
                 <TextBlock Text="PLC" Foreground="#888" FontSize="11" Margin="14,0,0,0" />
@@ -46,11 +41,11 @@
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <TextBlock FontSize="11" Margin="0,0,14,0">
                     <Run Text="OK " Foreground="#888" />
-                    <Run Text="{Binding OkCount}" Foreground="#6ECF6E" FontWeight="SemiBold" />
+                    <Run Text="{Binding OkCount}" Foreground="{StaticResource StatusOkOnDark}" FontWeight="SemiBold" />
                 </TextBlock>
                 <TextBlock FontSize="11" Margin="0,0,14,0">
                     <Run Text="NG " Foreground="#888" />
-                    <Run Text="{Binding NgCount}" Foreground="#FF6B6B" FontWeight="SemiBold" />
+                    <Run Text="{Binding NgCount}" Foreground="{StaticResource StatusNgOnDark}" FontWeight="SemiBold" />
                 </TextBlock>
                 <TextBlock FontSize="11" Margin="0,0,14,0">
                     <Run Text="CPU " Foreground="#888" />

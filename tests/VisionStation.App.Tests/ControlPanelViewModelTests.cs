@@ -55,9 +55,9 @@ public class ControlPanelViewModelTests
     }
 
     /// <summary>
-    /// 重连必须调用 ICamera.open()，不能判断具体相机类型。
+    /// 重连必须调用 ICamera.Open()，不能判断具体相机类型。
     /// DI 注入的是 SwappableCamera，`is FileCamera` 永远为 false；
-    /// open() 会转发给当前实现，FileCamera 才真正重扫目录。
+    /// Open() 会转发给当前实现，FileCamera 才真正重扫目录。
     /// </summary>
     [Fact]
     public void Reconnect_CallsCameraOpenAndUpdatesOnlineState()
@@ -97,13 +97,13 @@ public class ControlPanelViewModelTests
         public int OpenCount { get; private set; }
         public int FrameCount => 0;
 
-        public void open()
+        public void Open()
         {
             OpenCount++;
             IsAvailable = NextOpenSucceeds;
         }
 
-        public void close() => IsAvailable = false;
+        public void Close() => IsAvailable = false;
 
         public CameraFrame? Capture() => null;
 

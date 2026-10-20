@@ -6,12 +6,12 @@
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:ResultPanelViewModel, IsDesignTimeCreatable=False}">
-    <Border Background="White" BorderBrush="#E1E1E1" BorderThickness="1"
+    <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
             CornerRadius="4" Padding="10,10">
         <StackPanel>
             <!-- 标题 -->
             <TextBlock Text="检测结果" FontSize="12" FontWeight="SemiBold"
-                       Foreground="#1E1E1E" Margin="0,0,0,6" />
+                       Foreground="{StaticResource TextPrimary}" Margin="0,0,0,6" />
 
             <!-- 元数据行 -->
             <TextBlock FontSize="10" Foreground="#888" Margin="0,0,0,6">
@@ -36,7 +36,7 @@
             </Grid>
 
             <!-- 表格行 -->
-            <Border Background="#F5F5F5" CornerRadius="2" Padding="2">
+            <Border Background="{StaticResource RowAltBg}" CornerRadius="2" Padding="2">
                 <ItemsControl ItemsSource="{Binding Rows}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -49,17 +49,17 @@
 
                                 <TextBlock Grid.Column="0" Text="{Binding Item}"
                                            FontSize="11" FontWeight="Medium"
-                                           Foreground="#1E1E1E" Margin="6,5" />
+                                           Foreground="{StaticResource TextPrimary}" Margin="6,5" />
 
                                 <!-- OK/NG 标签 -->
                                 <Border Grid.Column="1" CornerRadius="2" Padding="5,2"
                                         HorizontalAlignment="Left" VerticalAlignment="Center">
                                     <Border.Style>
                                         <Style TargetType="Border">
-                                            <Setter Property="Background" Value="#DFF6DD" />
+                                            <Setter Property="Background" Value="{StaticResource OkBg}" />
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsOk}" Value="False">
-                                                    <Setter Property="Background" Value="#FDE7E9" />
+                                                    <Setter Property="Background" Value="{StaticResource NgBg}" />
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -69,10 +69,10 @@
                                                FontWeight="SemiBold">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="#107C10" />
+                                                <Setter Property="Foreground" Value="{StaticResource Ok}" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsOk}" Value="False">
-                                                        <Setter Property="Foreground" Value="#E81123" />
+                                                        <Setter Property="Foreground" Value="{StaticResource Ng}" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -93,13 +93,13 @@
             <Border CornerRadius="4" Padding="10,8" Margin="0,8,0,0">
                 <Border.Style>
                     <Style TargetType="Border">
-                        <Setter Property="Background" Value="#888888" />
+                        <Setter Property="Background" Value="{StaticResource Neutral}" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsOk}" Value="True">
-                                <Setter Property="Background" Value="#107C10" />
+                                <Setter Property="Background" Value="{StaticResource Ok}" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsOk}" Value="False">
-                                <Setter Property="Background" Value="#E81123" />
+                                <Setter Property="Background" Value="{StaticResource Ng}" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>

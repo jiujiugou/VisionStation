@@ -38,7 +38,7 @@ S0 基线冻结                       DONE
          └─ S3 Shell/导航边界      DONE（W-03/04/05/24 全部 FIXED）
              └─ S4 线程/工作流     DONE（W-06~09/11 FIXED；W-13 另做）
                  └─ S5 配置/路径    DONE（便携模式；W-14/15 FIXED）
-                     └─ S6 资源/命名  OPEN
+                     └─ S6 资源/命名  DONE（W-16/18/19 FIXED）
 ```
 
 | 切片 | 内容 | 状态 | 对应偏差 |
@@ -49,7 +49,7 @@ S0 基线冻结                       DONE
 | S3 | View 退出 DI、`DataTemplate` 导航、Shell + 导航服务 | **DONE** | W-03/W-04/W-05/W-24 |
 | S4 | 检测/存图移出 UI 线程、位图 `Freeze`、日志批量、结果面板数据驱动 | **DONE** | W-06/W-07/W-08/W-09/W-11（W-13 双轨未合并） |
 | S5 | 强类型 Options、便携数据根、热重载决策 | **DONE**（便携模式 / 不迁移 / 删死键） | W-14/W-15 |
-| S6 | 资源字典、去硬编码色、命名、注释 | OPEN | W-16/W-18/W-19 |
+| S6 | 资源字典、去硬编码色、命名、注释 | **DONE** | W-16/W-18/W-19 |
 
 ### 1.1 已完成的现状基线（后续接线必须对齐，不要重造）
 
@@ -371,7 +371,17 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 
 ---
 
-## 6. S6：资源、命名、注释
+## 6. S6：资源、命名、注释（DONE，勿重做）
+
+**已完成（2026-10-20）**，W-16/W-18/W-19 FIXED。现在的形态：
+
+- `Resources/Theme.xaml`（30 个命名画刷）/ `Converters.xaml`（唯一点）/ `Controls.xaml`（样式，自带 Theme 合并）；
+  `App.xaml` 只剩合并 + DataTemplate。视图内色值 0。
+- `ICamera.Open/Close`（PascalCase）。
+- 事故编号只在 `docs/代码事故索引.md`；代码注释不写编号。
+
+**新增资源/颜色/样式时照着来**：色值只进 `Theme.xaml`，样式只进 `Controls.xaml`，
+转换器只进 `Converters.xaml`；视图里不允许出现十六进制色值。下面保留原始步骤作参照。
 
 可以穿插，但**不要在 S3/S4 同时改命名和结构**，否则 diff 无法审查。
 
@@ -422,9 +432,14 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 
 ## 9. 当前执行点
 
-**S1 → S2 → S3 → S4 → S5 全部 DONE，下一步 S6（资源、命名、注释）。**
+**WPF 改造 S1 ~ S6 全部 DONE。** W-01~W-24 中除 W-13（日志双轨，需独立片）全部 FIXED 或有明确口径。
 
-当前基线：UnitTests 199 + App.Tests 77 = **276**，告警 102，`ci.cmd` 0。
+当前基线：UnitTests 199 + App.Tests 77 = **276**，告警 101，`ci.cmd` 0。
 
-S6 只碰资源字典、样式、转换器与命名，不改行为。若发现要动 `AppOptions` 或路径，先停下来确认——
-S5 的口径已经定了（见 §5）。
+后续候选（未排期，按价值排序）：
+
+1. **设置窗口**：新片，`usersettings.json` 落在数据根，只放"改完立刻生效"的项
+   （Housekeeping 业务参数、定时间隔）；挂侧边栏"系统"路由。相机模式与路径类必须重启，留在 appsettings.json。
+2. **转换器配色样式化**：把 `LogLevelToBrushConverter` 等四个转换器里的 `Color.FromRgb` 改成 XAML `DataTrigger`，
+   彻底消除 C# 里的色值（S6 已知残留）。
+3. **日志双轨合并（W-13）**：`UiLogSink`，让 Serilog 与 UI 面板共用一条管线。

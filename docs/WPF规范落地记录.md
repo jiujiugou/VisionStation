@@ -67,10 +67,10 @@
 | W-13 | WPF-E1.1 | 日志双轨**仍未合并**：Serilog 写控制台/文件，UI 面板另靠 `LogMessage`（`Messages.cs:39-47`、`LogPanelViewModel.cs:37-48`）。S4e 只解决了「怎么刷」（合批、非阻塞），没解决「记两遍」（`UiLogSink` 属独立一片） | 系统日志仍进不了 UI 面板；两套记录对不上 | P3 | OPEN（S4 明确不做） |
 | W-14 | WPF-C1.1 / C1.3 | **已修（S5）**：绑定与校验收口到 `AppOptionsBinder.Bind`（`AppOptions.cs:59`），`Camera:Mode` 只经 `CameraOptions` 消费；`AppPaths` / `CameraFactory` / `ServiceCollectionExtensions` 不再依赖 `IConfiguration`；`reloadOnChange` 关闭（无消费者）；`Trigger:Mode` 删除（死键，触发方式实际由界面按钮决定）。数字/枚举非法时报错**带键名与合法值**，聚合后非 0 退出 | 默认值与解析只有一处；配错启动期就炸，不会静默漂移 | P4 | FIXED |
 | W-15 | WPF-C1.2 | **已修（S5，便携模式拍板）**：可写数据根 = `--data-root` 启动参数 &gt; exe 目录（`AppOptions.cs:59`、`App.xaml.cs:36` 解析参数）；`AppPaths` 的可写路径只认数据根，不再使用 `Environment.CurrentDirectory`（`AppPaths.cs:68`），读资源 exe 目录优先、cwd 兜底；旧数据**不迁移**（拍板：全部删除，从空库开始）。`AppPathsTests` 6 条钉住 cwd 解耦 | 快捷方式/计划任务启动不再丢数据；整个发布目录可整体搬迁 | P4 | FIXED |
-| W-16 | WPF-R1.1 / R1.2 / R1.3 | 资源全堆在 `App.xaml:6-114`；视图内仍有硬编码颜色（如 `SidebarView.xaml:4`、`CameraPageView.xaml:4-5`）；转换器重复注册（`App.xaml:20` 与 `StatusBarView.xaml:7`） | 主题不一致；改色要全仓搜；资源键冲突 | P5 | OPEN |
+| W-16 | WPF-R1.1 / R1.2 / R1.3 | **已修（S6）**：资源拆成 `Resources/Theme.xaml`（配色）、`Converters.xaml`（转换器）、`Controls.xaml`（样式，自带 Theme 合并）；`App.xaml` 只剩合并 + 9 条 DataTemplate。视图内十六进制色值 **52 → 0**，全部改用命名资源；三个视图自带的重复转换器注册已删除（`ControlPanelView`/`LogPanelView`/`StatusBarView`），全应用只在 `Converters.xaml` 注册一次。顺带删除无人使用的 `StringToColorConverter` | 换主题只改 Theme.xaml；资源键不再有遮蔽 | P5 | FIXED |
 | W-17 | WPF-TS1.1 / A1.6 | 旧：App 层零测试，测试工程 `net8.0` 且未引用 App；现有 `tests/VisionStation.App.Tests`（7 个测试），UnitTests 195 + App.Tests 7 = 202 | 关键 VM 命令已有护栏；生命周期/导航测试仍待 S2 扩展 | P1 | FIXED |
-| W-18 | WPF-S1.1 | `ICamera` 方法小写 `open/close`（`src/VisionStation.Devices/Camera/ICamera.cs:32,35`） | 契约与其余 PascalCase API 不一致 | P5 | OPEN |
-| W-19 | WPF-S1.3 | 业务代码内堆积事故编号/修复史（15 处 `修复（F-...）`，如 `HealthChecker.cs:42,73,85,115,163,198`、`HousekeepingService.cs:21,39,87,156,197,283`） | 规则与历史混在正文，阅读成本高 | P5 | OPEN |
+| W-18 | WPF-S1.1 | **已修（S6）**：`ICamera.open/close` → `Open/Close`（`ICamera.cs:32,35`）；四个实现、`SwappableCamera`、`CameraDevice`、`ControlPanelViewModel`、控制台程序与全部测试同步（11 个文件）。残留小写引用 0 | 契约与其余 PascalCase API 一致 | P5 | FIXED |
+| W-19 | WPF-S1.3 | **已修（S6）**：20 处 `修复（F-xxx）` 全部移入新建的 `docs/代码事故索引.md`（编号 → 现象 → 现在的做法），代码注释只留"为什么"；`R-003` 属 ADR 编号（架构决议）保留并在索引中说明两套编号的区别 | 规则与历史分离，代码注释不再需要读编号 | P5 | FIXED |
 | W-20 | WPF-T1.1 | 启动期同步等建库已消除：`OnStartup` 同步入口 + `_ = StartAsync()` fire-and-forget（`App.xaml.cs:27,57`），`await host.InitializeAsync(...)`（`App.xaml.cs:74`）由 `AppHost.InitializeAsync` 内 `await EnsureCreatedAsync`（`AppHost.cs:118`）；健康检查弹框改为状态栏/日志面板上报（`App.xaml.cs:97`） | 冷启动不再卡 Dispatcher；启动失败走 `Shutdown(1)` | P1 | FIXED |
 | W-21 | WPF-L1.4 | 关闭已有序：`IAppWindow.Closing` → `AppHost.HandleWindowClosingAsync`（`AppHost.cs:180`）→ `AppHost.StopAsync`（`AppHost.cs:212`）六步**直线代码**，每步一行带编号日志；`ShutdownState`（`ShutdownState.cs:13`，bool + CTS）提供应用级取消，`MainViewModel.OnTriggered` 先查 `IsStopping` 再碰 Dispatcher（`MainViewModel.cs:141`）；`ProcessFrame` 用 `InFlightWorkMonitor` 租约登记在途（`MainViewModel.cs:169`）；`App.OnExit` 降级为有界兜底（`App.xaml.cs:191`） | 在途帧不会落在已释放的容器上；关窗有上界（8s 预算，实测 279-375ms） | P2 | FIXED |
 | W-22 | 具体缺陷 | 旧实现 `ControlPanelViewModel.cs:134` 判断 `_camera is FileCamera`，但 DI 注入的是 `SwappableCamera`（`ServiceCollectionExtensions.cs:67`）；已改为 `_camera.open()`（`ControlPanelViewModel.cs:139`） | File/Hik 重连已恢复；Webcam 的 `open()` 在 `_opened` 时仍是 no-op，另记 | P1 | FIXED |
@@ -88,7 +88,7 @@
 | **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | **DONE**（S2、S3 全部完成；W-01/W-02/W-03/W-04/W-05/W-20/W-21/W-24 FIXED；W-01 的 VM 订阅部分见 W-01-retry，属 S4） |
 | **P3** | 线程与工作流：检测/存图移出 UI 线程；`Freeze`；日志 sink；结果面板数据驱动；修 W-06/W-07/W-08/W-09/W-11/W-13 | App、Service | **DONE**（S4；W-06~W-09/W-11 FIXED；W-13 拆分另做） |
 | **P4** | 配置与路径：强类型 Options；安装资源/用户数据分离；`reloadOnChange` 决策；修 W-14/W-15 | App、Service | **DONE**（S5；W-14/W-15 FIXED） |
-| **P5** | 资源、命名、注释：拆 ResourceDictionary；`Open/Close`；事故编号移出业务代码；修 W-16/W-18/W-19 | App、Devices、docs | NOT_RUN |
+| **P5** | 资源、命名、注释：拆 ResourceDictionary；`Open/Close`；事故编号移出业务代码；修 W-16/W-18/W-19 | App、Devices、docs | **DONE**（S6；W-16/W-18/W-19 FIXED） |
 
 > 执行切片、验收、回滚与停止线见 `docs/WPF改造指南.md`；本表只保留阶段状态。
 
@@ -608,4 +608,41 @@ L3（临时副本 + File 相机，带一次性的可视化树导出，验完已�
 - 计划任务/服务方式启动（本机不便配置）：以"cwd 换任意目录仍落 exe 目录"为等价证据。
 - 只读目录下启动（exe 目录不可写）失败信息是否可读：未构造，记 `NOT_RUN`。
 
-- 下一步：S6（资源、命名、注释），见指南 §6。
+### S6（2026-10-20）：资源、命名、注释（DONE，W-16/W-18/W-19 FIXED）
+
+**资源拆分（W-16）**
+
+- `Resources/Theme.xaml`：30 个命名画刷，分品牌色 / 判定色 / 文本 / 面板 / 深色侧栏 / 覆盖层 / 状态色七组。
+- `Resources/Converters.xaml`：6 个转换器实例，全应用唯一注册点（原来视图里各有一份同名 key，会遮蔽应用级资源）。
+- `Resources/Controls.xaml`：8 个样式，内部自带 `Theme.xaml` 合并（解析期就需要，不能依赖兄弟字典）。
+- `App.xaml`：只剩三段合并 + 9 条 `DataTemplate`，150 行 → 60 行。
+- 视图内十六进制色值 **52 → 0**（`StatusBarView.xaml:24` 剩一处是历史注释文本，非生效值）；
+  `Background="White"` 一并改为 `CardBg`。删除无人使用的 `StringToColorConverter`。
+
+**命名（W-18）**
+
+`ICamera.open/close` → `Open/Close`，涉及 11 个文件：接口、四个实现（File/Webcam/Hik/Swappable）、
+`CameraDevice`、`ControlPanelViewModel`、控制台程序、两个测试工程的替身与断言。残留小写调用 0。
+
+**注释（W-19）**
+
+新建 `docs/代码事故索引.md`，把 20 处 `F-xxx`（含 `R-xxx`）登记为「编号 → 现象 → 现在的做法」；
+业务代码注释只留"为什么这样做"，不再出现编号。`R-003` 是 ADR 编号，保留并在索引里说明两套体系的区别。
+
+**验证**
+
+- `ci.cmd` 0；UnitTests 199 + App.Tests 77 = **276**（本片是 XAML/注释级改动，未新增用例）；
+  告警 101 持平。
+- L3 走查（临时副本 + File 相机）：启动 6.2s、窗口出现；`[ERR]/[WRN]` **0 条**；
+  `XamlParseException` / `Cannot find resource` **0 命中**（资源字典拆分最容易在这里炸，必须真启动才证明）；
+  关窗 191ms、五行关闭日志齐全、退出码 0。
+
+**已知残留（如实记录，未粉饰）**
+
+- 四个转换器内部仍用 `Color.FromRgb(...)` 硬编码色值（`LogLevelToBrushConverter.cs:16-19,42,57-59`）。
+  它们不是 View，但"改主题要全仓搜"这条仍未 100% 消除。要彻底解决应把日志级别配色改成
+  XAML `DataTrigger`（样式化），属独立小片，不在 S6 范围。
+- 设计时预览未验证：本机无 VS 交互环境，只保证 9 个 View 都有 `d:DataContext`（S3b 已加）。
+
+- 下一步：WPF 改造 S1~S6 全部完成。后续候选（未排期）：设置窗口（`usersettings.json`，只放改完立即生效的项）、
+  转换器配色样式化、日志双轨合并（W-13）。

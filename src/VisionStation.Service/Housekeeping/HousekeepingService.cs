@@ -18,7 +18,7 @@ public sealed record HousekeepingOptions
     public int DatabaseCleanIntervalMs { get; init; }
 
     /// <summary>
-    /// 构造即校验（F-113 / F-106）：阈值来自配置文件，填错必须启动期就炸，
+    /// 构造即校验：阈值来自配置文件，填错必须启动期就炸，
     /// 不能等到半夜管家把当天所有图片删干净才被发现。
     /// 这里用抛异常而不是回落默认值——静默回落会让配置错误永远看不见。
     /// </summary>
@@ -36,7 +36,7 @@ public sealed record HousekeepingOptions
         if (keepRecordsDays < 1)
             throw new ArgumentOutOfRangeException(nameof(keepRecordsDays), keepRecordsDays, "记录保留天数必须 ≥ 1（0 = 删光全部记录）");
 
-        // F-106：图片比记录先消失 → 数据库里的记录会指向不存在的图，质检追溯断链
+        // 图片比记录先消失 → 数据库里的记录会指向不存在的图，质检追溯断链
         if (imageRetentionDays < keepRecordsDays)
             throw new ArgumentOutOfRangeException(nameof(imageRetentionDays), imageRetentionDays,
                 $"图片保留天数({imageRetentionDays}) 不得小于记录保留天数({keepRecordsDays})，否则记录会指向已删除的图片");
@@ -84,7 +84,7 @@ public class HousekeepingService : IHousekeepingService
     private readonly int _imageRetentionDays;
     private readonly long _maxImageFolderBytes;
 
-    /// <summary>清理重入保护（F-107）：Timer.AutoReset 会在上一轮没跑完时再起一个线程</summary>
+    /// <summary>清理重入保护：Timer.AutoReset 会在上一轮没跑完时再起一个线程</summary>
     private readonly SemaphoreSlim _cleanupGate = new(1, 1);
     private int _skippedRounds;
 
@@ -153,9 +153,9 @@ public class HousekeepingService : IHousekeepingService
 
     /// <summary>
     /// 执行一轮清理。抽成独立方法是为了可测——原实现只能靠等 1 小时 Timer
-    /// 或反射才能触发，等于不可验证（这也是 F-107 长期挂 NOT_RUN 的原因）。
+    /// 或反射才能触发，等于不可验证。
     ///
-    /// 重入保护（F-107）：拿不到 gate 就跳过本轮并计数，绝不排队——
+    /// 重入保护：拿不到 gate 就跳过本轮并计数，绝不排队——
     /// 排队的后果是「一轮慢，后面全部堆起来」，最后同时跑几十轮。
     /// </summary>
     /// <returns>true = 本轮真正执行；false = 上一轮未结束被跳过（异常已记日志）</returns>
@@ -194,7 +194,7 @@ public class HousekeepingService : IHousekeepingService
     /// <summary>
     /// 删过期图片 + 超出容量上限时删最旧的。
     ///
-    /// 重写（F-105 / F-108 / F-109）：
+    /// 三条约束：
     ///   1) 两遍扫描：先删过期，只对「活着的文件」统计容量——
     ///      原实现把已删文件的大小也算进 totalSize，日志报的占用是虚高的。
     ///   2) 逐个文件 try：一个文件删不掉（被 Verdict 软件占用/只读）不得中止整轮，
@@ -280,7 +280,7 @@ public class HousekeepingService : IHousekeepingService
         _memTimer?.Stop(); _memTimer?.Dispose();
         _dbTimer?.Stop(); _dbTimer?.Dispose();
 
-        // 修复（F-112）：停 Timer 只是不再起新一轮，正在跑的那一轮还在写数据库。
+        // 停 Timer 只是不再起新一轮，正在跑的那一轮还在写数据库。
         // 关机瞬间若正好在 SaveChanges，SQLite 文件可能被截断。这里最多等 5 秒收尾。
         try
         {

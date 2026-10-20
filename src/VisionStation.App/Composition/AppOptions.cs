@@ -32,7 +32,7 @@ public sealed record AppOptions
     public RecipeOptions Recipe { get; init; } = new(@"Config\recipes\default.json");
     public LoggingOptions Logging { get; init; } = new("Logs");
 
-    /// <summary>Service 层的管家阈值 record，自带构造校验（F-113/F-106），这里直接复用。</summary>
+    /// <summary>Service 层的管家阈值 record，自带构造校验（阈值填错启动即失败），这里直接复用。</summary>
     public HousekeepingOptions Housekeeping { get; init; } = HousekeepingOptions.Default;
 
     /// <summary>

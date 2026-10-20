@@ -39,7 +39,7 @@ public class HealthChecker : IHealthChecker
 
     /// <summary>
     /// 执行所有检查，返回结果列表
-    /// 修复（R-004 / F-007）：单项检查异常被隔离为该项 FAIL，不再中断其余检查。
+    /// 单项检查异常被隔离为该项 FAIL —— 一个设备坏了不该让整份自检结果拿不到。
     /// </summary>
     public List<HealthResult> RunAll()
     {
@@ -70,7 +70,7 @@ public class HealthChecker : IHealthChecker
     private HealthResult CheckDevices()
     {
         var (online, total) = _devices.ConnectionStats;
-        // 修复（R-017 / F-038）：空设备表不得判「全部在线」——0==0 是判据失效
+        // 空设备表不能判「全部在线」：0==0 会让判据失效，必须要求 total > 0。
         bool ok = total > 0 && online == total;
         return new HealthResult("设备连接",
             ok,
@@ -82,7 +82,7 @@ public class HealthChecker : IHealthChecker
     {
         if (File.Exists(_dbPath))
         {
-            // 修复（F-102）：文件存在 ≠ 可用。两件事必须实测：
+            // 文件存在 ≠ 可用。两件事必须实测：
             //   1) 文件头是 SQLite 魔数（挡住被覆盖成文本/半截文件）
             //   2) 能以读写方式打开（挡住被其他进程独占 —— 检测记录写不进去）
             try
@@ -112,7 +112,7 @@ public class HealthChecker : IHealthChecker
             return new HealthResult("数据库", true, _dbPath);
         }
 
-        // 修复（R-001 / F-001）：库文件不存在 → 探测父目录可写
+        // 库文件不存在时探测父目录可写
         // （SQLite 首次运行自动建库，所以「缺文件」本身不是故障，「目录不可写」才是）。
         var dir = Path.GetDirectoryName(_dbPath);
         if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
@@ -160,7 +160,7 @@ public class HealthChecker : IHealthChecker
         if (!File.Exists(_templatePath))
             return new HealthResult("模板文件", false, _templatePath, "文件不存在");
 
-        // 修复（F-103）：文件存在 ≠ 可解码。只读文件头魔数，不解码、不引第三方库。
+        // 文件存在 ≠ 可解码。只读文件头魔数，不解码、不引第三方库。
         // 挡住「改了扩展名的文本 / 半截下载文件」——这类文件在运行期才会炸，停机点太晚。
         if (!LooksLikeImage(_templatePath))
             return new HealthResult("模板文件", false, _templatePath, "文件存在但不是可识别的图像");
@@ -195,8 +195,8 @@ public class HealthChecker : IHealthChecker
         if (_recipe.Tools.Count == 0)
             return new HealthResult("配方文件", false, "空", "配方无效或为空");
 
-        // 修复（F-101）：原来只查 Tools.Count > 0，于是「类型为空 / 引用了不存在的 ROI /
-        // 标定值为 0」全部放行，缺陷到运行期才炸（且不报错，只是判定结果悄悄变错）。
+        // 只查 Tools.Count > 0 不够：「类型为空 / 引用了不存在的 ROI / 标定值为 0」
+        // 都会被放行，缺陷到运行期才炸（且不报错，只是判定结果悄悄变错）。
         var problems = new List<string>();
 
         double ppm = _recipe.Calibration?.PixelPerMillimeter ?? 0;

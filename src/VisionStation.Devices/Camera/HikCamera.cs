@@ -72,7 +72,7 @@ public class HikCamera : ICamera
     /// 只赋值，不连接（W-01/W-02 / S2.5）。
     /// 构造即连接有两个实打实的问题：热切换会先造候选实例，候选必然因为旧实例还占着设备
     /// 而 open 失败；测试和 DI 装配里 new 一下就会去抢物理相机。
-    /// 连接统一走 open()。
+    /// 连接统一走 Open()。
     /// </remarks>
     public HikCamera(ILogger<HikCamera>? logger = null)
     {
@@ -389,7 +389,7 @@ public class HikCamera : ICamera
         }
     }
 
-    public void open()
+    public void Open()
     {
         // 重新连接：Dispose 过的实例必须复位幂等标志，否则再次 Dispose 会直接 return，
         // 设备会话永远不释放 —— 下次启动就是 0x80000203。
@@ -398,7 +398,7 @@ public class HikCamera : ICamera
         Initialize();
     }
 
-    public void close() => Dispose();
+    public void Close() => Dispose();
 
     /// <summary>
     /// 释放设备 —— 退出路径必须走这里，否则会话挂死，下次启动报 0x80000203 占用

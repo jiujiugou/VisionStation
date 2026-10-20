@@ -12,22 +12,22 @@
 
     <Grid>
         <!-- 工具栏 -->
-        <Border Background="#FAFAFA" BorderBrush="#E1E1E1" BorderThickness="0,0,0,1"
+        <Border Background="{StaticResource ToolbarBg}" BorderBrush="{StaticResource CardBorder}" BorderThickness="0,0,0,1"
                 Padding="6,4" HorizontalAlignment="Right" VerticalAlignment="Top"
                 CornerRadius="0,0,0,4" Panel.ZIndex="10">
             <StackPanel Orientation="Horizontal">
                 <Button Content="+ 添加" Command="{Binding AddRoiCommand}"
                         Width="60" Height="24" FontSize="10" Margin="0,0,4,0"
-                        Background="#0078D4" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                        Background="{StaticResource Accent}" Foreground="White" BorderThickness="0" Cursor="Hand" />
                 <Button Content="删除" Command="{Binding DeleteSelectedCommand}"
                         Width="50" Height="24" FontSize="10" Margin="0,0,4,0"
-                        Background="#E81123" Foreground="White" BorderThickness="0" Cursor="Hand" />
+                        Background="{StaticResource Ng}" Foreground="White" BorderThickness="0" Cursor="Hand" />
                 <Button Content="保存" Command="{Binding SaveToFileCommand}"
                         Width="50" Height="24" FontSize="10" Margin="0,0,4,0"
-                        Background="White" BorderBrush="#CCC" BorderThickness="1" Cursor="Hand" />
+                        Background="{StaticResource CardBg}" BorderBrush="#CCC" BorderThickness="1" Cursor="Hand" />
                 <Button Content="加载" Command="{Binding LoadFromFileCommand}"
                         Width="50" Height="24" FontSize="10"
-                        Background="White" BorderBrush="#CCC" BorderThickness="1" Cursor="Hand" />
+                        Background="{StaticResource CardBg}" BorderBrush="#CCC" BorderThickness="1" Cursor="Hand" />
             </StackPanel>
         </Border>
 
@@ -58,23 +58,23 @@
                             <Rectangle
                                 Canvas.Left="{Binding DisplayX}" Canvas.Top="{Binding DisplayY}"
                                 Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}"
-                                Fill="#220078D4" Stroke="#0078D4" StrokeThickness="2"
+                                Fill="{StaticResource AccentSoft}" Stroke="{StaticResource Accent}" StrokeThickness="2"
                                 IsHitTestVisible="False" />
                             <Rectangle
                                 Canvas.Left="{Binding DisplayX}" Canvas.Top="{Binding DisplayY}"
                                 Width="{Binding DisplayWidth}" Height="{Binding DisplayHeight}"
-                                Fill="Transparent" Stroke="#FFD700" StrokeThickness="3"
+                                Fill="Transparent" Stroke="{StaticResource SelectionStroke}" StrokeThickness="3"
                                 Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
                                 IsHitTestVisible="False" />
                             <TextBlock
                                 Canvas.Left="{Binding DisplayX}" Canvas.Top="{Binding DisplayY}"
                                 Text="{Binding Name}" FontSize="10" FontWeight="SemiBold"
-                                Foreground="#0078D4" Background="#DDFFFFFF"
+                                Foreground="{StaticResource Accent}" Background="{StaticResource OverlayTextBg}"
                                 Padding="2,1" Margin="2,-18,0,0"
                                 IsHitTestVisible="False" />
                             <Rectangle
                                 Canvas.Left="{Binding DisplayX}" Canvas.Top="{Binding DisplayY}"
-                                Width="12" Height="12" Fill="#0078D4"
+                                Width="12" Height="12" Fill="{StaticResource Accent}"
                                 Visibility="{Binding IsSelected, Converter={StaticResource BoolToVis}}"
                                 IsHitTestVisible="False">
                                 <Rectangle.RenderTransform>
@@ -88,7 +88,7 @@
         </Grid>
 
         <!-- 提示 -->
-        <Border Background="#BB000000" CornerRadius="4" Padding="10,4"
+        <Border Background="{StaticResource ScrimBg}" CornerRadius="4" Padding="10,4"
                 HorizontalAlignment="Left" VerticalAlignment="Bottom"
                 Margin="8,0,0,8" Panel.ZIndex="10">
             <TextBlock Foreground="#CCC" FontSize="9">

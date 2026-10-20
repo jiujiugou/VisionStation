@@ -24,7 +24,7 @@ public class DeviceLayerTests
     {
         public bool Available { get; set; } = true;
 
-        /// <summary>open() 之后是否变可用 —— 用来模拟"工厂只造对象、连接后才可用"的真实相机</summary>
+        /// <summary>Open() 之后是否变可用 —— 用来模拟"工厂只造对象、连接后才可用"的真实相机</summary>
         public bool AvailableAfterOpen { get; set; }
 
         public int OpenCount { get; private set; }
@@ -32,12 +32,12 @@ public class DeviceLayerTests
         public int DisposeCount { get; private set; }
         public bool IsAvailable => Available;
         public int FrameCount => 0;
-        public void open()
+        public void Open()
         {
             OpenCount++;
             if (AvailableAfterOpen) Available = true;
         }
-        public void close() => CloseCount++;
+        public void Close() => CloseCount++;
         public CameraFrame? Capture() => null;
         public void Dispose() => DisposeCount++;
     }
@@ -256,7 +256,7 @@ public class DeviceLayerTests
     {
         var cam = new FakeCamera();
         using var swappable = new SwappableCamera(cam, _ => new FakeCamera(), "File");
-        swappable.open();
+        swappable.Open();
         Assert.Equal(1, cam.OpenCount);
     }
 
@@ -265,7 +265,7 @@ public class DeviceLayerTests
     {
         var cam = new FakeCamera();
         using var swappable = new SwappableCamera(cam, _ => new FakeCamera(), "File");
-        swappable.close();
+        swappable.Close();
         Assert.Equal(1, cam.CloseCount);
     }
 
@@ -394,8 +394,8 @@ public class DeviceLayerTests
         Assert.Equal(0, cam.TotalFiles);
         Assert.False(cam.IsAvailable);
 
-        // open() 才是"连接"
-        cam.open();
+        // Open() 才是"连接"
+        cam.Open();
         Assert.Equal(1, cam.TotalFiles);
         Assert.True(cam.IsAvailable);
     }
@@ -403,14 +403,14 @@ public class DeviceLayerTests
     [Fact]
     public void FileCamera_MissingFolder_DoesNotThrowAndIsUnavailable()
     {
-        // 目录被删/路径打错是现场常态；构造函数不许碰磁盘（S2.5），open() 里也不许抛
+        // 目录被删/路径打错是现场常态；构造函数不许碰磁盘（S2.5），Open() 里也不许抛
         var cam = new FileCamera(Path.Combine(Path.GetTempPath(), "vs_missing_" + Guid.NewGuid().ToString("N")));
 
         // 构造只赋值：没 open 之前一律不可用（不是"构造即就绪"）
         Assert.False(cam.IsAvailable);
         Assert.Null(cam.Capture());
 
-        cam.open();
+        cam.Open();
         Assert.False(cam.IsAvailable);
         Assert.Equal(0, cam.TotalFiles);
 
@@ -428,7 +428,7 @@ public class DeviceLayerTests
                 Cv2.ImWrite(Path.Combine(dir.Path, name), img);
 
         var cam = new FileCamera(dir.Path, "*.png", loop: false);
-        cam.open();     // S2.5：连接语义在 open，不再靠构造函数
+        cam.Open();     // S2.5：连接语义在 open，不再靠构造函数
         Assert.True(cam.IsAvailable);
 
         for (int i = 0; i < 2; i++)
@@ -451,7 +451,7 @@ public class DeviceLayerTests
             Cv2.ImWrite(Path.Combine(dir.Path, "only.png"), img);
 
         var cam = new FileCamera(dir.Path, "*.png", loop: true);
-        cam.open();
+        cam.Open();
         for (int i = 0; i < 3; i++)
         {
             var frame = cam.Capture();
@@ -472,7 +472,7 @@ public class DeviceLayerTests
             Cv2.ImWrite(Path.Combine(dir.Path, "x.png"), img);
 
         var cam = new FileCamera(dir.Path, "*.png", loop: true);
-        cam.open();
+        cam.Open();
         Exception? failure = null;
         int stop = 0;
 

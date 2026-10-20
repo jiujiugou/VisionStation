@@ -37,8 +37,8 @@ public class WebcamCamera : ICamera
         _logger = logger;
     }
 
-    /// <summary>打开（或重新打开）摄像头 —— close() 之后可再次调用</summary>
-    public void open()
+    /// <summary>打开（或重新打开）摄像头 —— Close() 之后可再次调用</summary>
+    public void Open()
     {
         if (_opened) return;
         OpenDevice();
@@ -95,12 +95,12 @@ public class WebcamCamera : ICamera
         };
     }
 
-    public void close()
+    public void Close()
     {
         _capture?.Dispose();
         _capture = null;
         _opened = false;
     }
 
-    public void Dispose() => close();
+    public void Dispose() => Close();
 }

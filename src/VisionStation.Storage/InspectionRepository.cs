@@ -24,9 +24,8 @@ public interface IInspectionRepository
 /// <summary>
 /// 检测记录数据访问层 —— SQLite 的完整 CRUD
 ///
-/// 修复（F-111）：原来 DI 注册的是「全进程一个 InspectionDbContext」，
-/// 而管家清理（Timer 线程）与检测保存（采集线程）会同时用它，
-/// EF Core 明确禁止同一 context 并发操作 —— 结果是 SaveChanges 抛异常、检测记录直接丢。
+/// 不能注册全进程单例 InspectionDbContext：管家清理（Timer 线程）与检测保存（采集线程）
+/// 会同时用它，而 EF Core 明确禁止同一 context 并发操作 —— SaveChanges 抛异常、记录直接丢。
 ///
 /// 现在：持有 dbPath，每次操作新建并释放一个 DbContext（EF Core 的标准做法）。
 /// 保留接受现成 DbContext 的构造，仅供单元测试与短生命周期场景使用。

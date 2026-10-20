@@ -1,0 +1,104 @@
+<!--
+    通用控件样式（S6 / W-16）。颜色全部来自 Theme.xaml，这里不出现色值。
+
+    自带 Theme 的合并：Controls.xaml 在解析期就需要解析 StaticResource（TextPrimary 等），
+    而兄弟字典在解析期不一定可见。让本字典自己合并 Theme 是 WPF 里最稳的写法
+    —— 同一个 ResourceDictionary 实例会被缓存，不会重复创建画刷。
+-->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="Theme.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
+    <!-- 面板标题 -->
+    <Style x:Key="PanelTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+        <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+
+    <!-- 面板卡片 -->
+    <Style x:Key="PanelCard" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource CardBg}" />
+        <Setter Property="BorderBrush" Value="{StaticResource CardBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="10" />
+    </Style>
+
+    <!-- 主按钮 -->
+    <Style x:Key="PrimaryButton" TargetType="Button">
+        <Setter Property="Height" Value="38" />
+        <Setter Property="Background" Value="{StaticResource Accent}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <!-- 停止按钮 -->
+    <Style x:Key="StopButton" TargetType="Button">
+        <Setter Property="Height" Value="38" />
+        <Setter Property="Background" Value="{StaticResource CardBg}" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="BorderBrush" Value="{StaticResource InputBorder}" />
+        <Setter Property="BorderThickness" Value="1.5" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <!-- 自动模式切换 -->
+    <Style x:Key="AutoModeButton" TargetType="Button">
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Background" Value="{StaticResource CardBg}" />
+        <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="BorderBrush" Value="{StaticResource CardBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <!-- 急停 -->
+    <Style x:Key="EStopButton" TargetType="Button">
+        <Setter Property="Height" Value="52" />
+        <Setter Property="Background" Value="{StaticResource Ng}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="BorderBrush" Value="{StaticResource EStopBorder}" />
+        <Setter Property="BorderThickness" Value="3" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <!-- 次要按钮 -->
+    <Style x:Key="MinorButton" TargetType="Button">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Background" Value="{StaticResource CardBg}" />
+        <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+        <Setter Property="FontSize" Value="10.5" />
+        <Setter Property="BorderBrush" Value="{StaticResource CardBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <!-- 日志行 -->
+    <Style x:Key="LogItemStyle" TargetType="ListBoxItem">
+        <Setter Property="Padding" Value="2,1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border Background="{TemplateBinding Background}"
+                            Padding="{TemplateBinding Padding}" CornerRadius="2">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+</ResourceDictionary>

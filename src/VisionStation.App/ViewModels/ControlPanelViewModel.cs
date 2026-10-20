@@ -129,14 +129,14 @@ public partial class ControlPanelViewModel : ObservableObject
 
     /// <summary>
     /// 重新连接相机
-    /// 当前实现：ICamera.open() 转发给当前相机；FileCamera 重扫目录，HikCamera 重新枚举/打开
+    /// 当前实现：ICamera.Open() 转发给当前相机；FileCamera 重扫目录，HikCamera 重新枚举/打开
     /// </summary>
     [RelayCommand]
     private void Reconnect()
     {
         // 必须走 ICamera 契约：DI 注入的是 SwappableCamera，`is FileCamera` 永远为 false。
-        // SwappableCamera.open() 会转发给当前实现，FileCamera 会重扫目录。
-        _camera.open();
+        // SwappableCamera.Open() 会转发给当前实现，FileCamera 会重扫目录。
+        _camera.Open();
         CameraOnline = _camera.IsAvailable;
         WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
         WeakReferenceMessenger.Default.Send(new LogMessage(

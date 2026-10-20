@@ -18,8 +18,8 @@
                         <Setter Property="FontSize" Value="11" />
                         <Setter Property="FontWeight" Value="Medium" />
                         <Setter Property="Foreground" Value="#555" />
-                        <Setter Property="Background" Value="#EAEAEA" />
-                        <Setter Property="BorderBrush" Value="#E1E1E1" />
+                        <Setter Property="Background" Value="{StaticResource ImagePlaceholder}" />
+                        <Setter Property="BorderBrush" Value="{StaticResource CardBorder}" />
                         <Setter Property="BorderThickness" Value="1,1,1,0" />
                         <Setter Property="Margin" Value="-1,0,0,0" />
                         <Setter Property="Cursor" Value="Hand" />
@@ -36,8 +36,8 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="bd" Property="Background" Value="White" />
-                                            <Setter Property="Foreground" Value="#1E1E1E" />
+                                            <Setter TargetName="bd" Property="Background" Value="{StaticResource CardBg}" />
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
                                             <Setter Property="FontWeight" Value="SemiBold" />
                                         </Trigger>
                                         <MultiTrigger>
@@ -45,7 +45,7 @@
                                                 <Condition Property="IsSelected" Value="False" />
                                                 <Condition Property="IsMouseOver" Value="True" />
                                             </MultiTrigger.Conditions>
-                                            <Setter TargetName="bd" Property="Background" Value="#E0E0E0" />
+                                            <Setter TargetName="bd" Property="Background" Value="{StaticResource HoverBg}" />
                                         </MultiTrigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
@@ -79,7 +79,7 @@
         </ListBox>
 
         <!-- 图像显示区：支持缩放+平移 -->
-        <Border Grid.Row="1" Background="#1E1E1E" BorderBrush="#E1E1E1"
+        <Border Grid.Row="1" Background="{StaticResource TextPrimary}" BorderBrush="{StaticResource CardBorder}"
                 BorderThickness="1" CornerRadius="0,4,4,4"
                 ClipToBounds="True"
                 MouseWheel="OnMouseWheel"
@@ -99,7 +99,7 @@
                 </Image>
 
                 <!-- 鼠标坐标 + 缩放级别（左下角浮层） -->
-                <Border Background="#BB000000" CornerRadius="3" Padding="8,3"
+                <Border Background="{StaticResource ScrimBg}" CornerRadius="3" Padding="8,3"
                         HorizontalAlignment="Left" VerticalAlignment="Bottom"
                         Margin="6,0,0,6" Panel.ZIndex="99">
                     <TextBlock x:Name="CoordLabel" Foreground="#CCC" FontSize="10"

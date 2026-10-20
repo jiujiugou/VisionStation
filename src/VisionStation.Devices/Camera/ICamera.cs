@@ -29,10 +29,10 @@ namespace VisionStation.Devices;
 public interface ICamera : IDisposable
 {
     /// <summary>打开相机（连接/初始化）</summary>
-    void open();
+    void Open();
 
     /// <summary>关闭相机（断开/释放资源）</summary>
-    void close();
+    void Close();
 
     /// <summary>
     /// 采集一帧图像。

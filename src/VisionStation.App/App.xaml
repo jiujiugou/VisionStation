@@ -1,149 +1,52 @@
 <Application x:Class="VisionStation.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:conv="clr-namespace:VisionStation.App.Converters"
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
              xmlns:views="clr-namespace:VisionStation.App.Views"
              ShutdownMode="OnMainWindowClose">
     <Application.Resources>
+        <ResourceDictionary>
+            <!-- S6（W-16）：资源按职责拆三份 —— 颜色、转换器、控件样式。
+                 以前全堆在 App.xaml，改一个颜色要在 150 行里找；现在主题只改 Theme.xaml。
+                 Controls.xaml 内部自带对 Theme.xaml 的合并（解析期需要），
+                 所以这里的顺序是 Theme → Converters → Controls。 -->
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Theme.xaml" />
+                <ResourceDictionary Source="Resources/Converters.xaml" />
+                <ResourceDictionary Source="Resources/Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
 
-        <!-- ═══ VM → View 映射（S3b）═══
-             这是 WPF 自带的组合机制：ContentControl 拿到 VM，WPF 自己查表创建视图，
-             并把 DataContext 设成这个 VM。视图因此可以无参构造、不进 DI。
-             用工厂或 DataTemplateSelector 替代它，等于把 WPF 已经做好的事再做一遍。 -->
-        <DataTemplate DataType="{x:Type vm:SidebarViewModel}">
-            <views:SidebarView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:StatusBarViewModel}">
-            <views:StatusBarView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:InspectionPageViewModel}">
-            <views:InspectionPageView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:CameraPageViewModel}">
-            <views:CameraPageView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ImagePanelViewModel}">
-            <views:ImagePanelView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ResultPanelViewModel}">
-            <views:ResultPanelView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:LogPanelViewModel}">
-            <views:LogPanelView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ControlPanelViewModel}">
-            <views:ControlPanelView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:RoiEditorViewModel}">
-            <views:RoiEditorView />
-        </DataTemplate>
-
-        <!-- Fluent 色系 -->
-        <SolidColorBrush x:Key="Bg"         Color="#F3F3F3" />
-        <SolidColorBrush x:Key="CardBg"     Color="#FFFFFF" />
-        <SolidColorBrush x:Key="CardBorder" Color="#E1E1E1" />
-        <SolidColorBrush x:Key="Accent"     Color="#0078D4" />
-        <SolidColorBrush x:Key="Ok"         Color="#107C10" />
-        <SolidColorBrush x:Key="Ng"         Color="#E81123" />
-
-        <!-- 转换器 -->
-        <conv:StringToColorConverter x:Key="StringToColor" />
-        <conv:BoolToVisConverter x:Key="BoolToVis" />
-        <conv:BoolToCameraColorConverter x:Key="BoolToCameraColor" />
-        <conv:BoolToOnlineColorConverter x:Key="BoolToOnlineColor" />
-        <conv:LogLevelToBrushConverter x:Key="LogLevelToBrush" />
-        <conv:LogLevelToBgConverter x:Key="LogLevelToBg" />
-
-        <!-- PanelTitle -->
-        <Style x:Key="PanelTitle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="#1E1E1E" />
-            <Setter Property="Margin" Value="0,0,0,4" />
-        </Style>
-
-        <!-- PanelCard -->
-        <Style x:Key="PanelCard" TargetType="Border">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="BorderBrush" Value="#E1E1E1" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="4" />
-            <Setter Property="Padding" Value="10" />
-        </Style>
-
-        <!-- PrimaryButton -->
-        <Style x:Key="PrimaryButton" TargetType="Button">
-            <Setter Property="Height" Value="38" />
-            <Setter Property="Background" Value="#0078D4" />
-            <Setter Property="Foreground" Value="White" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
-        <!-- StopButton -->
-        <Style x:Key="StopButton" TargetType="Button">
-            <Setter Property="Height" Value="38" />
-            <Setter Property="Background" Value="White" />
-            <Setter Property="Foreground" Value="#1E1E1E" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="BorderBrush" Value="#CCC" />
-            <Setter Property="BorderThickness" Value="1.5" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
-        <!-- AutoModeButton -->
-        <Style x:Key="AutoModeButton" TargetType="Button">
-            <Setter Property="Height" Value="28" />
-            <Setter Property="Background" Value="White" />
-            <Setter Property="Foreground" Value="#888" />
-            <Setter Property="FontSize" Value="11" />
-            <Setter Property="BorderBrush" Value="#E1E1E1" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
-        <!-- EStopButton -->
-        <Style x:Key="EStopButton" TargetType="Button">
-            <Setter Property="Height" Value="52" />
-            <Setter Property="Background" Value="#E81123" />
-            <Setter Property="Foreground" Value="White" />
-            <Setter Property="FontSize" Value="15" />
-            <Setter Property="FontWeight" Value="Bold" />
-            <Setter Property="BorderBrush" Value="#A00C18" />
-            <Setter Property="BorderThickness" Value="3" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
-        <!-- MinorButton -->
-        <Style x:Key="MinorButton" TargetType="Button">
-            <Setter Property="Height" Value="26" />
-            <Setter Property="Background" Value="White" />
-            <Setter Property="Foreground" Value="#555" />
-            <Setter Property="FontSize" Value="10.5" />
-            <Setter Property="BorderBrush" Value="#E1E1E1" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
-        <!-- LogItemStyle -->
-        <Style x:Key="LogItemStyle" TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="2,1" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border Background="{TemplateBinding Background}"
-                                Padding="{TemplateBinding Padding}" CornerRadius="2">
-                            <ContentPresenter />
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
+            <!-- ═══ VM → View 映射（S3b）═══
+                 这是 WPF 自带的组合机制：ContentControl 拿到 VM，WPF 自己查表创建视图，
+                 并把 DataContext 设成这个 VM。视图因此可以无参构造、不进 DI。
+                 用工厂或 DataTemplateSelector 替代它，等于把 WPF 已经做好的事再做一遍。 -->
+            <DataTemplate DataType="{x:Type vm:SidebarViewModel}">
+                <views:SidebarView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:StatusBarViewModel}">
+                <views:StatusBarView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:InspectionPageViewModel}">
+                <views:InspectionPageView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:CameraPageViewModel}">
+                <views:CameraPageView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ImagePanelViewModel}">
+                <views:ImagePanelView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ResultPanelViewModel}">
+                <views:ResultPanelView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:LogPanelViewModel}">
+                <views:LogPanelView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ControlPanelViewModel}">
+                <views:ControlPanelView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:RoiEditorViewModel}">
+                <views:RoiEditorView />
+            </DataTemplate>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

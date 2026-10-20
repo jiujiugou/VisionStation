@@ -18,8 +18,8 @@ public class CameraDevice : IDevice
 
     // 必须转发到 ICamera 的 open/close —— 旧实现只对 `_camera is FileCamera` 生效，
     // 而 DI 注入的是 SwappableCamera，判断永远为 false，界面上"重新连接"点了没有任何效果。
-    public void Connect() => _camera.open();
+    public void Connect() => _camera.Open();
 
     public void Refresh() { /* 状态通过 ICamera 属性获取 */ }
-    public void Disconnect() => _camera.close();
+    public void Disconnect() => _camera.Close();
 }

@@ -6,17 +6,17 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:CameraPageViewModel, IsDesignTimeCreatable=False}">
-    <Grid Background="#F3F3F3">
-        <Border Background="White" BorderBrush="#E1E1E1" BorderThickness="1"
+    <Grid Background="{StaticResource Bg}">
+        <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
                 CornerRadius="4" Padding="24" Margin="40"
                 HorizontalAlignment="Center" VerticalAlignment="Center"
                 MinWidth="420">
             <StackPanel>
                 <TextBlock Text="相机管理" FontSize="16" FontWeight="SemiBold"
-                           Foreground="#1E1E1E" Margin="0,0,0,16" />
+                           Foreground="{StaticResource TextPrimary}" Margin="0,0,0,16" />
 
                 <!-- 状态卡片 -->
-                <Border Background="#F8F9FA" CornerRadius="4" Padding="16" Margin="0,0,0,16">
+                <Border Background="{StaticResource SubtleBg}" CornerRadius="4" Padding="16" Margin="0,0,0,16">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -29,7 +29,7 @@
                                     <Setter Property="Fill" Value="#CCC" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding CameraStatus}" Value="就绪">
-                                            <Setter Property="Fill" Value="#107C10" />
+                                            <Setter Property="Fill" Value="{StaticResource Ok}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -37,7 +37,7 @@
                         </Ellipse>
                         <StackPanel Grid.Column="1">
                             <TextBlock Text="{Binding CameraType}" FontSize="14"
-                                       FontWeight="SemiBold" Foreground="#1E1E1E" />
+                                       FontWeight="SemiBold" Foreground="{StaticResource TextPrimary}" />
                             <TextBlock Text="{Binding CameraStatus}" FontSize="12"
                                        Foreground="#888" Margin="0,2,0,0" />
                             <TextBlock FontSize="11" Foreground="#AAA" Margin="0,4,0,0">
@@ -63,7 +63,7 @@
                     <Button Grid.Column="1" Content="应用切换"
                             Command="{Binding ApplySwitchCommand}"
                             Width="90" Height="32"
-                            Background="#0078D4" Foreground="White"
+                            Background="{StaticResource Accent}" Foreground="White"
                             FontSize="11" FontWeight="SemiBold"
                             BorderThickness="0" Cursor="Hand" />
                 </Grid>
@@ -71,7 +71,7 @@
                 <!-- 重连按钮 -->
                 <Button Content="重新连接" Command="{Binding ReconnectCameraCommand}"
                         Width="90" Height="30" HorizontalAlignment="Right"
-                        Background="White" Foreground="#555"
+                        Background="{StaticResource CardBg}" Foreground="#555"
                         BorderBrush="#CCC" BorderThickness="1"
                         FontSize="11" Cursor="Hand" />
             </StackPanel>

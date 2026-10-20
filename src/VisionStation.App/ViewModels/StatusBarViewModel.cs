@@ -36,7 +36,8 @@ public partial class StatusBarViewModel : ObservableObject
 
     /// <summary>
     /// 相机是否在线。
-    /// 构造时由 MainViewModel 用真实连接状态初始化，之后靠 CameraStatusMessage 更新。
+    /// 初始值由 InspectionPageViewModel 构造时发出的 CameraStatusMessage 赋上，
+    /// 之后靠后续消息更新（重连 / 切相机 / 每帧结果都带当前在线状态）。
     /// 默认 false 只代表"还没确认"，不代表离线 —— 所以启动时必须立刻赋真值，
     /// 否则相机明明连上了，状态栏会一直显示灰点，直到第一次检测跑完。
     /// </summary>

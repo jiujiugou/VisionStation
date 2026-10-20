@@ -69,7 +69,7 @@ public partial class ControlPanelViewModel : ObservableObject
 
     /// <summary>
     /// 手动触发一次检测
-    /// 流程：按钮点击 → 如果是 ManualTrigger → 调 Fire() → Triggered 事件 → MainViewModel.OnTriggered
+    /// 流程：按钮点击 → 如果是 ManualTrigger → 调 Fire() → Triggered 事件 → InspectionPageViewModel（S4 后不再经 MainViewModel 中转）
     /// </summary>
     [RelayCommand]
     private void StartDetection()
@@ -156,7 +156,7 @@ public partial class ControlPanelViewModel : ObservableObject
 
     /// <summary>
     /// 保存当前标注图像到本地文件
-    /// 保存逻辑在 MainViewModel.SaveImage 里实现
+    /// 保存逻辑在 InspectionWorkflow 里实现（存图与存库同帧完成，S4 后不再有独立的 SaveImage）
     /// </summary>
     [RelayCommand]
     private void SaveImage()

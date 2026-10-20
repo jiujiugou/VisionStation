@@ -7,7 +7,7 @@ namespace VisionStation.Devices;
 ///   Fire()  → 手动触发一次（按钮点击）
 ///   Start() → 启动定时触发（自动模式）
 ///   Stop()  → 停止定时触发（回到手动）
-///   Triggered 事件 → 触发信号出口（MainViewModel 订阅）
+///   Triggered 事件 → 触发信号出口（InspectionPageViewModel 订阅）
 ///
 /// V1 实现：
 ///   TimerTrigger：Fire/Start/Stop 全支持

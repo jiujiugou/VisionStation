@@ -38,7 +38,7 @@ public class ToolResult
     /// <summary>
     /// 标注指令列表。
     /// 工具只管声明"我要画什么"（DrawRect / DrawCircle / DrawContour），
-    /// 渲染层（MainViewModel.DrawAnnotations）统一执行绘制。
+    /// 渲染层（InspectionWorkflow 的标注段）统一执行绘制。
     /// </summary>
     public List<DrawCommand> Overlays { get; set; } = new();
 

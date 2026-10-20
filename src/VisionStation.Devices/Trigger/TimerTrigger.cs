@@ -7,7 +7,8 @@ using System.Timers;
 ///
 /// 线程安全设计：
 ///   System.Timers.Timer 的 Elapsed 事件在 ThreadPool 线程上触发。
-///   消费者（MainViewModel.ProcessFrame）通过 Dispatcher 切到 UI 线程执行。
+///   消费者（InspectionPageViewModel）把后续处理经同步上下文投回 UI 线程，
+///   检测本身在 InspectionWorkflow 里走线程池。
 ///   两个 Tick 可能在不同 ThreadPool 线程上同时到达——
 ///   用 Interlocked.CompareExchange 保证同一时刻只有一个消费者在跑。
 ///

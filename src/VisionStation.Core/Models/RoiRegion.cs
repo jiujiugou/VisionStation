@@ -14,7 +14,7 @@ namespace VisionStation.Core.Models;
 ///   - 渲染标注的参考（DrawAnnotations 根据它画 ROI 框）
 ///
 /// 生命周期：
-///   - 从配方文件 deserialize → MainViewModel._rois → Pipeline 传入各 Tool
+///   - 从配方文件 deserialize → InspectionWorkflow 取快照 → Pipeline 传入各 Tool
 /// </summary>
 public class RoiRegion
 {

@@ -21,8 +21,8 @@ namespace VisionStation.Core;
 ///   var report = pipeline.Run(image, rois, calibConfig);
 ///
 /// 为什么需要这个类？
-///   没有 Pipeline，MainViewModel 里就要 foreach 手动调每个 Tool —— 耦合了工具创建和执行顺序，
-///   Pipeline 把"按顺序执行工具链"这个策略单独封装，MainViewModel 一行 Run 就行。
+///   没有 Pipeline，调用方（现在是 InspectionWorkflow）就要 foreach 手动调每个 Tool —— 耦合了工具创建和执行顺序，
+///   Pipeline 把"按顺序执行工具链"这个策略单独封装，调用方一行 Run 就行。
 /// </summary>
 public class Pipeline
 {

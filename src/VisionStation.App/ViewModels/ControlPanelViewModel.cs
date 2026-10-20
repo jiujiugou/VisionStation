@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using VisionStation.App.Abstractions;
 using VisionStation.Devices;
 
 namespace VisionStation.App.ViewModels;
@@ -24,6 +25,7 @@ public partial class ControlPanelViewModel : ObservableObject
     // ── 硬件依赖（由 DI 注入）──
     private readonly ITriggerSource _trigger;
     private readonly ICamera _camera;
+    private readonly IDialogService _dialog;
 
     /// <summary>是否处于自动模式（按钮文字和颜色跟着变）</summary>
     [ObservableProperty]
@@ -50,10 +52,14 @@ public partial class ControlPanelViewModel : ObservableObject
     /// <summary>
     /// 构造函数（由 DI 注入 Trigger 和 Camera）
     /// </summary>
-    public ControlPanelViewModel(ITriggerSource trigger, ICamera camera)
+    public ControlPanelViewModel(
+        ITriggerSource trigger,
+        ICamera camera,
+        IDialogService dialog)
     {
         _trigger = trigger;
         _camera = camera;
+        _dialog = dialog;
         CameraOnline = _camera.IsAvailable; // 初始化：检查相机是否可用
     }
 
@@ -110,28 +116,27 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 和"停止"的区别：不等待当前帧处理完，直接停
     /// </summary>
     [RelayCommand]
-    private void EmergencyStop()
+    private async Task EmergencyStopAsync()
     {
-        if (System.Windows.MessageBox.Show("确认急停？", "急停",
-            System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Warning)
-            == System.Windows.MessageBoxResult.Yes)
-        {
-            _trigger.Stop();
-            IsAutoMode = false;
-            WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
-            WeakReferenceMessenger.Default.Send(new LogMessage("急停已触发", LogMsgLevel.Error));
-        }
+        if (!await _dialog.ConfirmAsync("急停", "确认急停？"))
+            return;
+
+        _trigger.Stop();
+        IsAutoMode = false;
+        WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
+        WeakReferenceMessenger.Default.Send(new LogMessage("急停已触发", LogMsgLevel.Error));
     }
 
     /// <summary>
     /// 重新连接相机
-    /// 当前实现：FileCamera 重新扫描文件夹
-    /// 将来：HikCamera 重新枚举设备 + 打开
+    /// 当前实现：ICamera.open() 转发给当前相机；FileCamera 重扫目录，HikCamera 重新枚举/打开
     /// </summary>
     [RelayCommand]
     private void Reconnect()
     {
-        if (_camera is FileCamera fc) fc.RefreshFileList();
+        // 必须走 ICamera 契约：DI 注入的是 SwappableCamera，`is FileCamera` 永远为 false。
+        // SwappableCamera.open() 会转发给当前实现，FileCamera 会重扫目录。
+        _camera.open();
         CameraOnline = _camera.IsAvailable;
         WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
         WeakReferenceMessenger.Default.Send(new LogMessage(

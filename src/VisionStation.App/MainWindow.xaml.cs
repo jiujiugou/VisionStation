@@ -1,12 +1,13 @@
 using System.Windows;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using VisionStation.App.Composition;
 using VisionStation.App.ViewModels;
 using VisionStation.App.Views;
 
 namespace VisionStation.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, IAppWindow
 {
     private readonly MainViewModel _mainVm;
     private readonly ImagePanelViewModel _imagePanelVm;

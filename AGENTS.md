@@ -20,8 +20,8 @@ WPF 金属零件视觉检测工作站。取图 → 工具流水线判定（模�
 | `src/VisionStation.Service` | 自检（HealthChecker）、管家（Housekeeping） | 可改 |
 | `src/VisionStation.App` | WPF 组合根、DI 注册、ViewModel | 可改 |
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
-| `tests/VisionStation.UnitTests` | 全部测试（当前 100 项） | **只准加，不准改断言** |
-| `docs/` | 设计文档与规范，`三步失效分析法.md` 是方法准绳 | 可改 |
+| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 207 项；App.Tests 从 S1 起） | **只准加，不准改断言** |
+| `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
 | `audit/` | 失效分析产物 + 门禁脚本 | 由流程生成，不手改数据 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |
 | `models/` | ONNX 权重 | **禁止编辑** |
@@ -32,11 +32,12 @@ WPF 金属零件视觉检测工作站。取图 → 工具流水线判定（模�
 ## 3. 命令
 
 ```bat
-dotnet build tests\VisionStation.UnitTests -v q --nologo    :: 编译检查（最快）
-dotnet test  tests\VisionStation.UnitTests --nologo         :: 全量测试
+ci.cmd                                                      :: 本地 CI 门禁：App 构建 + 测试 + 分析器棘轮 + 测试
+verify.cmd                                                  :: ci.cmd + 审计门禁（运维切片）
+verify.cmd audit\artifacts-core\scope-core.json artifacts-core  :: ci.cmd + 审计门禁（Core 切片）
+dotnet build tests\VisionStation.UnitTests -v q --nologo    :: 仅编译检查，不是门禁
+dotnet test  tests\VisionStation.UnitTests --nologo         :: 仅测试，不是门禁
 dotnet test  tests\VisionStation.UnitTests --filter "FullyQualifiedName~Housekeeping" --nologo
-verify.cmd                                                  :: 编译 + 测试 + 门禁（运维切片）
-verify.cmd audit\artifacts-core\scope-core.json artifacts-core  :: 同上，Core 切片
 
 :: 变异测试（只对纯数学/判定段跑，约 2 分钟；不要全仓跑）
 dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
@@ -44,7 +45,7 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
   -m "**/Calibration.cs" -m "**/Geometry/CoordinateMath.cs" -b 0
 ```
 
-`verify.cmd` 退出码 0 才算做完。任何"已完成"的说法，必须先贴它的输出。
+`ci.cmd`（日常构建）或 `verify.cmd`（审计切片）退出码 0 才算做完；单独 `dotnet build` / `dotnet test` 不是门禁。任何"已完成"的说法，必须先贴门禁输出。
 
 ## 4. 硬规则（违反即作废重做）
 
@@ -54,6 +55,12 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 4. **修完追加不覆盖**：`V-xxx-retry`，原始 FAIL 记录保留。改了历史等于把"修了几次"抹掉。
 5. **没做的写 NOT_RUN**。禁止"基本通过""应该没问题""已验证（无证据）"。
 6. 一次性删改超过 5 个文件前，先说清楚改哪些、为什么。改完让人看 `git diff --stat`。
+7. **WPF 构造函数零副作用**。连接设备、订阅事件、读写文件、发消息、起线程都不许放构造函数；用显式 `StartAsync`/`InitializeAsync`。纯值对象校验除外。
+8. **View 不进 DI，VM 不引用 View**。View 由 WPF/DataTemplate/窗口工厂创建；VM 不得引用 `Application.Current`、`MessageBox`、`Dispatcher`、`Brush`、`Visibility`。
+9. **UI 线程只做 UI**。OpenCV/DB/IO 下后台；跨线程位图必须 `Freeze()`；禁止 `.Result`/`.Wait()`；后台循环必须有取消令牌和异常拦截。
+10. **导航是控制流，不是消息**。用 `INavigationService`，禁止 `NavigateMessage + Visibility` 拼页面。
+11. **配置只在组合根读一次**。VM/Service 不得直接依赖 `IConfiguration`；业务参数仍按第 2 条问人。
+12. **UI 变更必须实际启动走查**。build/test 绿不算完成；按 `docs/WPF开发规范.md` §13 走查并记录结果。
 
 ## 5. 已知坑（都是真实踩过的，别再犯）
 
@@ -75,8 +82,7 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 
 ## 6. 三步失效分析法（本仓库的工程纪律）
 
-规范全文：`docs/三步失效分析法.md`（只写规则）。各切片跑完的结果、未清偿清单、方法修订史见
-`docs/三步法落地记录.md`（只写现状）。两份文件不要互相掺内容。
+方法文档已删除，保留以下切片规则与 audit 产物。
 
 切片各有一套产物：
 
@@ -105,8 +111,18 @@ dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
 
 ## 7. 做完的定义
 
-1. `verify.cmd` 退出码 0（对应切片）；
+1. `ci.cmd` 退出码 0；跑审计切片时 `verify.cmd` 退出码 0；
 2. 新增的缺陷条目有 `文件:行号` 依据 + 一个能跑的测试（不能跑的写 NOT_RUN 并说明缺什么）；
-3. 三份产物与实际代码同步，`docs/三步失效分析法.md` 的规则没被绕过；
+3. 三份产物与实际代码同步；
 4. `git diff` 里没有测试文件的断言被改动；
-5. 改动 `Calibration`/`CoordinateMath`/判定阈值后，变异测试得分不低于 90%，存活变异逐条裁决（补断言或标等价）。
+5. 改动 `Calibration`/`CoordinateMath`/判定阈值后，变异测试得分不低于 90%，存活变异逐条裁决（补断言或标等价）；
+6. WPF/UI 变更必须在真实进程中启动走查（`docs/WPF开发规范.md` §13），记录切页、相机重连、运行中关窗结果；
+7. `docs/WPF规范落地记录.md` 的偏差与状态已更新，规则与现状没有混写。
+
+## 8. WPF 桌面开发
+
+- **规则**：`docs/WPF开发规范.md`（只写 MUST/SHOULD，目标状态）。
+- **现状**：`docs/WPF规范落地记录.md`（只写偏差、迁移阶段、验证证据）。
+- **改造顺序**：`docs/WPF改造指南.md`（切片、验收、回滚、停止线）。
+- 改 WPF 代码前先读规则；规则与现状冲突时，以规则为目标、以记录为当前事实，不要用“代码就这样”当理由。
+- 桌面端四条红线：构造函数零副作用、View 不进 DI、UI 线程只做 UI、导航走服务。细节见第 4 节 7–12 条。

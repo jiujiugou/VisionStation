@@ -18,7 +18,7 @@
   </PropertyGroup>
 
   <!-- Sonar 只在生产代码上跑。测试代码的断言、命名、方法长度会淹没真信号。 -->
-  <ItemGroup Condition="'$(MSBuildProjectName)' != 'VisionStation.UnitTests' AND '$(MSBuildProjectName)' != 'VisionStation.Test' AND '$(MSBuildProjectName)' != 'Repro'">
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'VisionStation.UnitTests' AND '$(MSBuildProjectName)' != 'VisionStation.App.Tests' AND '$(MSBuildProjectName)' != 'VisionStation.Test' AND '$(MSBuildProjectName)' != 'Repro'">
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.35.0.4138">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

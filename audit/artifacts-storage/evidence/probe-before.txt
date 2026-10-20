@@ -1,7 +1,0 @@
-① journal_mode = delete
-② busy_timeout = 0 ms
-③ 并发 8×20: 异常=无
-   总耗时 2820 ms，单次最大 1849 ms
-   落库 OK=160 NG=0（期望 160 条）
-④ 表列: Id, Timestamp, TriggerSource, ImagePath, PresenceOk, PresenceDetail, PresenceScore, DimensionOk, DimensionDetail, DesignDiameter, MeasuredDiameter, Deviation, DefectOk, DefectDetail, ScratchCount, NotchCount, OverallVerdict, CreatedAt
-   ToolResultsJson 存在 = False

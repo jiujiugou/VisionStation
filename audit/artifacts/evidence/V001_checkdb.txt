@@ -1,8 +1,0 @@
-# V-001 复现证据  2026-10-19 11:11:55
-# 预期（R-001）：两例均应判 FAIL；实际见下
-# V-001 复现证据  2026-10-19 11:12:05
-# 预期（R-001）：两例均应判 FAIL；实际见下
-[用例1 文件+父目录均不存在] dbPath=C:\__vs_repro_missing__\visionstation.db
-[用例1 文件+父目录均不存在] 自检结论: OK=False  Detail=C:\__vs_repro_missing__\visionstation.db  Error=数据库路径不可达
-[用例2 仅文件不存在] dbPath=C:\WINDOWS\visionstation.db
-[用例2 仅文件不存在] 自检结论: OK=True  Detail=C:\WINDOWS\visionstation.db  Error=无

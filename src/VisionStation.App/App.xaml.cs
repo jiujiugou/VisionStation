@@ -1,22 +1,10 @@
 using System.Diagnostics;
 using System.IO;
-using System.Text.Json;
 using System.Windows;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Serilog;
+using VisionStation.App.Composition;
 using VisionStation.App.Services;
-using VisionStation.App.Services.Coordinates;
 using VisionStation.Service;
-using VisionStation.Service.Housekeeping;
-using VisionStation.App.ViewModels;
-using VisionStation.App.Views;
-using VisionStation.Core;
-using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
-using VisionStation.Devices;
-using VisionStation.Storage;
 
 namespace VisionStation.App;
 
@@ -60,62 +48,16 @@ public partial class App : Application
         };
         try
         {
-            // ── 启动看门狗 ──
             StartWatchdog();
 
-            var config = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .Build();
+            var host = new AppHost();
+            host.Configure();
+            _paths = host.Paths;
+            Services = host.Services;
 
-            // ── 统一路径解析：相对路径 → 绝对路径（见 AppPaths）──
-            var appPaths = new AppPaths(config);
-            _paths = appPaths;
-
-            Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .MinimumLevel.Debug()
-                .Enrich.FromLogContext()
-                .WriteTo.Console()
-                .WriteTo.File(Path.Combine(appPaths.LogFolder, "visionstation-.log"),
-                    rollingInterval: RollingInterval.Day, retainedFileCountLimit: 30)
-                .CreateLogger();
-
-            var services = new ServiceCollection();
-            services.AddLogging(b => b.AddSerilog(dispose: true));
-
-            // ── 加载配方文件 ──
-            var recipe = LoadRecipe(appPaths.RecipePath);
-
-            // ── 模块注册 ──
-            services
-                .AddSingleton(appPaths)
-                .AddCore(recipe, appPaths)
-                .AddDevices(appPaths, config)
-                .AddStorage(appPaths, config)
-                .AddAppServices(appPaths, config)
-                .AddViews();
-
-            Services = services.BuildServiceProvider();
-
-            var log = Services.GetRequiredService<ILogger<App>>();
-            var health = Services.GetRequiredService<IHealthChecker>();
-            foreach (var r in health.RunAll())
-            {
-                if (r.OK)
-                    log.LogInformation("自检 {Item}: OK ({Detail})", r.Item, r.Detail);
-                else
-                {
-                    log.LogError("自检 {Item}: FAIL ({Error})", r.Item, r.Error);
-                    MessageBox.Show($"{r.Item}: {r.Error}", "自检失败",
-                        MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
-            }
-
-            // ── 启动后台管家 ──
-            Services.GetRequiredService<IHousekeepingService>();
-
-            Services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync().GetAwaiter().GetResult();
-            Services.GetRequiredService<MainWindow>().Show();
+            host.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
+            ShowHealthFailures(host.HealthResults);
+            host.Show();
             _startupCompleted = true;
         }
         catch (Exception ex)
@@ -128,47 +70,15 @@ public partial class App : Application
         }
     }
 
-    /// <summary>
-    /// 加载配方 JSON；文件缺失/损坏/为空时回退到内嵌的默认配方。
-    /// 内嵌资源与 Config/recipes/default.json 是同一份文件 —— 兜底内容不可能与磁盘配方不一致。
-    /// （旧实现是在代码里手抄一份兜底配方，标定参数和 ROI 早已和 default.json 对不上，
-    ///   一旦命中兜底，尺寸测量全错且界面无任何异常 —— 已改为单一真相源）
-    /// </summary>
-    private static RecipeConfig LoadRecipe(string path)
+    private static void ShowHealthFailures(IEnumerable<HealthResult> results)
     {
-        try
+        foreach (var r in results)
         {
-            if (File.Exists(path))
-            {
-                var json = File.ReadAllText(path);
-                // 配方 JSON 用 camelCase 键：必须大小写不敏感，否则 rois/tools 绑不上，静默走兜底配方
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var recipe = JsonSerializer.Deserialize<RecipeConfig>(json, options);
-                if (recipe != null && recipe.Tools.Count > 0) return recipe;
-            }
-        }
-        catch (Exception ex)
-        {
-            LogCrash("recipe", ex);
-        }
+            if (r.OK) continue;
 
-        // 兜底路径必须留痕：操作员要知道现在跑的是默认配方，不是磁盘上那份
-        Log.Warning("配方 {Path} 加载失败（缺失/损坏/为空），回退到内嵌默认配方", path);
-        return LoadEmbeddedRecipe();
-    }
-
-    /// <summary>从程序集内嵌资源读默认配方 —— 与 Config/recipes/default.json 同一份文件</summary>
-    private static RecipeConfig LoadEmbeddedRecipe()
-    {
-        const string resourceName = "VisionStation.App.Config.recipes.default.json";
-        using var stream = typeof(App).Assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException($"内嵌配方资源缺失: {resourceName}（打包配置被改动过？）");
-        using var reader = new StreamReader(stream);
-        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        var recipe = JsonSerializer.Deserialize<RecipeConfig>(reader.ReadToEnd(), options);
-        if (recipe == null || recipe.Tools.Count == 0)
-            throw new InvalidOperationException("内嵌默认配方内容为空或无效");
-        return recipe;
+            MessageBox.Show($"{r.Item}: {r.Error}", "自检失败",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     /// <summary>

@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.ViewModels;
 
 namespace VisionStation.App.Views;
@@ -21,12 +20,6 @@ public partial class ImagePanelView : UserControl
         InitializeComponent();
         _vm = vm;
         DataContext = _vm;
-
-        _vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(ImagePanelViewModel.CurrentImage))
-                ImageDisplay.Source = _vm.CurrentImage;
-        };
     }
 
     // ════════════════════════════════════════════════

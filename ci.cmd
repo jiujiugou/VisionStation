@@ -21,12 +21,28 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:: --no-dependencies: App is built in 1/4; a rebuild duplicates WPF _wpftmp warnings and breaks the ratchet.
+dotnet build tests\VisionStation.App.Tests -v q --nologo --no-incremental --no-dependencies >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo BUILD FAILED - app tests
+    findstr /C:"error " "%LOG%"
+    exit /b 1
+)
+
 echo == 3/4 analyzer ratchet ==
-python scripts\analyzer_gate.py --log "%LOG%"
+where python >nul 2>nul
+if errorlevel 1 (
+    py -3 scripts\analyzer_gate.py --log "%LOG%"
+) else (
+    python scripts\analyzer_gate.py --log "%LOG%"
+)
 if errorlevel 1 goto fail
 
 echo == 4/4 test ==
 dotnet test tests\VisionStation.UnitTests --nologo --no-build
+if errorlevel 1 goto fail
+
+dotnet test tests\VisionStation.App.Tests --nologo --no-build
 if errorlevel 1 goto fail
 
 echo.

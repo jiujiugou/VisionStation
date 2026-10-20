@@ -1,14 +1,13 @@
 using System.Collections.ObjectModel;
-using System.IO;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
-using VisionStation.App.Services;
+using VisionStation.App.Abstractions;
 using VisionStation.App.Services.Coordinates;
 using VisionStation.Core.Models;
+using VisionStation.Service.Recipes;
 
 namespace VisionStation.App.ViewModels;
 
@@ -22,7 +21,8 @@ public partial class RoiEditorViewModel : ObservableObject
 {
     private readonly CoordinateMapper _mapper;
     private readonly RecipeConfig _recipe;
-    private readonly AppPaths _paths;
+    private readonly IRecipeStore _store;
+    private readonly IDialogService _dialog;
 
     /// <summary>当前编辑的图像</summary>
     [ObservableProperty]
@@ -54,11 +54,16 @@ public partial class RoiEditorViewModel : ObservableObject
     // 新画的框小于此尺寸（图像像素）视为误触，松手即丢弃
     private const double MinRoiSizePx = 8.0;
 
-    public RoiEditorViewModel(CoordinateMapper mapper, RecipeConfig recipe, AppPaths paths)
+    public RoiEditorViewModel(
+        CoordinateMapper mapper,
+        RecipeConfig recipe,
+        IRecipeStore store,
+        IDialogService dialog)
     {
         _mapper = mapper;
         _recipe = recipe;
-        _paths = paths;
+        _store = store;
+        _dialog = dialog;
 
         // 从配方加载已有 ROI
         foreach (var d in recipe.Rois)
@@ -283,22 +288,37 @@ public partial class RoiEditorViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SaveToFile()
+    private async Task SaveToFileAsync()
     {
-        _recipe.Rois = Rois.Select(r => new RoiData
+        var newRois = Rois.Select(r => new RoiData
         {
             Name = r.Name, X = (int)r.ImageX, Y = (int)r.ImageY,
             Width = (int)r.ImageWidth, Height = (int)r.ImageHeight
         }).ToList();
 
-        // 写到与加载一致的配方路径（AppPaths.RecipePath），避免存到 bin 副本导致下次加载旧数据
-        var dir = Path.GetDirectoryName(_paths.RecipePath)!;
-        Directory.CreateDirectory(dir);
-        var json = JsonSerializer.Serialize(_recipe, new JsonSerializerOptions { WriteIndented = true });
-        File.WriteAllText(_paths.RecipePath, json);
+        // 先写副本：保存失败时内存配方必须保持原样，不能出现“界面已改、磁盘未变”。
+        var copy = new RecipeConfig
+        {
+            Name = _recipe.Name,
+            Calibration = _recipe.Calibration,
+            Tools = _recipe.Tools,
+            Rois = newRois
+        };
 
+        string path;
+        try
+        {
+            path = await _store.SaveAsync(copy);
+        }
+        catch (Exception ex)
+        {
+            await _dialog.ShowErrorAsync("保存失败", ex.Message);
+            return;
+        }
+
+        _recipe.Rois = newRois;
         WeakReferenceMessenger.Default.Send(new RoisUpdatedMessage());
-        MessageBox.Show($"已保存到 {_paths.RecipePath}", "保存成功", MessageBoxButton.OK, MessageBoxImage.Information);
+        await _dialog.ShowInfoAsync("保存成功", $"已保存到 {path}");
     }
 
     [RelayCommand]

@@ -1,6 +1,0 @@
-{
-  "targets": ["U21", "U22", "U23", "U24", "U25", "U26", "U27", "U28", "U29", "U30", "U31", "U32",
-              "E18", "E19", "E20", "E21", "E22", "E23", "E24", "E25", "E26"],
-  "slice": "app",
-  "note": "App 层 12 单元 + 9 条交互。全局索引把 App 标为 out_of_scope（UI/MVVM/Dispatcher），本切片首次纳入；索引因此落在 artifacts-app/index.json，不与全局索引混用。ResultPanelViewModel / StatusBarViewModel / ImagePanelViewModel 与 7 个 IValueConverter 按机械规则未立单元（无方法声明/纯属性映射），它们的结果显示缺口登在 E22 上。"
-}

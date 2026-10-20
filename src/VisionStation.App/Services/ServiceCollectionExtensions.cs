@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using VisionStation.App.Abstractions;
+using VisionStation.App.Infrastructure;
 using VisionStation.App.Services;
 using VisionStation.App.ViewModels;
 using VisionStation.App.Views;
@@ -11,6 +13,7 @@ using VisionStation.Core.Tools;
 using VisionStation.Devices;
 using VisionStation.Service;
 using VisionStation.Service.Housekeeping;
+using VisionStation.Service.Recipes;
 using VisionStation.Storage;
 
 namespace VisionStation.App;
@@ -121,6 +124,11 @@ public static class ServiceCollectionExtensions
             ReadHousekeepingOptions(config),
             sp.GetService<ILogger<HousekeepingService>>()));
 
+        // 配方保存从 VM 移到 Service：VM 只表达“保存”，不碰路径、JSON 和临时文件。
+        services.AddSingleton<IRecipeStore>(sp => new JsonRecipeStore(
+            appPaths.RecipePath,
+            sp.GetService<ILogger<JsonRecipeStore>>()));
+
         return services;
     }
 
@@ -140,6 +148,7 @@ public static class ServiceCollectionExtensions
     /// <summary>注册 ViewModels + Views</summary>
     public static IServiceCollection AddViews(this IServiceCollection services)
     {
+        services.AddSingleton<IDialogService, WpfDialogService>();
         services.AddSingleton<SidebarViewModel>();
         services.AddSingleton<ImagePanelViewModel>();
         services.AddSingleton<ResultPanelViewModel>();

@@ -1,9 +1,15 @@
 using System.ComponentModel;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Microsoft.Extensions.Logging.Abstractions;
 using VisionStation.App.Abstractions;
+using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services.Coordinates;
+using VisionStation.App.Services.Inspection;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Models;
+using VisionStation.Core.Tools;
 using VisionStation.Devices;
 using VisionStation.Storage;
 using VisionStation.Service.Recipes;
@@ -46,9 +52,12 @@ internal sealed class FakeTriggerSource : ITriggerSource
     public void Dispose() { }
 }
 
-/// <summary>相机替身：只数 Capture 次数，不产生图像。</summary>
+/// <summary>相机替身：数 Capture 次数。默认采不到图（返回 null）。</summary>
 internal sealed class FakeCamera : ICamera
 {
+    /// <summary>非空时每次采图都调用它产出一帧。注意每次要新建 Mat：工作流会把上一帧释放掉。</summary>
+    public Func<CameraFrame?>? FrameFactory { get; set; }
+
     public bool IsAvailable { get; set; } = true;
     public int CaptureCount { get; private set; }
     public int FrameCount => CaptureCount;
@@ -59,7 +68,7 @@ internal sealed class FakeCamera : ICamera
     public CameraFrame? Capture()
     {
         CaptureCount++;
-        return null;   // 采不到图，调用方应跳过本帧而不是抛异常
+        return FrameFactory?.Invoke();   // 默认 null：调用方应跳过本帧而不是抛异常
     }
 
     public void Dispose() { }
@@ -68,9 +77,15 @@ internal sealed class FakeCamera : ICamera
 /// <summary>仓储替身：关闭流程不关心数据库内容，只保证接口齐。</summary>
 internal sealed class FakeInspectionRepository : IInspectionRepository
 {
+    public int SaveCount { get; private set; }
+
     public Task EnsureCreatedAsync() => Task.CompletedTask;
 
-    public Task SaveAsync(InspectionReport report) => Task.CompletedTask;
+    public Task SaveAsync(InspectionReport report)
+    {
+        SaveCount++;
+        return Task.CompletedTask;
+    }
 
     public Task<List<InspectionRecord>> GetRecentAsync(int count = 100) =>
         Task.FromResult(new List<InspectionRecord>());
@@ -108,15 +123,105 @@ internal sealed class NoopRecipeStore : IRecipeStore
         => Task.FromResult(@"C:/recipes/test.json");
 }
 
+/// <summary>
+/// 检测工作流替身。
+///
+/// 为什么要它：页面 VM 的两条并发契约 —— "两个触发只跑一帧"和"关闭时等在途" ——
+/// 本质都是"这一帧什么时候返回"。真工作流里采图/检测/存库全是同步阻塞的，
+/// 没有可控的让出点，只能靠替身把"返回时机"拿到测试手里。
+/// </summary>
+internal sealed class FakeWorkflow : IInspectionWorkflow
+{
+    /// <summary>非空时，RunOnceAsync 挂在这个 TCS 上，由测试决定何时返回。</summary>
+    public TaskCompletionSource<InspectionRunResult?>? Gate { get; init; }
+
+    /// <summary>立即返回的结果（Gate 为空时使用）。</summary>
+    public InspectionRunResult? Result { get; set; }
+
+    public int RunCount { get; private set; }
+
+    public CancellationToken LastToken { get; private set; }
+
+    public async Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct)
+    {
+        RunCount++;
+        LastToken = ct;
+
+        if (Gate is { } gate) return await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+
+        return Result;
+    }
+}
+
+/// <summary>造一帧"可显示"的工作流结果：真报告 + 已冻结的 1x1 位图。</summary>
+internal static class TestResults
+{
+    public static InspectionRunResult Frame(bool ok = true, params string[] toolNames)
+    {
+        var report = Report(ok, toolNames);
+        return new InspectionRunResult(
+            report,
+            Bitmap(),
+            Bitmap(),
+            CycleMs: 12,
+            ImageSaved: true,
+            ImageError: null,
+            ConsecutiveImageFailures: 0,
+            CameraOnline: true);
+    }
+
+    public static InspectionReport Report(bool ok = true, params string[] toolNames)
+    {
+        var names = toolNames.Length == 0 ? new[] { "Presence" } : toolNames;
+        var report = new InspectionReport();
+        foreach (var name in names)
+        {
+            report.Results[name] = ok
+                ? ToolResult.Ok($"{name} 摘要")
+                : new ToolResult { IsOk = false, Summary = $"{name} 超差" };
+        }
+
+        return report;
+    }
+
+    public static BitmapSource Bitmap()
+    {
+        var bitmap = BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgr24, null, new byte[3], 3);
+        bitmap.Freeze();
+        return bitmap;
+    }
+}
+
 /// <summary>页面 VM 的组装助手：测试里只造"能构造出来"的对象，不碰 WPF。</summary>
 internal static class TestPages
 {
-    public static InspectionPageViewModel Inspection() => new(
-        new ImagePanelViewModel(),
-        new ResultPanelViewModel(),
-        new LogPanelViewModel(),
-        new ControlPanelViewModel(new FakeTriggerSource(), new FakeCamera(), new NoopDialog()),
-        new RoiEditorViewModel(new CoordinateMapper(), new RecipeConfig(), new NoopRecipeStore(), new NoopDialog()));
+    /// <summary>
+    /// 造一个检测页。同步上下文传 null = "没有 UI 线程"，触发就地执行，
+    /// 所以断言可以在 Fire() 返回之后立刻做（工作流替身返回已完成的任务）。
+    /// </summary>
+    public static InspectionPageViewModel Inspection(
+        IInspectionWorkflow? workflow = null,
+        FakeTriggerSource? trigger = null,
+        FakeCamera? camera = null,
+        ShutdownState? shutdown = null,
+        InFlightWorkMonitor? inFlight = null)
+    {
+        trigger ??= new FakeTriggerSource();
+        camera ??= new FakeCamera();
+
+        return new InspectionPageViewModel(
+            new ImagePanelViewModel(),
+            new ResultPanelViewModel(),
+            new LogPanelViewModel(),
+            new ControlPanelViewModel(trigger, camera, new NoopDialog()),
+            new RoiEditorViewModel(new CoordinateMapper(), new RecipeConfig(), new NoopRecipeStore(), new NoopDialog()),
+            workflow ?? new FakeWorkflow(),
+            trigger,
+            camera,
+            shutdown ?? new ShutdownState(),
+            inFlight ?? new InFlightWorkMonitor(),
+            NullLogger<InspectionPageViewModel>.Instance);
+    }
 
     public static CameraPageViewModel Camera()
     {

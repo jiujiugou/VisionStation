@@ -57,14 +57,14 @@
 | W-03 | WPF-D1.2 / V1.1 | **已修（S3b）**：容器不再注册任何 View / `MainWindow`（`ServiceCollectionExtensions.cs:162-184` 只剩 VM 与服务），视图由 `App.xaml` 的 9 条 `DataTemplate` 创建（`App.xaml:14-56`）；`MainWindow` 构造函数从 12 个参数降到 1 个（`MainWindow.xaml.cs:25`），且由 `AppHost` 直接 `new`（`AppHost.cs:68`） | View 生命周期归可视树，容器只管 VM；`AppCompositionTests` 是回退报警器 | P2 | FIXED |
 | W-04 | WPF-N1.1 / A1.5 | **已修（S3b）**：`INavigationService` 持有路由表与当前页（`NavigationService.cs:10`、`Navigate` 在 `:62`），未知路由返回 false 并留 WRN；`SidebarViewModel` 改为「选中项 → 导航」（`SidebarViewModel.cs:70`），点未实现的页签把选中项退回去；`NavigateMessage` 已删除（`Messages.cs` 只留一句说明）；`MainWindow.xaml:29` 绑 `CurrentPage` | 导航是状态不是通知；未知路由不会静默换空页；`NavigationServiceTests` 4 条 | P2 | FIXED |
 | W-05 | WPF-V1.3 | **已修（S3a/S3b）**：`MainWindow.xaml.cs` 只剩 `InitializeComponent` + `DataContext` + `Closing` 转发；导航搬进 `NavigationService`，F2 搬成 `Window.InputBindings` → `ShellViewModel.ToggleRoiEditorCommand`（`ShellViewModel.cs:66`，按当前页类型路由，非检测页不做事），编辑态搬进 `InspectionPageViewModel`（`:54`）；动态窗口标题取消（纯装饰，且属于 View） | code-behind 不再承载业务；快捷键跟窗口走，不依赖焦点落点 | P2 | FIXED |
-| W-06 | WPF-A1.2 / A1.3 | `MainViewModel` 同时做采图、Pipeline、标注、存图、存库、统计、消息（`MainViewModel.cs:143-235`），注释仍写“只做这一件事”（`MainViewModel.cs:22`） | VM 过大；工作流无法复用/测试；注释与代码不符 | P3 | OPEN |
-| W-07 | WPF-T1.1 / T1.2 | 整条检测链路在 UI 线程执行：`OnTriggered` 切到 Dispatcher（`MainViewModel.cs:132-138`），`ProcessFrame` 内跑 `_pipeline.Run`（`MainViewModel.cs:171`）与 `SaveAsync`（`MainViewModel.cs:206`） | 检测/存库慢时界面卡死；自动运行下更明显 | P3 | OPEN |
-| W-08 | WPF-T1.3 | `MatToBitmap` 未 `Freeze()`（`MainViewModel.cs:285-310`） | 位图不能安全跨线程；阻塞把转换移到后台 | P3 | OPEN |
-| W-09 | WPF-T1.5 | 日志面板用阻塞 `Dispatcher.Invoke`（`LogPanelViewModel.cs:53`），并每条日志 `Entries.Refresh()`（`LogPanelViewModel.cs:62`） | 高频日志时 UI/后台互相等待，面板卡顿 | P3 | OPEN |
+| W-06 | WPF-A1.2 / A1.3 | **已修（S4a）**：`MainViewModel` 已删除（-342 行），链路搬进 `InspectionWorkflow.RunOnceAsync`（`Services/Inspection/InspectionWorkflow.cs:85`）；统计改由 `StatusBarViewModel` 自己记账，消息由页面 VM 发一次；编排只剩触发入口、防重入、广播三件事（`InspectionPageViewModel.cs:157`） | 工作流不再依赖界面；VM 只做编排 | P3 | FIXED |
+| W-07 | WPF-T1.1 / T1.2 | **已修（S4b）**：`RunOnceAsync` 整段 `Task.Run`（`InspectionWorkflow.cs:80`）；触发入口用构造注入的 `SynchronizationContext` post 一次到 UI（`InspectionPageViewModel.cs:135`），`await` 后续体回 UI 线程再广播。**VM 内无 `Dispatcher` / `Application.Current`** | 检测/ONNX 推理/存库不再占用 UI 线程；消息广播仍保证在 UI 线程 | P3 | FIXED |
+| W-08 | WPF-T1.3 | **已修（S4a）**：`MatBitmap.ToBitmapSource` 创建后立即 `Freeze()`（`Services/Imaging/MatBitmap.cs:62`），空图返回 null；`MatBitmapTests` 5 条钉住冻结、像素、四通道、空图、入参所有权 | 位图可跨线程绑定 | P3 | FIXED |
+| W-09 | WPF-T1.5 | **已修（S4e）**：日志入 `ConcurrentQueue`，由 UI 线程一次 `BeginInvoke` 合批灌入，每批只重建一次可见列表（`LogPanelViewModel.cs:74-135`）；`ICollectionView` 已移除（它有 Dispatcher 亲和性，跨线程改源集合抛 `NotSupportedException`，是实测撞到的）；关窗前 `FlushPending()`（`AppHost.cs:277`） | 后台发日志不再等 UI；面板不再逐条刷新 | P3 | FIXED |
 | W-10 | WPF-E1.2 / V1.3 | `ControlPanel` 已迁到 `IDialogService`（`ControlPanelViewModel.cs:119`）；`RoiEditorViewModel` 保存已改为 `IRecipeStore + IDialogService`（`RoiEditorViewModel.cs:291-321`） | ViewModels 下已无 `MessageBox`；保存成功/失败可测 | P1 | FIXED |
-| W-11 | WPF-A1.2 / B1.4 | 结果面板写死 4 个工具名与判定方式（`ResultPanelViewModel.cs:49-79`），并输出十六进制颜色（`ResultPanelViewModel.cs:36,83,103`） | 配方工具一改 UI 就错；主题无法统一切换 | P3 | OPEN |
+| W-11 | WPF-A1.2 / B1.4 | **已修（S4d）**：遍历 `report.Results` 出行，值用 `ToolResult.Summary`，未知工具显示原名（`ResultPanelViewModel.cs:72-86`）；VM 只输出 `IsOk`，颜色交给 XAML `DataTrigger`（`ResultPanelView.xaml:52-95`）；VM 内零十六进制 | 工具增减不会再让面板错行；主题可统一切换 | P3 | FIXED |
 | W-12 | WPF-V1.4 / B1.1 | 旧实现同时有 XAML 绑定 `Source="{Binding CurrentImage}"`（`ImagePanelView.xaml:86`）与 code-behind 手动赋值（`ImagePanelView.xaml.cs:25-29`）；现已删除手动写入 | 同一属性双写已消除；切 Tab 哈希验证通过 | P1 | FIXED |
-| W-13 | WPF-E1.1 | 日志双轨：Serilog 写控制台/文件（`App.xaml.cs:74-81`），UI 面板另靠 `LogMessage`（`Messages.cs:39-47`、`LogPanelViewModel.cs:37-48`） | 系统日志进不了 UI；两套记录对不上 | P3 | OPEN |
+| W-13 | WPF-E1.1 | 日志双轨**仍未合并**：Serilog 写控制台/文件，UI 面板另靠 `LogMessage`（`Messages.cs:39-47`、`LogPanelViewModel.cs:37-48`）。S4e 只解决了「怎么刷」（合批、非阻塞），没解决「记两遍」（`UiLogSink` 属独立一片） | 系统日志仍进不了 UI 面板；两套记录对不上 | P3 | OPEN（S4 明确不做） |
 | W-14 | WPF-C1.1 / C1.3 | 配置读取散落：`AppPaths.cs:41-46`、`CameraFactory.cs:29,43,44`、`ServiceCollectionExtensions.cs:62,67,93,132-137`；`Camera:Mode` 读两次（`CameraFactory.cs:29`、`ServiceCollectionExtensions.cs:62`）；`reloadOnChange` 无消费者（`App.xaml.cs:67`）；`appsettings.json:9` 的 `Trigger:Mode` 无人读取 | 默认值多处漂移；改配置可能不生效 | P4 | OPEN |
 | W-15 | WPF-C1.2 | 可写数据基于 `Environment.CurrentDirectory` 解析（`AppPaths.cs:63-80`），数据库/日志/图片落在启动目录 | 快捷方式、计划任务、服务方式启动时路径不可控 | P4 | OPEN（需决策） |
 | W-16 | WPF-R1.1 / R1.2 / R1.3 | 资源全堆在 `App.xaml:6-114`；视图内仍有硬编码颜色（如 `SidebarView.xaml:4`、`CameraPageView.xaml:4-5`）；转换器重复注册（`App.xaml:20` 与 `StatusBarView.xaml:7`） | 主题不一致；改色要全仓搜；资源键冲突 | P5 | OPEN |
@@ -86,7 +86,7 @@
 | **P0** | 规则、现状、ADR、AGENTS 索引 | `docs/`、`AGENTS.md` | **DONE**（2026-10-20） |
 | **P1** | 护栏：`VisionStation.App.Tests`；`IUiDispatcher` / `IDialogService` / `INavigationService`；去 VM 内 `MessageBox`；修 W-12/W-20/W-22/W-23 | App、新测试工程 | IN_PROGRESS（S1-1~S1-6 DONE；W-20 已 FIXED；`IUiDispatcher`/`INavigationService` 未做；S1-5 缩放/平移 NOT_RUN） |
 | **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | **DONE**（S2、S3 全部完成；W-01/W-02/W-03/W-04/W-05/W-20/W-21/W-24 FIXED；W-01 的 VM 订阅部分见 W-01-retry，属 S4） |
-| **P3** | 线程与工作流：检测/存图移出 UI 线程；`Freeze`；日志 sink；结果面板数据驱动；修 W-06/W-07/W-08/W-09/W-11/W-13 | App、Service | NOT_RUN |
+| **P3** | 线程与工作流：检测/存图移出 UI 线程；`Freeze`；日志 sink；结果面板数据驱动；修 W-06/W-07/W-08/W-09/W-11/W-13 | App、Service | **DONE**（S4；W-06~W-09/W-11 FIXED；W-13 拆分另做） |
 | **P4** | 配置与路径：强类型 Options；安装资源/用户数据分离；`reloadOnChange` 决策；修 W-14/W-15 | App、Service | NOT_RUN（需决策） |
 | **P5** | 资源、命名、注释：拆 ResourceDictionary；`Open/Close`；事故编号移出业务代码；修 W-16/W-18/W-19 | App、Devices、docs | NOT_RUN |
 
@@ -511,4 +511,53 @@ L3（临时副本 + File 相机，带一次性的可视化树导出，验完已�
 - **设计器预览**：没有 Visual Studio 交互环境，只保证 `d:DataContext` 存在且 `ci.cmd` 不报 MC 告警。
 - **切页后 `ImagePanelView` 的缩放倍数被重置**：视图由模板重建，属预期行为（VM 状态不丢），未做专门回归。
 
-- 下一步：S4（线程、工作流、日志），见指南 §4。W-01-retry、W-06~W-09 都在那一片。
+### S4（2026-10-20）：线程、工作流与日志（DONE，W-06~W-09/W-11 FIXED）
+
+**结构**：`MainViewModel` 删除（-342 行），拆成三块
+
+- `Services/Inspection/InspectionWorkflow`（211 行）：采图 → Pipeline → 标注 → 存图 → 存库，
+  `RunOnceAsync` 整段 `Task.Run`；`finally` 释放 `frame.Image`；ROI 取快照（编辑器换引用不打断在途帧）。
+- `InspectionPageViewModel`：触发入口（`SynchronizationContext.Post` 一次）→ 防重入（`Interlocked`）→
+  在途租约 → 广播。**VM 内零 `Dispatcher` / 零 `Application.Current`**。
+- 面板改为订阅 `InspectionResultMessage`（载荷换成 `InspectionRunResult`，带两张已冻结位图）。
+  面板自己记账：`StatusBarViewModel` 维护 OK/NG 与 EMA 节拍，`ImagePanel` 自己切页签。
+
+产品代码净 **-11 行**（新增 331，删 342），新增类型 3 个：`MatBitmap`（静态 helper）、
+`InspectionRunResult`（返回值 record）、`IInspectionWorkflow`（1 方法 / 1 实现 + 1 测试替身）。
+
+**过程中撞到的三个真问题**
+
+1. **`WeakReferenceMessenger` 同步投递**：消息在哪个线程 `Send`，订阅者就在哪个线程收。
+   检测挪后台后，`Send` 这一行会把 `ObservableCollection` 操作搬到后台线程；解法是让页面 VM 只在 UI 线程广播一次。
+2. **`ICollectionView` 有 Dispatcher 亲和性**：日志面板用它在无 UI 线程的测试里抛
+   `NotSupportedException`。改成自维护的 `VisibleEntries` 列表 —— 线程问题上少一个变量。
+3. **`CameraFrame.Image` 从来没人释放**（`MainViewModel` 旧实现）：12MP 彩色帧一帧 36MB，
+   靠 `Mat` 终结器兜底。现在由工作流 `finally` 释放，`InspectionWorkflowTests` 断言 `IsDisposed`。
+
+**验证**
+
+- L1：App.Tests 41 → **60**（新增 19：`MatBitmap` 5、`InspectionWorkflow` 4、编排 4、
+  结果面板 4、状态栏 3；另删旧 `MainViewModelShutdownTests` 1 条，契约由编排测试承接）；
+  UnitTests 199 不变；合计 **259**；告警 115 → 114（基线自动下调）；`ci.cmd` 0。
+- App.Tests 增加 `[assembly: CollectionBehavior(DisableTestParallelization = true)]`：
+  `WeakReferenceMessenger` 是进程级静态，并行跑时「我这个实例收到几条」不可判定。
+- L3（临时副本 + File 相机 + 一次性 UI 线程探针，验完已删除、`App.xaml.cs` 无 diff）：
+
+| 场景 | 结果 |
+|---|---|
+| 空闲 90s（对照） | 1440 样本，>100ms **0 次**，max **80ms** → 探针本身可信 |
+| 自动模式 90s | 1350 样本，p99 **68ms**，>100ms **9 次**，max 3.2s；41 帧完成 |
+| 单帧耗时 | 9~1470ms（配方含 Yolo ONNX，CPU 推理约 1s/帧） |
+| 跨线程异常 | `InvalidOperationException` / 「另一个线程」 **0 命中** |
+| 关窗 | 五步日志齐全，退出码 0 |
+
+**如实记录的已知风险（不写成 PASS）**
+
+- 那 9 次 >100ms（含 2 次 1.2~3.2s）与 ONNX 推理 / EF 首次建库的 CPU 饱和时段重合，**同一时段后台日志也整体停顿**，
+  判定为整机调度饥饿而非 UI 线程执行检测；但「UI 在推理期间完全不受影响」这句话不成立，写在这里备查。
+  真要压掉，得限制 ORT 线程数或降优先级 —— 属独立优化，不在本片。
+- **鼠标/键盘/设计器仍不可验证**：本机 `Add-Type` 与 `Assembly.Load*` 被策略拦截，
+  自动模式是临时用环境变量从内部触发的（代码已删）。真实点击「自动模式」按钮这一步记 `NOT_RUN`。
+- **Hik 真机在后台线程释放**：无真机，只验 File 相机。
+
+- 下一步：S5（配置与路径），见指南 §5。W-01-retry（VM 构造内订阅）留在 S5 一并处理。

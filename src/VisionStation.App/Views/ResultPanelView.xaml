@@ -4,12 +4,8 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
-             xmlns:conv="clr-namespace:VisionStation.App.Converters"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:ResultPanelViewModel, IsDesignTimeCreatable=False}">
-    <UserControl.Resources>
-        <conv:StringToColorConverter x:Key="StringToColor" />
-    </UserControl.Resources>
     <Border Background="White" BorderBrush="#E1E1E1" BorderThickness="1"
             CornerRadius="4" Padding="10,10">
         <StackPanel>
@@ -68,9 +64,20 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
+                                    <!-- 颜色由状态决定，不在 VM 里写十六进制：换主题只改这里 -->
                                     <TextBlock Text="{Binding StatusText}" FontSize="10"
-                                               FontWeight="SemiBold"
-                                               Foreground="{Binding StatusColor, Converter={StaticResource StringToColor}}" />
+                                               FontWeight="SemiBold">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="#107C10" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOk}" Value="False">
+                                                        <Setter Property="Foreground" Value="#E81123" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                 </Border>
 
                                 <TextBlock Grid.Column="2" Text="{Binding Value}" FontSize="11"
@@ -83,8 +90,20 @@
             </Border>
 
             <!-- 总判定条 -->
-            <Border CornerRadius="4" Padding="10,8" Margin="0,8,0,0"
-                    Background="{Binding VerdictColor, Converter={StaticResource StringToColor}}">
+            <Border CornerRadius="4" Padding="10,8" Margin="0,8,0,0">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="#888888" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsOk}" Value="True">
+                                <Setter Property="Background" Value="#107C10" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsOk}" Value="False">
+                                <Setter Property="Background" Value="#E81123" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <TextBlock Text="{Binding VerdictText}" FontSize="15" FontWeight="Bold"
                            Foreground="White" HorizontalAlignment="Center" />
             </Border>

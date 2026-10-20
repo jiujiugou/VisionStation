@@ -157,9 +157,10 @@ public sealed class AppHost : IAsyncDisposable
 
         services.GetRequiredService<IHousekeepingService>();
 
-        // MainViewModel 靠构造函数订阅触发信号 —— 没人解析它，就没人采图。
-        // S3b 之后它不再被窗口注入，必须在这里显式取一次。
-        services.GetRequiredService<MainViewModel>();
+        // 检测页 VM 靠构造函数订阅触发信号 —— 没人解析它，就没人采图。
+        // 它由导航服务在壳体构造时才被创建，而壳体是在 Show() 里才解析的；
+        // 这里提前取一次，让"订阅触发"发生在自检之后、开窗之前，顺序可预期。
+        services.GetRequiredService<InspectionPageViewModel>();
 
         await services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync();
     }
@@ -242,7 +243,7 @@ public sealed class AppHost : IAsyncDisposable
         // 1 停掉定时触发。已进入 Elapsed 的回调仍可能触发，靠第 2 步拦住。
         Guarded("1 stop-trigger", () => services.GetService<ITriggerSource>()?.Stop(), budget);
 
-        // 2 应用级取消：MainViewModel 据此拒绝排队中的触发。
+        // 2 应用级取消：页面 VM 据此拒绝排队中的触发，在途帧拿到的令牌开始取消。
         Guarded("2 cancel", () => services.GetService<ShutdownState>()?.BeginStop(), budget);
 
         // 3 等在途帧。必须有上界；等不到就如实记 timeout，不能假装收尾干净。
@@ -264,6 +265,18 @@ public sealed class AppHost : IAsyncDisposable
 
             Log.Information("[关闭] 3 在途收尾: {Result}（{Elapsed}ms）",
                 idle ? "ok" : "timeout", budget.ElapsedMilliseconds);
+        }
+
+        // 3.5 把界面日志队列灌进面板。日志面板是合批刷新的（BeginInvoke），
+        // 不在这里刷一次，关闭期间那几条提示会随窗口一起消失 —— 文件日志里有，界面上看不到。
+        // 必须早于第 4 步：容器释放之后再去碰 VM 就是在跟"已释放对象"赛跑。
+        try
+        {
+            services.GetService<LogPanelViewModel>()?.FlushPending();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[关闭] 3.5 界面日志刷新失败");
         }
 
         // 4 释放设备与容器。必须在后台线程：HousekeepingService.Dispose 内部会同步等最多 5 秒，

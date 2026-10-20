@@ -36,7 +36,7 @@ S0 基线冻结                       DONE
  └─ S1 测试护栏 + 最小抽象        DONE（W-10/12/17/22/23）
      └─ S2 组合根/启动/关闭       DONE（W-01/02/20/21 全部 FIXED）
          └─ S3 Shell/导航边界      DONE（W-03/04/05/24 全部 FIXED）
-             └─ S4 线程/工作流     OPEN（技术上最难）
+             └─ S4 线程/工作流     DONE（W-06~09/11 FIXED；W-13 另做）
                  └─ S5 配置/路径    OPEN（含需拍板决策）
                      └─ S6 资源/命名  OPEN
 ```
@@ -47,7 +47,7 @@ S0 基线冻结                       DONE
 | S1 | App 测试工程、`IDialogService`、`IRecipeStore`、去 VM 弹窗与文件 IO、删图像双写 | DONE | W-10/W-12/W-17/W-22/W-23 |
 | S2 | 组合根三段、异步建库、有序关闭、应用级取消、设备连接时机 | **DONE** | W-01（设备部分）/W-02/W-20/W-21 |
 | S3 | View 退出 DI、`DataTemplate` 导航、Shell + 导航服务 | **DONE** | W-03/W-04/W-05/W-24 |
-| S4 | 检测/存图移出 UI 线程、位图 `Freeze`、日志 sink、结果面板数据驱动 | OPEN | W-06/W-07/W-08/W-09/W-11/W-13 |
+| S4 | 检测/存图移出 UI 线程、位图 `Freeze`、日志批量、结果面板数据驱动 | **DONE** | W-06/W-07/W-08/W-09/W-11（W-13 双轨未合并） |
 | S5 | 强类型 Options、可写路径分离、热重载决策 | OPEN | W-14/W-15 |
 | S6 | 资源字典、去硬编码色、命名、注释 | OPEN | W-16/W-18/W-19 |
 
@@ -77,8 +77,18 @@ S0 基线冻结                       DONE
 **生命周期只有两个类，都无接口**：`ShutdownState`（bool + CTS）、`InFlightWorkMonitor`（租约/归零唤醒/带超时）。
 **不要再引入 `IAppLifetime` / `IShutdownStages` / `IWatchdogSignal`。**
 
+**检测链路（S4 之后，不要再改回 VM 里）**：
+
+- `Services/Inspection/InspectionWorkflow.RunOnceAsync`：采图→Pipeline→标注→存图→存库，整段 `Task.Run`；
+  `finally` 释放 `frame.Image`（Mat 归工作流所有）；ROI 每帧取一次快照。
+- `InspectionPageViewModel`：`SynchronizationContext.Post` 一次到 UI → 防重入（`Interlocked`）→ 在途租约 → 广播。
+  **VM 内不许出现 `Dispatcher` / `Application.Current`**；同步上下文由组合根在 UI 线程捕获后注入。
+- 面板都是订阅者：`InspectionResultMessage` 载荷是 `InspectionRunResult`（报告 + 两张已冻结位图 + 耗时），
+  在 UI 线程发出。`StatusBar` 自己记 OK/NG 与 EMA 节拍，`ImagePanel` 自己切页签。
+- `MatBitmap.ToBitmapSource` 是静态 helper，内部 `Freeze`。**只有一个实现，不要抽接口。**
+
 **测试**：`tests/VisionStation.App.Tests`（`net8.0-windows` + `UseWPF=true`，不建 `Application`、不建窗口，
-VM 在普通线程构造）；`tests/VisionStation.UnitTests` 保持 `net8.0`。当前 199 + 24 = **223** 项，告警基线 115。
+VM 在普通线程构造）；`tests/VisionStation.UnitTests` 保持 `net8.0`。当前 199 + 60 = **259** 项，告警基线 114。
 
 **S1 遗留的三个坑**：
 
@@ -224,9 +234,21 @@ MainWindow (View，无业务依赖)
 
 ---
 
-## 4. S4：线程、工作流与日志（技术上最难）
+## 4. S4：线程、工作流与日志（DONE，勿重做）
 
-> 工业软件最硬的一条：UI 线程只做 UI。当前整条检测链路在 UI 线程（`MainViewModel.cs:141-235`）。
+**已完成（2026-10-20）**，W-06/W-07/W-08/W-09/W-11 全部 FIXED，`MainViewModel` 已删除。
+实际形态见 §1.1 的「检测链路」，证据与已知风险见落地记录的 S4 段。下面保留的是施工方案，留作以后加工具/改链路时对照。
+
+与方案的三处偏差（都已落地）：
+
+1. 面板不再由编排方直接写属性，统一订阅「UI 线程发出的」`InspectionResultMessage` —— 因为
+   `WeakReferenceMessenger` 是同步投递，`Send` 在哪个线程，订阅者就在哪个线程收。
+2. `LogPanelViewModel` 去掉了 `ICollectionView`（它有 Dispatcher 亲和性，跨线程改源集合抛 `NotSupportedException`），
+   改成自维护的 `VisibleEntries` + 每批重建一次。
+3. 日志合批用 Dispatcher 队列（Background 优先级）而不是固定 150ms 定时器：少一个常驻计时器，
+   UI 忙时自动合并更多条。W-13（日志双轨）没做，属独立一片。
+
+> 工业软件最硬的一条：UI 线程只做 UI。改造前整条检测链路在 UI 线程（原 `MainViewModel.cs:141-235`）。
 
 ### 4.1 抽出 `IInspectionWorkflow`
 
@@ -359,6 +381,8 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 6. UI 无法实际启动走查，却想判"完成"；
 7. 一个切片超过约 10 个文件或 400 行 diff，却不想拆；
 8. **一个切片需要新增超过 2 个类型来"让某一步可被断言"** —— 这是第 0.1 节第一条铁律的起点。
+9. **`IInspectionWorkflow` 长出第二层**（`IInspectionWorkflowFactory`、`IInspectionStage`、工具注册表、管线中间件）。
+   它现在只有 1 个方法、1 个实现 + 1 个测试替身，是一道线程边界；一旦开始"注册步骤"，就是自造框架，停下来问。
 
 ---
 
@@ -383,9 +407,9 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 
 ## 9. 当前执行点
 
-**S1 DONE → S2 DONE → S3 DONE → 下一步 S4（线程、工作流与日志）。**
+**S1 → S2 → S3 → S4 全部 DONE，下一步 S5（配置与路径）。**
 
-当前基线：UnitTests 199 + App.Tests 41 = **240**，告警 115，`ci.cmd` 0。
+当前基线：UnitTests 199 + App.Tests 60 = **259**，告警 114，`ci.cmd` 0。
 
-S4 之前不要碰配置路径（S5）和资源/命名（S6）。S4 会同时动 `MainViewModel`、`InspectionPageViewModel`
-和日志管线，按 §4.1~§4.3 顺序做：先抽 workflow（可单测），再把位图转换挪后台，最后换 `UiLogSink`。
+S5 之前不要动资源/命名（S6）。S5 里有三个决策必须由人拍板（可写路径、热重载、旧数据迁移），
+在 `docs/WPF规范落地记录.md` 的 W-14/W-15 里。

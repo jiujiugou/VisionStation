@@ -1,5 +1,5 @@
 using CommunityToolkit.Mvvm.Messaging.Messages;
-using VisionStation.Core.Models;
+using VisionStation.App.Services.Inspection;
 
 namespace VisionStation.App;
 
@@ -18,13 +18,20 @@ namespace VisionStation.App;
 // ═══════════════════════════════════════════════════════════════
 
 /// <summary>
-/// 检测完成消息
-/// 发送者：MainViewModel（Pipeline 跑完一帧后发出）
+/// 检测完成消息 —— 一帧的全部产出：报告、两张已冻结的位图、耗时。
+///
+/// 发送者：InspectionPageViewModel（工作流返回后、在 UI 线程上发一次）
 /// 订阅者：ImagePanelVM、ResultPanelVM、LogPanelVM、StatusBarVM
+///
+/// 为什么把图也塞进消息，而不是继续让编排方直接写面板属性：
+/// 检测跑在后台线程，而 WeakReferenceMessenger 是**同步投递**的 ——
+/// 在哪个线程 Send，订阅者就在哪个线程收。只要 Send 这一次发生在 UI 线程上，
+/// 所有面板的集合操作就是安全的，不需要每个面板自己再切一次线程。
+/// 消息里带的位图已经 Freeze，跨线程传递不会触发"该对象归另一个线程所有"。
 /// </summary>
-public sealed class InspectionResultMessage : ValueChangedMessage<InspectionReport>
+public sealed class InspectionResultMessage : ValueChangedMessage<InspectionRunResult>
 {
-    public InspectionResultMessage(InspectionReport report) : base(report) { }
+    public InspectionResultMessage(InspectionRunResult result) : base(result) { }
 }
 
 /// <summary>
@@ -50,7 +57,7 @@ public sealed class LogMessage : ValueChangedMessage<(string Text, LogMsgLevel L
 
 /// <summary>
 /// 相机状态变化消息
-/// 发送者：ControlPanelVM（重连时）、MainViewModel（每帧检测后）
+/// 发送者：ControlPanelVM（重连时）、InspectionPageViewModel（每帧检测后）
 /// 订阅者：StatusBarVM
 /// </summary>
 public sealed class CameraStatusMessage : ValueChangedMessage<bool>
@@ -60,7 +67,7 @@ public sealed class CameraStatusMessage : ValueChangedMessage<bool>
 
 /// <summary>
 /// ROI 已更新消息
-/// 发送者：RoiEditorVM（保存后）→ 订阅者：MainViewModel（重新加载 ROIs）
+/// 发送者：RoiEditorVM（保存后）→ 订阅者：InspectionWorkflow（重新加载 ROIs）
 /// </summary>
 public sealed class RoisUpdatedMessage : ValueChangedMessage<bool>
 {

@@ -1,23 +1,44 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.Extensions.Logging;
+using VisionStation.App.Composition.Lifecycle;
+using VisionStation.App.Services.Inspection;
+using VisionStation.Devices;
 
 namespace VisionStation.App.ViewModels;
 
 /// <summary>
-/// 检测页 ViewModel —— 只回答两件事：这一页由哪些面板组成、编辑态是否打开。
+/// 检测页 ViewModel —— 这一页由哪些面板组成、编辑态是否打开、以及**触发来了怎么办**。
 ///
-/// 为什么需要它：改造前这五块面板是 <c>MainWindow</c> 的构造函数参数，
-/// 由窗口用 <c>ContentControl.Content = view</c> 一个个塞进版面。
-/// 结果是"页面"这个概念根本不存在——窗口既当外壳又当页面，
-/// 换页面只能靠改 <c>Visibility</c>，F2 的编辑态也只能由窗口的 code-behind 管。
+/// 检测本身不在这里：采图/检测/存图/存库在 <see cref="IInspectionWorkflow"/> 里跑，
+/// 本类只做三件事：
+///   1. 把触发信号排到 UI 线程上（<see cref="SynchronizationContext"/>）；
+///   2. 防重入 —— 上一帧没跑完，这一帧直接丢；
+///   3. 结果回来后广播 <see cref="InspectionResultMessage"/>，面板各自更新。
 ///
-/// 现在的归属：
-///   - 页面归这个 VM（子面板是组合关系，父页面持有子 VM，不算跨页通信）；
-///   - 编辑态归这个 VM（<see cref="IsRoiEditorOpen"/>），视图只做绑定；
-///   - 检测链路仍归 <see cref="MainViewModel"/>（S4 再抽 workflow）。
+/// 线程约定（S4 的核心）：
+///   - 工作流在后台线程跑，返回的位图已 Freeze；
+///   - 广播发生在 **UI 线程**，所以订阅者里可以安全操作 ObservableCollection；
+///   - 本类不出现 <c>Application.Current</c> / <c>Dispatcher</c>：同步上下文由组合根注入，
+///     测试里传 null 就是"就地执行"，不需要 Application 实例。
 /// </summary>
-public partial class InspectionPageViewModel : ObservableObject
+public partial class InspectionPageViewModel : ObservableObject, IDisposable
 {
+    /// <summary>存图连续失败到这个次数就升级为显式告警（不再是"偶发失败"）。</summary>
+    private const int ImageSaveAlertThreshold = 10;
+
+    private readonly IInspectionWorkflow _workflow;
+    private readonly ITriggerSource _trigger;
+    private readonly ICamera _camera;
+    private readonly ShutdownState _shutdown;
+    private readonly InFlightWorkMonitor _inFlight;
+    private readonly SynchronizationContext? _ui;
+    private readonly ILogger<InspectionPageViewModel> _logger;
+
+    /// <summary>0 = 空闲，1 = 有一帧在跑。用 Interlocked 而不是 bool：触发来自线程池。</summary>
+    private int _running;
+
     public ImagePanelViewModel ImagePanel { get; }
     public ResultPanelViewModel ResultPanel { get; }
     public LogPanelViewModel LogPanel { get; }
@@ -35,19 +56,137 @@ public partial class InspectionPageViewModel : ObservableObject
     /// </summary>
     public bool IsImagePanelVisible => !IsRoiEditorOpen;
 
+    /// <param name="uiContext">
+    /// UI 线程的同步上下文，由组合根在 UI 线程上捕获后注入。
+    /// 为 null 表示"没有 UI 线程"（单元测试），此时触发就地执行。
+    /// </param>
     public InspectionPageViewModel(
         ImagePanelViewModel imagePanel,
         ResultPanelViewModel resultPanel,
         LogPanelViewModel logPanel,
         ControlPanelViewModel controlPanel,
-        RoiEditorViewModel roiEditor)
+        RoiEditorViewModel roiEditor,
+        IInspectionWorkflow workflow,
+        ITriggerSource trigger,
+        ICamera camera,
+        ShutdownState shutdown,
+        InFlightWorkMonitor inFlight,
+        ILogger<InspectionPageViewModel> logger,
+        SynchronizationContext? uiContext = null)
     {
         ImagePanel = imagePanel;
         ResultPanel = resultPanel;
         LogPanel = logPanel;
         ControlPanel = controlPanel;
         RoiEditor = roiEditor;
+
+        _workflow = workflow;
+        _trigger = trigger;
+        _camera = camera;
+        _shutdown = shutdown;
+        _inFlight = inFlight;
+        _logger = logger;
+        _ui = uiContext;
+
+        // 触发信号 → 本页。订阅放这里（而不是某个"主 VM"）是因为：
+        // 谁拥有这一帧的界面，谁就该拥有这一帧的编排。
+        _trigger.Triggered += OnTriggered;
+
+        // 状态栏相机指示灯必须在启动时就反映真实状态，
+        // 否则相机明明连上了，也要等第一帧检测跑完才亮。
+        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
+        WeakReferenceMessenger.Default.Send(new LogMessage("VisionStation 已就绪", LogMsgLevel.Success));
+
+        WeakReferenceMessenger.Default.Register<InspectionPageViewModel, RoisUpdatedMessage>(this,
+            static (_, _) => WeakReferenceMessenger.Default.Send(
+                new LogMessage("ROI 已更新，下一帧生效", LogMsgLevel.Info)));
     }
+
+    // ═══════════════════════════════════════════════════════════
+    //  触发 → 后台跑一帧 → 回到 UI 线程广播
+    // ═══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 触发回调。可能在任意线程上被调用（定时器在线程池，按钮在 UI 线程）。
+    ///
+    /// 关闭判断必须在这里、且在任何线程切换之前 —— 关闭流程可能停在任意线程上，
+    /// 那时 Application 未必还可用。
+    /// </summary>
+    private void OnTriggered()
+    {
+        if (_shutdown.IsStopping)
+        {
+            _logger.LogDebug("关闭已开始，忽略本次触发");
+            return;
+        }
+
+        if (_ui is null || ReferenceEquals(SynchronizationContext.Current, _ui))
+        {
+            _ = RunFrameAsync();
+            return;
+        }
+
+        // 只切这一次线程：后续 await 会自动回到这个上下文，
+        // 所以消息广播、面板更新天然在 UI 线程上，面板不需要各自再切一次。
+        _ui.Post(static state => _ = ((InspectionPageViewModel)state!).RunFrameAsync(), this);
+    }
+
+    private async Task RunFrameAsync()
+    {
+        // 防重入：上一帧没跑完，这一帧丢弃（不排队 —— 排队的帧只会让界面追不上现场）
+        if (Interlocked.Exchange(ref _running, 1) == 1) return;
+
+        // 在途登记：关闭流程靠这个计数回答"还有没有一帧在跑"。
+        // 租约覆盖工作流执行 + 结果广播，最后一条消息发完才算收尾。
+        using var lease = _inFlight.Begin();
+
+        try
+        {
+            var result = await _workflow.RunOnceAsync(_shutdown.Token).ConfigureAwait(true);
+            if (result is null) return;
+
+            // 到这里已经回到 UI 线程（await 捕获了构造时注入的上下文）
+            Publish(result);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("本帧已取消（应用正在关闭）");
+        }
+        catch (Exception ex)
+        {
+            // 事件处理器是 async void 语义的起点，异常绝不能逃出去 —— 那会直接终止进程
+            _logger.LogError(ex, "检测异常");
+            WeakReferenceMessenger.Default.Send(new LogMessage($"异常: {ex.Message}", LogMsgLevel.Error));
+        }
+        finally
+        {
+            Volatile.Write(ref _running, 0);
+        }
+    }
+
+    /// <summary>把一帧的结果广播给面板。必须在 UI 线程调用。</summary>
+    private static void Publish(InspectionRunResult result)
+    {
+        WeakReferenceMessenger.Default.Send(new InspectionResultMessage(result));
+        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(result.CameraOnline));
+
+        if (result.ImageError is { } error)
+        {
+            WeakReferenceMessenger.Default.Send(new LogMessage(
+                $"存图失败（连续 {result.ConsecutiveImageFailures} 次）: {error}", LogMsgLevel.Warning));
+
+            if (result.ConsecutiveImageFailures == ImageSaveAlertThreshold)
+            {
+                WeakReferenceMessenger.Default.Send(new LogMessage(
+                    $"存图已连续失败 {ImageSaveAlertThreshold} 次，图片追溯中断，请检查磁盘空间与写权限",
+                    LogMsgLevel.Error));
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ROI 编辑态
+    // ═══════════════════════════════════════════════════════════
 
     /// <summary>F2：进入/退出 ROI 编辑。</summary>
     [RelayCommand]
@@ -67,4 +206,10 @@ public partial class InspectionPageViewModel : ObservableObject
     /// 离开本页时调用。编辑态不退出的话，覆盖层会跟着用户漂到别的页面上去。
     /// </summary>
     public void ExitEditMode() => IsRoiEditorOpen = false;
+
+    public void Dispose()
+    {
+        _trigger.Triggered -= OnTriggered;
+        WeakReferenceMessenger.Default.UnregisterAll(this);
+    }
 }

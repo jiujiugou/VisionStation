@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using VisionStation.App.Services.Inspection;
 
 namespace VisionStation.App.ViewModels;
 
@@ -10,9 +11,12 @@ namespace VisionStation.App.ViewModels;
 ///   1. 订阅 CameraStatusMessage → 更新相机在线状态
 ///   2. 显示 PLC / 相机 / FPS / Cycle / OK / NG / CPU / 内存
 ///
-/// 数据来源：
-///   - CameraStatusMessage → CameraOnline
-///   - OK/NG/FPS/Cycle 由 MainViewModel 直接赋值（性能考虑）
+/// 数据来源：两条消息。
+///   - <see cref="CameraStatusMessage"/> → <see cref="CameraOnline"/>
+///   - <see cref="InspectionResultMessage"/> → 累计 OK/NG、单帧耗时、FPS
+///
+/// 累计值归本类自己维护（而不是由编排方算好塞进来）：它们是"显示统计"，
+/// 谁显示谁记账，编排方不需要知道状态栏有哪几个数字。
 /// </summary>
 public partial class StatusBarViewModel : ObservableObject
 {
@@ -67,10 +71,32 @@ public partial class StatusBarViewModel : ObservableObject
     [ObservableProperty]
     private string _imageSource = "FileCamera";
 
+    /// <summary>单帧耗时的指数滑动平均，用来平滑 FPS（瞬时值抖动太大，看不出产线节拍）。</summary>
+    private double _emaCycleMs;
+
     public StatusBarViewModel()
     {
         // 相机状态变化 → 更新在线指示
         WeakReferenceMessenger.Default.Register<StatusBarViewModel, CameraStatusMessage>(this,
-            (vm, msg) => vm.CameraOnline = msg.Value);
+            static (vm, msg) => vm.CameraOnline = msg.Value);
+
+        // 一帧完成 → 记账 + 刷新节拍。消息在 UI 线程上到达，不需要再切线程。
+        WeakReferenceMessenger.Default.Register<StatusBarViewModel, InspectionResultMessage>(this,
+            static (vm, msg) =>
+            {
+                var result = msg.Value;
+
+                if (result.Report.IsOk) vm.OkCount++;
+                else vm.NgCount++;
+
+                vm.CycleTime = $"{result.CycleMs} ms";
+                vm._emaCycleMs = vm._emaCycleMs == 0
+                    ? result.CycleMs
+                    : vm._emaCycleMs * 0.7 + result.CycleMs * 0.3;
+
+                // CycleMs 为 0（极快的一帧或本地缓存命中）时不做除法，直接显示 "--"，
+                // 否则会显示成 Infinity，看着像故障。
+                vm.Fps = vm._emaCycleMs > 0 ? $"{1000.0 / vm._emaCycleMs:0.0}" : "--";
+            });
     }
 }

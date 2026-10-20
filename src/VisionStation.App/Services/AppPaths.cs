@@ -1,23 +1,27 @@
 using System.IO;
-using Microsoft.Extensions.Configuration;
+using VisionStation.App.Composition;
 
 namespace VisionStation.App.Services;
 
 /// <summary>
-/// 路径统一解析 —— 所有配置里的文件/目录路径都从这里解析，消除绝对路径
+/// 路径统一解析（W-15 拍板后的便携模式）。所有配置里的文件/目录路径都从这里解析：
 ///
 /// 规则：
-///   1. 绝对路径 → 原样使用（兼容旧配置）
-///   2. 相对路径 → 优先基于当前工作目录（cwd）解析：dotnet run 和发布后直接运行 exe 时，
-///      cwd 就是项目/发布根目录，数据（Logs / InspectedImages / db）落在那里最直观
-///   3. 读资源（模板 / 图库）在 cwd 找不到时，回退到 AppContext.BaseDirectory（bin）再找一次
-///   4. 配方路径保持 BaseDirectory 优先（发布时配方可随 exe 部署），找不到再回退 cwd
+///   1. 绝对路径 → 原样使用（走查脚本、现场自定义都在用）
+///   2. 相对路径 → 读资源基于 exe 目录（<see cref="AppContext.BaseDirectory"/>，资源随 exe 部署），
+///      找不到时回退 cwd 一次 —— 只为开发期 <c>dotnet run</c> 便利，资源只读、不落任何数据
+///   3. 可写数据（db / 日志 / 检测图片）→ 一律基于 <see cref="AppOptions.DataRoot"/>，
+///      默认就是 exe 目录。**绝不使用 Environment.CurrentDirectory**：
+///      快捷方式"起始位置"、计划任务、服务启动都会把 cwd 指到任意地方
 ///
-/// 为什么不用 AppContext.BaseDirectory 作为唯一基准？
-///   BaseDirectory 是 bin 目录，不适合落数据；cwd 才是"项目根 / 发布根"。
+/// 便携的含义：整个发布目录拷到别的盘/机器，数据跟着目录走；
+/// 想把数据挪走用启动参数 <c>--data-root=路径</c> 显式声明，不靠猜。
 /// </summary>
 public sealed class AppPaths
 {
+    /// <summary>可写数据根（由 AppOptions 解析好的绝对路径）</summary>
+    public string DataRoot { get; }
+
     /// <summary>File 相机读取的图像目录</summary>
     public string ImageFolder { get; }
 
@@ -36,46 +40,49 @@ public sealed class AppPaths
     /// <summary>配方 JSON 文件路径</summary>
     public string RecipePath { get; }
 
-    public AppPaths(IConfiguration config)
+    public AppPaths(AppOptions options)
     {
-        ImageFolder   = ResolveInput(config["Camera:ImageFolder"], "TestImages");
-        TemplatePath  = ResolveInput(config["Detection:TemplatePath"], @"TestImages\hole_template.png");
-        StorageFolder = ResolveOutput(config["Storage:ImageFolder"], "InspectedImages");
-        DbPath        = ResolveOutput(config["Storage:DbPath"], "visionstation.db");
-        LogFolder     = ResolveOutput(config["Logging:LogFolder"], "Logs");
-        RecipePath    = ResolveRecipe(config["Recipe:Path"]);
+        DataRoot      = options.DataRoot;
+        ImageFolder   = ResolveInput(options.Camera.ImageFolder, "TestImages");
+        TemplatePath  = ResolveInput(options.Detection.TemplatePath, @"TestImages\hole_template.png");
+        StorageFolder = ResolveOutput(options.Storage.ImageFolder, "InspectedImages");
+        DbPath        = ResolveOutput(options.Storage.DbPath, "visionstation.db");
+        LogFolder     = ResolveOutput(options.Logging.LogFolder, "Logs");
+        RecipePath    = ResolveRecipe(options.Recipe.Path);
     }
 
-    /// <summary>解析只读资源（模板 / 图库）：cwd 优先，找不到回退 bin</summary>
-    private static string ResolveInput(string? value, string defaultRel)
-    {
-        var rel = string.IsNullOrWhiteSpace(value) ? defaultRel : value;
-        var cwdPath = GetFullPath(rel);
-        if (!File.Exists(cwdPath) && !Directory.Exists(cwdPath))
-        {
-            var basePath = GetFullPath(Path.Combine(AppContext.BaseDirectory, rel));
-            if (File.Exists(basePath) || Directory.Exists(basePath))
-                return basePath;
-        }
-        return cwdPath;
-    }
-
-    /// <summary>解析输出目录 / 文件（日志 / 图片 / db）：始终基于 cwd，目录不存在时由消费方创建</summary>
-    private static string ResolveOutput(string? value, string defaultRel)
+    /// <summary>解析只读资源：exe 目录优先（部署即带），找不到回退 cwd（开发期 dotnet run）</summary>
+    private string ResolveInput(string value, string defaultRel)
     {
         var rel = string.IsNullOrWhiteSpace(value) ? defaultRel : value;
-        return GetFullPath(rel);
+        if (Path.IsPathRooted(rel)) return rel;
+
+        var basePath = GetFullPath(AppContext.BaseDirectory, rel);
+        if (File.Exists(basePath) || Directory.Exists(basePath))
+            return basePath;
+
+        return GetFullPath(Environment.CurrentDirectory, rel);
     }
 
-    /// <summary>解析配方路径：BaseDirectory 优先（发布时配方可随 exe 部署），再回退 cwd</summary>
-    private static string ResolveRecipe(string? value)
+    /// <summary>解析可写数据：只认 DataRoot，目录不存在时由消费方创建</summary>
+    private string ResolveOutput(string value, string defaultRel)
+    {
+        var rel = string.IsNullOrWhiteSpace(value) ? defaultRel : value;
+        return Path.IsPathRooted(rel) ? rel : GetFullPath(DataRoot, rel);
+    }
+
+    /// <summary>解析配方路径：exe 目录优先（发布时配方可随 exe 部署），找不到再回退 cwd</summary>
+    private string ResolveRecipe(string value)
     {
         var rel = string.IsNullOrWhiteSpace(value) ? @"Config\recipes\default.json" : value;
-        var basePath = GetFullPath(Path.Combine(AppContext.BaseDirectory, rel));
+        if (Path.IsPathRooted(rel)) return rel;
+
+        var basePath = GetFullPath(AppContext.BaseDirectory, rel);
         if (File.Exists(basePath)) return basePath;
-        return GetFullPath(rel);
+
+        return GetFullPath(Environment.CurrentDirectory, rel);
     }
 
-    private static string GetFullPath(string rel)
-        => Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, rel));
+    private static string GetFullPath(string baseDir, string rel)
+        => Path.GetFullPath(Path.Combine(baseDir, rel));
 }

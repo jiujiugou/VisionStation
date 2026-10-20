@@ -79,15 +79,23 @@ public sealed class AppHost : IAsyncDisposable
 
     public IReadOnlyList<HealthResult> HealthResults { get; private set; } = Array.Empty<HealthResult>();
 
-    public void Configure()
+    /// <param name="dataRootOverride">
+    /// 可写数据根的显式声明（启动参数 <c>--data-root=...</c>），空 = exe 目录（便携模式，W-15）。
+    /// </param>
+    public void Configure(string? dataRootOverride = null)
     {
         if (_services != null) return;
 
         var config = _configuration ?? new ConfigurationBuilder()
-            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+            // reloadOnChange 关闭（W-14）：没有任何消费者，开着只制造"改了配置怎么没生效"的错觉。
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
             .Build();
 
-        var appPaths = new AppPaths(config);
+        // S5：绑定 + 校验的唯一入口。校验失败这里直接抛 OptionsValidationException，
+        // 由 App.StartAsync 写 crash.log 并以非 0 退出 —— 不静默回落默认值。
+        var options = AppOptionsBinder.Bind(config, dataRootOverride);
+
+        var appPaths = new AppPaths(options);
         _paths = appPaths;
 
         Log.Logger = new LoggerConfiguration()
@@ -110,10 +118,11 @@ public sealed class AppHost : IAsyncDisposable
 
         services
             .AddSingleton(appPaths)
+            .AddSingleton(options)
             .AddCore(recipe, appPaths)
-            .AddDevices(appPaths, config)
-            .AddStorage(appPaths, config)
-            .AddAppServices(appPaths, config)
+            .AddDevices(appPaths, options)
+            .AddStorage(appPaths, options)
+            .AddAppServices(appPaths, options)
             .AddViews();
 
         _configureServices?.Invoke(services);
@@ -129,6 +138,9 @@ public sealed class AppHost : IAsyncDisposable
             ?? throw new InvalidOperationException("AppHost 尚未 Configure");
 
         var log = services.GetRequiredService<ILogger<App>>();
+
+        // S5（W-15）：旧数据不迁移（用户拍板：全部删除，从空开始）。
+        // 数据根改为 exe 目录后，旧 cwd 里的测试数据不再被读取，也不需要兼容分支。
 
         // S2.4：设备连接在这里做，不在 DI 工厂里 —— 解析一个对象不该有"打开设备"这种副作用，
         // 否则启动顺序会被"谁先被解析"决定，测试一建容器就会去开真相机。

@@ -52,7 +52,7 @@
 | ID | 规则 | 现状与证据 | 影响 | 优先级 | 状态 |
 |---|---|---|---|---|---|
 | W-01 | WPF-L1.2 | 构造函数产生副作用：`HikCamera` 构造即连接（`src/VisionStation.Devices/Camera/HikCamera.cs:71-75`）；`DeviceManager` 在 DI 工厂里 `ConnectAll`（`src/VisionStation.App/Services/ServiceCollectionExtensions.cs:69-76`）；`MainViewModel` 构造内订阅触发并发消息（`src/VisionStation.App/ViewModels/MainViewModel.cs:97-117`）；多个 VM 构造内注册 Messenger（`LogPanelViewModel.cs:37-48`、`ResultPanelViewModel.cs:41-84`）。**设备部分已修（S2.4/S2.5）**：三个相机构造函数都只赋值，连接统一走 `open()`；`DeviceManager` 的 DI 工厂只 `Register`，`AppHost.InitializeAsync` 在自检前显式 `ConnectAll()` 并记录失败清单（`AppHost.cs:129-142`）；`SwappableCamera.SwapTo` 创建候选后显式 `open()` 再判可用（`SwappableCamera.cs:74-96`） | 启动顺序由“谁先解析”决定；VM 无法脱离 UI 测试 | P2 | FIXED（设备部分，见 W-01-retry） |
-| W-01-retry | WPF-L1.2 | 从 W-01 拆出：`MainViewModel` 构造内订阅触发并发消息（`MainViewModel.cs:105-117`），多个 VM 构造内注册 Messenger 且 `Dispose` 才注销。VM 的生命周期归页面，构造即订阅 = 页面销毁时仍在收消息 | VM 无法脱离 UI 测试；页面切走后仍收消息 | P2 | OPEN |
+| W-01-retry | WPF-L1.2 | **口径已澄清（S5）**：页面 VM 全部 `AddSingleton`（活到进程结束），构造内订阅触发/Messenger 与对象生命周期一致，不存在"页面销毁后仍在收消息"；触发订阅现在由 `InspectionPageViewModel` 承担，且它在无 UI 线程的测试里可构造（`InspectionPageOrchestrationTests` 4 条）。若将来页面改 Transient，必须改成显式 `Initialize`/`Dispose`，不能只改注册 | 当前无泄漏；约束已写进指南 §1.1 | P2 | FIXED（口径澄清，无代码改动） |
 | W-02 | WPF-L1.2 / L1.3 | 相机启动被初始化两次：`SwappableCamera` 构造时 `HikCamera` 已 `Initialize`（`ServiceCollectionExtensions.cs:57-63`、`HikCamera.cs:71-75`），随后 `ConnectAll` 的 `open()` 又 `TeardownDevice + Initialize`（`HikCamera.cs:387-394`）。**已修（S2.5）**：`HikCamera` 构造函数不再 `Initialize()`，只有 `open()` 会走完整七步；启动时唯一的一次连接来自 `AppHost.InitializeAsync` → `ConnectAll` | 启动变慢；设备被关闭/重开的失败窗口翻倍 | P2 | FIXED |
 | W-03 | WPF-D1.2 / V1.1 | **已修（S3b）**：容器不再注册任何 View / `MainWindow`（`ServiceCollectionExtensions.cs:162-184` 只剩 VM 与服务），视图由 `App.xaml` 的 9 条 `DataTemplate` 创建（`App.xaml:14-56`）；`MainWindow` 构造函数从 12 个参数降到 1 个（`MainWindow.xaml.cs:25`），且由 `AppHost` 直接 `new`（`AppHost.cs:68`） | View 生命周期归可视树，容器只管 VM；`AppCompositionTests` 是回退报警器 | P2 | FIXED |
 | W-04 | WPF-N1.1 / A1.5 | **已修（S3b）**：`INavigationService` 持有路由表与当前页（`NavigationService.cs:10`、`Navigate` 在 `:62`），未知路由返回 false 并留 WRN；`SidebarViewModel` 改为「选中项 → 导航」（`SidebarViewModel.cs:70`），点未实现的页签把选中项退回去；`NavigateMessage` 已删除（`Messages.cs` 只留一句说明）；`MainWindow.xaml:29` 绑 `CurrentPage` | 导航是状态不是通知；未知路由不会静默换空页；`NavigationServiceTests` 4 条 | P2 | FIXED |
@@ -65,8 +65,8 @@
 | W-11 | WPF-A1.2 / B1.4 | **已修（S4d）**：遍历 `report.Results` 出行，值用 `ToolResult.Summary`，未知工具显示原名（`ResultPanelViewModel.cs:72-86`）；VM 只输出 `IsOk`，颜色交给 XAML `DataTrigger`（`ResultPanelView.xaml:52-95`）；VM 内零十六进制 | 工具增减不会再让面板错行；主题可统一切换 | P3 | FIXED |
 | W-12 | WPF-V1.4 / B1.1 | 旧实现同时有 XAML 绑定 `Source="{Binding CurrentImage}"`（`ImagePanelView.xaml:86`）与 code-behind 手动赋值（`ImagePanelView.xaml.cs:25-29`）；现已删除手动写入 | 同一属性双写已消除；切 Tab 哈希验证通过 | P1 | FIXED |
 | W-13 | WPF-E1.1 | 日志双轨**仍未合并**：Serilog 写控制台/文件，UI 面板另靠 `LogMessage`（`Messages.cs:39-47`、`LogPanelViewModel.cs:37-48`）。S4e 只解决了「怎么刷」（合批、非阻塞），没解决「记两遍」（`UiLogSink` 属独立一片） | 系统日志仍进不了 UI 面板；两套记录对不上 | P3 | OPEN（S4 明确不做） |
-| W-14 | WPF-C1.1 / C1.3 | 配置读取散落：`AppPaths.cs:41-46`、`CameraFactory.cs:29,43,44`、`ServiceCollectionExtensions.cs:62,67,93,132-137`；`Camera:Mode` 读两次（`CameraFactory.cs:29`、`ServiceCollectionExtensions.cs:62`）；`reloadOnChange` 无消费者（`App.xaml.cs:67`）；`appsettings.json:9` 的 `Trigger:Mode` 无人读取 | 默认值多处漂移；改配置可能不生效 | P4 | OPEN |
-| W-15 | WPF-C1.2 | 可写数据基于 `Environment.CurrentDirectory` 解析（`AppPaths.cs:63-80`），数据库/日志/图片落在启动目录 | 快捷方式、计划任务、服务方式启动时路径不可控 | P4 | OPEN（需决策） |
+| W-14 | WPF-C1.1 / C1.3 | **已修（S5）**：绑定与校验收口到 `AppOptionsBinder.Bind`（`AppOptions.cs:59`），`Camera:Mode` 只经 `CameraOptions` 消费；`AppPaths` / `CameraFactory` / `ServiceCollectionExtensions` 不再依赖 `IConfiguration`；`reloadOnChange` 关闭（无消费者）；`Trigger:Mode` 删除（死键，触发方式实际由界面按钮决定）。数字/枚举非法时报错**带键名与合法值**，聚合后非 0 退出 | 默认值与解析只有一处；配错启动期就炸，不会静默漂移 | P4 | FIXED |
+| W-15 | WPF-C1.2 | **已修（S5，便携模式拍板）**：可写数据根 = `--data-root` 启动参数 &gt; exe 目录（`AppOptions.cs:59`、`App.xaml.cs:36` 解析参数）；`AppPaths` 的可写路径只认数据根，不再使用 `Environment.CurrentDirectory`（`AppPaths.cs:68`），读资源 exe 目录优先、cwd 兜底；旧数据**不迁移**（拍板：全部删除，从空库开始）。`AppPathsTests` 6 条钉住 cwd 解耦 | 快捷方式/计划任务启动不再丢数据；整个发布目录可整体搬迁 | P4 | FIXED |
 | W-16 | WPF-R1.1 / R1.2 / R1.3 | 资源全堆在 `App.xaml:6-114`；视图内仍有硬编码颜色（如 `SidebarView.xaml:4`、`CameraPageView.xaml:4-5`）；转换器重复注册（`App.xaml:20` 与 `StatusBarView.xaml:7`） | 主题不一致；改色要全仓搜；资源键冲突 | P5 | OPEN |
 | W-17 | WPF-TS1.1 / A1.6 | 旧：App 层零测试，测试工程 `net8.0` 且未引用 App；现有 `tests/VisionStation.App.Tests`（7 个测试），UnitTests 195 + App.Tests 7 = 202 | 关键 VM 命令已有护栏；生命周期/导航测试仍待 S2 扩展 | P1 | FIXED |
 | W-18 | WPF-S1.1 | `ICamera` 方法小写 `open/close`（`src/VisionStation.Devices/Camera/ICamera.cs:32,35`） | 契约与其余 PascalCase API 不一致 | P5 | OPEN |
@@ -87,7 +87,7 @@
 | **P1** | 护栏：`VisionStation.App.Tests`；`IUiDispatcher` / `IDialogService` / `INavigationService`；去 VM 内 `MessageBox`；修 W-12/W-20/W-22/W-23 | App、新测试工程 | IN_PROGRESS（S1-1~S1-6 DONE；W-20 已 FIXED；`IUiDispatcher`/`INavigationService` 未做；S1-5 缩放/平移 NOT_RUN） |
 | **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | **DONE**（S2、S3 全部完成；W-01/W-02/W-03/W-04/W-05/W-20/W-21/W-24 FIXED；W-01 的 VM 订阅部分见 W-01-retry，属 S4） |
 | **P3** | 线程与工作流：检测/存图移出 UI 线程；`Freeze`；日志 sink；结果面板数据驱动；修 W-06/W-07/W-08/W-09/W-11/W-13 | App、Service | **DONE**（S4；W-06~W-09/W-11 FIXED；W-13 拆分另做） |
-| **P4** | 配置与路径：强类型 Options；安装资源/用户数据分离；`reloadOnChange` 决策；修 W-14/W-15 | App、Service | NOT_RUN（需决策） |
+| **P4** | 配置与路径：强类型 Options；安装资源/用户数据分离；`reloadOnChange` 决策；修 W-14/W-15 | App、Service | **DONE**（S5；W-14/W-15 FIXED） |
 | **P5** | 资源、命名、注释：拆 ResourceDictionary；`Open/Close`；事故编号移出业务代码；修 W-16/W-18/W-19 | App、Devices、docs | NOT_RUN |
 
 > 执行切片、验收、回滚与停止线见 `docs/WPF改造指南.md`；本表只保留阶段状态。
@@ -560,4 +560,52 @@ L3（临时副本 + File 相机，带一次性的可视化树导出，验完已�
   自动模式是临时用环境变量从内部触发的（代码已删）。真实点击「自动模式」按钮这一步记 `NOT_RUN`。
 - **Hik 真机在后台线程释放**：无真机，只验 File 相机。
 
-- 下一步：S5（配置与路径），见指南 §5。W-01-retry（VM 构造内订阅）留在 S5 一并处理。
+### S5（2026-10-20）：配置与路径（DONE，W-14/W-15 FIXED）
+
+**三个决策（用户拍板）**
+
+| 决策 | 结论 |
+|---|---|
+| 可写数据放哪 | **便携模式**：数据根 = exe 目录，`--data-root=路径` 显式改；不用 `%LocalAppData%` |
+| 旧数据 | **全部删除，不迁移**（改造前数据都是走查产物）；迁移器写完又按此决定移除，未留下兼容分支 |
+| `Trigger:Mode` | **删除**（死键）。澄清一处早期误判：`TimerIntervalMs` **有人读**（原 `ServiceCollectionExtensions.cs:72` 建 `TimerTrigger`），保留并纳入 `TriggerOptions` |
+
+**结构**
+
+- `Composition/AppOptions.cs`（新）：`CameraOptions`/`TriggerOptions`/`StorageOptions`/`DetectionOptions`/
+  `RecipeOptions`/`LoggingOptions` + 复用 Service 层 `HousekeepingOptions`，聚合为 `AppOptions`；
+  `AppOptionsBinder.Bind(config, dataRootOverride)` 是唯一绑定入口。校验失败抛
+  `AppOptionsValidationException`（聚合全部错误，带键名与合法值），由 `App.StartAsync` 写 crash.log 并以 1 退出。
+- `AppPaths`：构造收 `AppOptions`；可写路径（db/日志/图片）只基于 `DataRoot`；
+  读资源（模板/图库/配方）exe 目录优先、cwd 兜底（只为 `dotnet run` 便利，资源只读）。
+- `App.xaml.cs`：`ParseDataRoot(Environment.GetCommandLineArgs())` 支持 `--data-root=X` 与 `--data-root X`。
+- `ServiceCollectionExtensions` / `CameraFactory`：签名由 `IConfiguration` 改为 `AppOptions`/`CameraOptions`；
+  删除 `ReadHousekeepingOptions`（直读配置点归零）。
+
+**过程中撞到的两个问题**
+
+1. 框架自带的 `OptionsValidationException` 构造要求 `optionsType`，与"整份文件校验失败"的语义不合 ——
+   改用自有异常，聚合错误列表（`.Errors`）。
+2. 走查脚本里 `Start-Process -ArgumentList @()`（空数组）在 PS 5.1 下直接报参数校验错误，必须分支处理。
+
+**验证**
+
+- L1：App.Tests 60 → **77**（新增 17：`AppOptionsTests` 11、`AppPathsTests` 6）；UnitTests 199 不变；
+  合计 **276**；告警 114 → **102**（Options 收口消掉重复读取，基线自动下调）；`ci.cmd` 0。
+- L3（临时副本，cwd 换成无关目录）：
+
+| 场景 | 结果 |
+|---|---|
+| 默认（cwd=无关目录） | 窗口出现、退出码 0；db/Logs/InspectedImages **全部落在 exe 目录**；cwd **0 个文件** |
+| `--data-root=<自定义>` | 窗口出现、退出码 0；db/Logs 落在自定义目录 |
+| 坏配置（`Camera:Mode=Basler`） | **退出码 1**、无窗口；`crash.log`：`Camera:Mode = "Basler" 不合法，可选值：Webcam, Hikvision, File` |
+
+- 数据清理：旧 db/Logs/InspectedImages（项目根、`src/VisionStation.App`、`tests/VisionStation.Test`，合计约 3.4MB）
+  与 TEMP 下 9 个走查副本已全部删除，复查为空。
+
+**没验到的**
+
+- 计划任务/服务方式启动（本机不便配置）：以"cwd 换任意目录仍落 exe 目录"为等价证据。
+- 只读目录下启动（exe 目录不可写）失败信息是否可读：未构造，记 `NOT_RUN`。
+
+- 下一步：S6（资源、命名、注释），见指南 §6。

@@ -28,6 +28,26 @@ public partial class App : Application
     /// <summary>启动是否走完 —— 只有走完的正常关闭才算 clean，启动失败要留给看门狗重试</summary>
     private static bool _startupCompleted;
 
+    /// <summary>
+    /// 解析 <c>--data-root=路径</c>（或 <c>--data-root 路径</c>）启动参数（W-15 便携模式）。
+    /// 没有该参数返回 null = 数据根用 exe 目录。写错格式不算致命：按未提供处理，
+    /// 用户本意可能是别的参数，为它崩进程太重。
+    /// </summary>
+    private static string? ParseDataRoot(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (arg.StartsWith("--data-root=", StringComparison.OrdinalIgnoreCase))
+                return arg["--data-root=".Length..].Trim('"');
+
+            if (arg.Equals("--data-root", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                return args[i + 1].Trim('"');
+        }
+
+        return null;
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -75,7 +95,7 @@ public partial class App : Application
             // 放在 App 而不是 AppHost，避免组合根反向依赖 WPF 入口类。
             var host = new AppHost(NotifyWatchdogCleanExit);
             _host = host;
-            host.Configure();
+            host.Configure(ParseDataRoot(Environment.GetCommandLineArgs()));
             _paths = host.Paths;
             Services = host.Services;
 

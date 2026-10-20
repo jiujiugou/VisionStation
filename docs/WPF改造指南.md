@@ -37,7 +37,7 @@ S0 基线冻结                       DONE
      └─ S2 组合根/启动/关闭       DONE（W-01/02/20/21 全部 FIXED）
          └─ S3 Shell/导航边界      DONE（W-03/04/05/24 全部 FIXED）
              └─ S4 线程/工作流     DONE（W-06~09/11 FIXED；W-13 另做）
-                 └─ S5 配置/路径    OPEN（含需拍板决策）
+                 └─ S5 配置/路径    DONE（便携模式；W-14/15 FIXED）
                      └─ S6 资源/命名  OPEN
 ```
 
@@ -48,7 +48,7 @@ S0 基线冻结                       DONE
 | S2 | 组合根三段、异步建库、有序关闭、应用级取消、设备连接时机 | **DONE** | W-01（设备部分）/W-02/W-20/W-21 |
 | S3 | View 退出 DI、`DataTemplate` 导航、Shell + 导航服务 | **DONE** | W-03/W-04/W-05/W-24 |
 | S4 | 检测/存图移出 UI 线程、位图 `Freeze`、日志批量、结果面板数据驱动 | **DONE** | W-06/W-07/W-08/W-09/W-11（W-13 双轨未合并） |
-| S5 | 强类型 Options、可写路径分离、热重载决策 | OPEN | W-14/W-15 |
+| S5 | 强类型 Options、便携数据根、热重载决策 | **DONE**（便携模式 / 不迁移 / 删死键） | W-14/W-15 |
 | S6 | 资源字典、去硬编码色、命名、注释 | OPEN | W-16/W-18/W-19 |
 
 ### 1.1 已完成的现状基线（后续接线必须对齐，不要重造）
@@ -316,7 +316,22 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 
 ---
 
-## 5. S5：配置与路径（含需拍板的决策）
+## 5. S5：配置与路径（DONE，勿重做）
+
+**已完成（2026-10-20）**，W-14/W-15 FIXED。三个决策由用户拍板：**便携模式**（数据根 = exe 目录，
+`--data-root=路径` 显式改）、**旧数据全部删除不迁移**、**删除死键 `Trigger:Mode`**
+（`TimerIntervalMs` 有人读，保留）。
+
+实际形态：
+
+- `Composition/AppOptions.cs`：各段 Options + 聚合 `AppOptions`；`AppOptionsBinder.Bind` 是唯一绑定入口，
+  校验失败抛 `AppOptionsValidationException`（带键名与合法值，非 0 退出）。
+- `AppPaths` 只认 `AppOptions`：可写路径基于 `DataRoot`，读资源 exe 目录优先、cwd 兜底。
+- `CameraFactory` / `ServiceCollectionExtensions` 收 `AppOptions`/`CameraOptions`，不再出现 `IConfiguration`。
+- `reloadOnChange` 已关闭；`Trigger:Mode` 已从 appsettings.json 删除。
+
+证据与 NOT_RUN 见落地记录 S5 段。**不要重新引入配置热重载、不要恢复旧数据迁移**。
+下面保留原始方案，供以后加新配置段时参照（加段就走 AppOptions，不许在业务里直读 `IConfiguration`）。
 
 > 这一片有现场部署决策，先问人，不要按"常见值"改。
 
@@ -407,9 +422,9 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 
 ## 9. 当前执行点
 
-**S1 → S2 → S3 → S4 全部 DONE，下一步 S5（配置与路径）。**
+**S1 → S2 → S3 → S4 → S5 全部 DONE，下一步 S6（资源、命名、注释）。**
 
-当前基线：UnitTests 199 + App.Tests 60 = **259**，告警 114，`ci.cmd` 0。
+当前基线：UnitTests 199 + App.Tests 77 = **276**，告警 102，`ci.cmd` 0。
 
-S5 之前不要动资源/命名（S6）。S5 里有三个决策必须由人拍板（可写路径、热重载、旧数据迁移），
-在 `docs/WPF规范落地记录.md` 的 W-14/W-15 里。
+S6 只碰资源字典、样式、转换器与命名，不改行为。若发现要动 `AppOptions` 或路径，先停下来确认——
+S5 的口径已经定了（见 §5）。

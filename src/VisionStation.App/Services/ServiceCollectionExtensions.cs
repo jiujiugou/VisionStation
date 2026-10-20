@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using VisionStation.App.Abstractions;
+using VisionStation.App.Composition;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Infrastructure;
 using VisionStation.App.Services;
@@ -54,22 +54,22 @@ public static class ServiceCollectionExtensions
 
     /// <summary>注册 Devices 层：相机、触发源、设备管理器</summary>
     public static IServiceCollection AddDevices(this IServiceCollection services,
-        AppPaths appPaths, IConfiguration config)
+        AppPaths appPaths, AppOptions options)
     {
         services.AddSingleton<CameraFactory>(sp =>
-            new CameraFactory(appPaths, config, sp.GetService<ILoggerFactory>()));
+            new CameraFactory(appPaths, options.Camera, sp.GetService<ILoggerFactory>()));
 
         services.AddSingleton<SwappableCamera>(sp =>
         {
             var factory = sp.GetRequiredService<CameraFactory>();
             return new SwappableCamera(factory.Create(),
             mode => factory.CreateByMode(mode),
-            config["Camera:Mode"] ?? "File");   // 初始模式必须显式传入：写死默认值会让 UI 的去重守卫误判
+            options.Camera.Mode);   // 初始模式必须显式传入：写死默认值会让 UI 的去重守卫误判
         });
         services.AddSingleton<ICamera>(sp => sp.GetRequiredService<SwappableCamera>());
 
         services.AddSingleton<ITriggerSource>(sp =>
-            new TimerTrigger(int.Parse(config["Trigger:TimerIntervalMs"] ?? "2000")));
+            new TimerTrigger(options.Trigger.TimerIntervalMs));
 
         services.AddSingleton<DeviceManager>(sp =>
         {
@@ -86,7 +86,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>注册 Storage 层：数据库、图片存储</summary>
     public static IServiceCollection AddStorage(this IServiceCollection services,
-        AppPaths appPaths, IConfiguration config)
+        AppPaths appPaths, AppOptions options)
     {
         // 修复（F-111）：不再注册全进程单例 InspectionDbContext。
         // 管家清理线程与检测保存线程会并发用它，EF Core 禁止同一 context 并发操作。
@@ -96,7 +96,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(sp =>
         {
             var s = new ImageStoreService(appPaths.StorageFolder);
-            s.SetMode((config["Storage:Mode"] ?? "All") switch
+            s.SetMode(options.Storage.Mode switch
             { "NGOnly" => ImageStoreMode.NGOnly, "Sampling" => ImageStoreMode.Sampling, _ => ImageStoreMode.All });
             return s;
         });
@@ -106,7 +106,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>注册 Service 层：健康检查、后台管家</summary>
     public static IServiceCollection AddAppServices(this IServiceCollection services,
-        AppPaths appPaths, IConfiguration config)
+        AppPaths appPaths, AppOptions options)
     {
         // S2.3：关闭用的两个单例。都是普通类，不挂接口 —— 这里只有一个实现，接口除了让测试好写没别的用。
         services.AddSingleton<ShutdownState>();
@@ -128,7 +128,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IHousekeepingService>(sp => new HousekeepingService(
             sp.GetRequiredService<IInspectionRepository>(),
             appPaths.StorageFolder,
-            ReadHousekeepingOptions(config),
+            options.Housekeeping,
             sp.GetService<ILogger<HousekeepingService>>()));
 
         // 检测链路（采图→检测→标注→存图→存库）从 VM 移到 App 服务层（S4a）。
@@ -141,19 +141,6 @@ public static class ServiceCollectionExtensions
             sp.GetService<ILogger<JsonRecipeStore>>()));
 
         return services;
-    }
-
-    /// <summary>从 appsettings.json 读管家阈值，缺项回退默认值</summary>
-    private static HousekeepingOptions ReadHousekeepingOptions(IConfiguration config)
-    {
-        var d = HousekeepingOptions.Default;
-        return new HousekeepingOptions(
-            int.Parse(config["Housekeeping:MaxMemoryMB"] ?? $"{d.MaxMemoryMb}"),
-            int.Parse(config["Housekeeping:KeepRecordsDays"] ?? $"{d.KeepRecordsDays}"),
-            int.Parse(config["Housekeeping:ImageRetentionDays"] ?? $"{d.ImageRetentionDays}"),
-            long.Parse(config["Housekeeping:MaxImageFolderMB"] ?? $"{d.MaxImageFolderBytes / 1024 / 1024}") * 1024 * 1024,
-            int.Parse(config["Housekeeping:MemoryCheckIntervalMs"] ?? $"{d.MemoryCheckIntervalMs}"),
-            int.Parse(config["Housekeeping:DatabaseCleanIntervalMs"] ?? $"{d.DatabaseCleanIntervalMs}"));
     }
 
     /// <summary>

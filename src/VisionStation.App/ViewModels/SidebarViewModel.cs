@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
+using VisionStation.App.Services.Navigation;
 
 namespace VisionStation.App.ViewModels;
 
@@ -13,9 +14,24 @@ namespace VisionStation.App.ViewModels;
 /// </summary>
 public partial class SidebarViewModel : ObservableObject
 {
+    private readonly INavigationService _navigation;
+
+    /// <summary>防回环：把选中项"退回去"时不要再触发一次导航。</summary>
+    private bool _revertingSelection;
+
     /// <summary>当前选中的导航页</summary>
     [ObservableProperty]
-    private string _activePage = "检测";
+    private string _activePage = NavigationService.InspectionRoute;
+
+    /// <summary>
+    /// 列表里选中的那一项。
+    ///
+    /// 导航不再是"发消息 + 窗口切 Visibility"，而是"这里选中了谁"：
+    /// 视图只做 TwoWay 绑定，点了未实现的页面时把选中项退回去，
+    /// 高亮自动还原 —— 不需要 code-behind 里再写一遍。
+    /// </summary>
+    [ObservableProperty]
+    private NavItem? _selectedNavItem;
 
     /// <summary>是否暗化（自动运行时 true，手动/停止时 false）</summary>
     [ObservableProperty]
@@ -39,18 +55,38 @@ public partial class SidebarViewModel : ObservableObject
         new("系统", "M12 15a3 3 0 100-6 3 3 0 000 6zm7.4-2.32a1.65 1.65 0 00.33 1.82l.06.06a1.998 1.998 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a1.998 1.998 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001.08-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.01.52.08.78.08h.21a2 2 0 010 4h-.21a1.65 1.65 0 00-1.51 1.08z"),
     };
 
-    public SidebarViewModel()
+    public SidebarViewModel(INavigationService navigation)
     {
+        _navigation = navigation;
+        _activePage = navigation.CurrentRoute;
+
         WeakReferenceMessenger.Default.Register<SidebarViewModel, TriggerStateMessage>(this,
             (vm, msg) => vm.IsDimmed = msg.Value);
+
+        // 启动时高亮当前页（导航服务构造即定位在检测页）
+        _selectedNavItem = FindItem(navigation.CurrentRoute);
     }
 
-    /// <summary>点导航 → 发消息通知 MainWindow 切页面</summary>
-    public void NavigateTo(string page)
+    partial void OnSelectedNavItemChanged(NavItem? value)
     {
-        ActivePage = page;
-        WeakReferenceMessenger.Default.Send(new NavigateMessage(page));
+        if (value is null || _revertingSelection) return;
+
+        if (_navigation.Navigate(value.Label))
+        {
+            ActivePage = _navigation.CurrentRoute;
+            return;
+        }
+
+        // 未实现的路由（参数/配方/历史/PLC/日志/系统）：撤回到当前页，
+        // 让"点了没反应"变成"高亮弹回去"，而不是停在一个打不开的页签上。
+        _revertingSelection = true;
+        SelectedNavItem = FindItem(ActivePage);
+        _revertingSelection = false;
     }
+
+    private NavItem? FindItem(string label)
+        => TopItems.FirstOrDefault(i => i.Label == label)
+           ?? BottomItems.FirstOrDefault(i => i.Label == label);
 }
 
 /// <summary>

@@ -1,7 +1,12 @@
 <UserControl x:Class="VisionStation.App.Views.SidebarView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Width="52" Background="#2C2C2C">
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             Width="52" Background="#2C2C2C"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:SidebarViewModel, IsDesignTimeCreatable=False}">
     <UserControl.Resources>
         <Style x:Key="NavListBox" TargetType="ListBox">
             <Setter Property="Background" Value="Transparent" />
@@ -64,10 +69,11 @@
         </Grid.RowDefinitions>
 
         <!-- 上部导航 (4个) -->
+        <!-- 导航 = 选中状态，绑定即可；不再有 SelectionChanged 回调 -->
         <ListBox x:Name="TopNav" Grid.Row="0" ItemsSource="{Binding TopItems}"
-                 Style="{StaticResource NavListBox}" SelectedIndex="0"
-                 Margin="0,6,0,0"
-                 SelectionChanged="OnSelectionChanged" />
+                 Style="{StaticResource NavListBox}"
+                 SelectedItem="{Binding SelectedNavItem, Mode=TwoWay}"
+                 Margin="0,6,0,0" />
 
         <!-- 自动运行指示灯（space区域中央） -->
         <Ellipse Grid.Row="1" Width="8" Height="8" Fill="#107C10"
@@ -78,7 +84,7 @@
         <!-- 下部导航 (4个) -->
         <ListBox x:Name="BottomNav" Grid.Row="2" ItemsSource="{Binding BottomItems}"
                  Style="{StaticResource NavListBox}"
-                 Margin="0,0,0,8"
-                 SelectionChanged="OnSelectionChanged" />
+                 SelectedItem="{Binding SelectedNavItem, Mode=TwoWay}"
+                 Margin="0,0,0,8" />
     </Grid>
 </UserControl>

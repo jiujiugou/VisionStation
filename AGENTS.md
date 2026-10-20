@@ -20,7 +20,7 @@ WPF 金属零件视觉检测工作站。取图 → 工具流水线判定（模�
 | `src/VisionStation.Service` | 自检（HealthChecker）、管家（Housekeeping） | 可改 |
 | `src/VisionStation.App` | WPF 组合根、DI 注册、ViewModel | 可改 |
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
-| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 223 项；App.Tests 从 S1 起） | **只准加，不准改断言** |
+| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 240 项；App.Tests 从 S1 起） | **只准加，不准改断言** |
 | `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
 | `audit/` | 失效分析产物 + 门禁脚本 | 由流程生成，不手改数据 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |

@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services;
+using VisionStation.App.ViewModels;
 using VisionStation.Core;
 using VisionStation.Core.Models;
 using VisionStation.Core.Tools;
@@ -63,7 +64,8 @@ public sealed class AppHost : IAsyncDisposable
     {
         _configuration = configuration;
         _configureServices = configureServices;
-        _windowFactory = windowFactory ?? (sp => sp.GetRequiredService<MainWindow>());
+        // 窗口由这里直接 new：它不属于容器（容器只管 VM 与后台服务）。
+        _windowFactory = windowFactory ?? (sp => new MainWindow(sp.GetRequiredService<ShellViewModel>()));
         _onCleanExit = onCleanExit;
         // 默认取进程级 Shutdown；测试注入假对象即可断言"收尾完成后确实请求了退出"
         _requestShutdown = requestShutdown ?? (() => System.Windows.Application.Current?.Shutdown());
@@ -154,6 +156,11 @@ public sealed class AppHost : IAsyncDisposable
         HealthResults = results;
 
         services.GetRequiredService<IHousekeepingService>();
+
+        // MainViewModel 靠构造函数订阅触发信号 —— 没人解析它，就没人采图。
+        // S3b 之后它不再被窗口注入，必须在这里显式取一次。
+        services.GetRequiredService<MainViewModel>();
+
         await services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync();
     }
 

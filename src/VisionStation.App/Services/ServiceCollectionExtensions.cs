@@ -5,8 +5,8 @@ using VisionStation.App.Abstractions;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Infrastructure;
 using VisionStation.App.Services;
+using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
-using VisionStation.App.Views;
 using VisionStation.App.Services.Coordinates;
 using VisionStation.Core;
 using VisionStation.Core.Models;
@@ -151,7 +151,14 @@ public static class ServiceCollectionExtensions
             int.Parse(config["Housekeeping:DatabaseCleanIntervalMs"] ?? $"{d.DatabaseCleanIntervalMs}"));
     }
 
-    /// <summary>注册 ViewModels + Views</summary>
+    /// <summary>
+    /// 注册 ViewModels（S3b 起不再注册任何 View —— 视图由 App.xaml 的 DataTemplate 创建，
+    /// 容器里出现 Window / UserControl 就是错误：那等于让 DI 去管可视树的生命周期）。
+    ///
+    /// 这里全部是 Singleton，理由是"这些对象都活到进程结束"：
+    /// 面板 VM 每帧被 MainViewModel 直接写入（Transient 会写到界面上没显示的那一份），
+    /// 页面是常驻工作台（不是"打开某条记录"式的多实例页面）。
+    /// </summary>
     public static IServiceCollection AddViews(this IServiceCollection services)
     {
         services.AddSingleton<IDialogService, WpfDialogService>();
@@ -165,16 +172,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RoiEditorViewModel>();
         services.AddSingleton<MainViewModel>();
 
-        services.AddSingleton<SidebarView>();
-        services.AddSingleton<ImagePanelView>();
-        services.AddSingleton<ResultPanelView>();
-        services.AddSingleton<LogPanelView>();
-        services.AddSingleton<ControlPanelView>();
-        services.AddSingleton<StatusBarView>();
+        // 检测页：页面 VM 与页面视图成对注册（S3a）。子面板 VM 必须是单例：
+        // MainViewModel 每帧直接写 ImagePanel / StatusBar，写成 Transient 就会写到"界面上没显示的那一份"。
+        services.AddSingleton<InspectionPageViewModel>();
+
         services.AddSingleton<CameraPageViewModel>();
-        services.AddSingleton<CameraPageView>();
-        services.AddSingleton<RoiEditorView>();
-        services.AddSingleton<MainWindow>();
+
+        // 导航：路由表在 NavigationService 里写死两页，不查容器、不建工厂。
+        services.AddSingleton<INavigationService, NavigationService>();
+        services.AddSingleton<ShellViewModel>();
 
         return services;
     }

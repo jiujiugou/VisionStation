@@ -1,8 +1,12 @@
 <UserControl x:Class="VisionStation.App.Views.ResultPanelView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
-             xmlns:conv="clr-namespace:VisionStation.App.Converters">
+             xmlns:conv="clr-namespace:VisionStation.App.Converters"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:ResultPanelViewModel, IsDesignTimeCreatable=False}">
     <UserControl.Resources>
         <conv:StringToColorConverter x:Key="StringToColor" />
     </UserControl.Resources>

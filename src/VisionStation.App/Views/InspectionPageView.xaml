@@ -1,0 +1,36 @@
+<UserControl x:Class="VisionStation.App.Views.InspectionPageView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:InspectionPageViewModel, IsDesignTimeCreatable=False}">
+
+    <!-- 版面从 MainWindow 搬过来，像素尺寸不变：左 7 右 3，右侧三块自上而下（结果 / 日志 / 操作）。
+         Content 绑的是子 VM，具体显示哪个 View 由 App.xaml 的 DataTemplate 决定。 -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="7*" />
+            <ColumnDefinition Width="3*" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="0" Margin="0,0,4,0">
+            <ContentControl Content="{Binding ImagePanel}"
+                            Visibility="{Binding IsImagePanelVisible, Converter={StaticResource BoolToVis}}" />
+            <ContentControl Content="{Binding RoiEditor}"
+                            Visibility="{Binding IsRoiEditorOpen, Converter={StaticResource BoolToVis}}" />
+        </Grid>
+
+        <Grid Grid.Column="1" Margin="4,0,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ContentControl Grid.Row="0" Margin="0,0,0,4" Content="{Binding ResultPanel}" />
+            <ContentControl Grid.Row="1" Margin="0,0,0,4" Content="{Binding LogPanel}" />
+            <ContentControl Grid.Row="2" Content="{Binding ControlPanel}" />
+        </Grid>
+    </Grid>
+</UserControl>

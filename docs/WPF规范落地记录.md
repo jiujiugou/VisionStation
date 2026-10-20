@@ -54,9 +54,9 @@
 | W-01 | WPF-L1.2 | 构造函数产生副作用：`HikCamera` 构造即连接（`src/VisionStation.Devices/Camera/HikCamera.cs:71-75`）；`DeviceManager` 在 DI 工厂里 `ConnectAll`（`src/VisionStation.App/Services/ServiceCollectionExtensions.cs:69-76`）；`MainViewModel` 构造内订阅触发并发消息（`src/VisionStation.App/ViewModels/MainViewModel.cs:97-117`）；多个 VM 构造内注册 Messenger（`LogPanelViewModel.cs:37-48`、`ResultPanelViewModel.cs:41-84`）。**设备部分已修（S2.4/S2.5）**：三个相机构造函数都只赋值，连接统一走 `open()`；`DeviceManager` 的 DI 工厂只 `Register`，`AppHost.InitializeAsync` 在自检前显式 `ConnectAll()` 并记录失败清单（`AppHost.cs:129-142`）；`SwappableCamera.SwapTo` 创建候选后显式 `open()` 再判可用（`SwappableCamera.cs:74-96`） | 启动顺序由“谁先解析”决定；VM 无法脱离 UI 测试 | P2 | FIXED（设备部分，见 W-01-retry） |
 | W-01-retry | WPF-L1.2 | 从 W-01 拆出：`MainViewModel` 构造内订阅触发并发消息（`MainViewModel.cs:105-117`），多个 VM 构造内注册 Messenger 且 `Dispose` 才注销。VM 的生命周期归页面，构造即订阅 = 页面销毁时仍在收消息 | VM 无法脱离 UI 测试；页面切走后仍收消息 | P2 | OPEN |
 | W-02 | WPF-L1.2 / L1.3 | 相机启动被初始化两次：`SwappableCamera` 构造时 `HikCamera` 已 `Initialize`（`ServiceCollectionExtensions.cs:57-63`、`HikCamera.cs:71-75`），随后 `ConnectAll` 的 `open()` 又 `TeardownDevice + Initialize`（`HikCamera.cs:387-394`）。**已修（S2.5）**：`HikCamera` 构造函数不再 `Initialize()`，只有 `open()` 会走完整七步；启动时唯一的一次连接来自 `AppHost.InitializeAsync` → `ConnectAll` | 启动变慢；设备被关闭/重开的失败窗口翻倍 | P2 | FIXED |
-| W-03 | WPF-D1.2 / V1.1 | View 与 ViewModel 全部 Singleton，`MainWindow` 注入 8 个 View（`ServiceCollectionExtensions.cs:141-165`、`MainWindow.xaml.cs:15-44`） | View 生命周期脱离窗口；无法用 DataTemplate/设计时；页面 VM 无法按页面释放 | P2 | OPEN |
-| W-04 | WPF-N1.1 / A1.5 | 导航用 Messenger + `Visibility`：`SidebarViewModel.cs:49-53` 发 `NavigateMessage`，`MainWindow.xaml.cs:46-54` 改可见性，消息定义在 `Messages.cs:68-75` | 控制流分散；页面状态与可视树两套真相；导航不可单测 | P2 | OPEN |
-| W-05 | WPF-V1.3 | `MainWindow` code-behind 同时承担导航、F2 编辑模式、标题与可见性切换（`MainWindow.xaml.cs:46-80`） | 视图边界模糊，后续功能会继续往 code-behind 堆 | P2 | OPEN |
+| W-03 | WPF-D1.2 / V1.1 | **已修（S3b）**：容器不再注册任何 View / `MainWindow`（`ServiceCollectionExtensions.cs:162-184` 只剩 VM 与服务），视图由 `App.xaml` 的 9 条 `DataTemplate` 创建（`App.xaml:14-56`）；`MainWindow` 构造函数从 12 个参数降到 1 个（`MainWindow.xaml.cs:25`），且由 `AppHost` 直接 `new`（`AppHost.cs:68`） | View 生命周期归可视树，容器只管 VM；`AppCompositionTests` 是回退报警器 | P2 | FIXED |
+| W-04 | WPF-N1.1 / A1.5 | **已修（S3b）**：`INavigationService` 持有路由表与当前页（`NavigationService.cs:10`、`Navigate` 在 `:62`），未知路由返回 false 并留 WRN；`SidebarViewModel` 改为「选中项 → 导航」（`SidebarViewModel.cs:70`），点未实现的页签把选中项退回去；`NavigateMessage` 已删除（`Messages.cs` 只留一句说明）；`MainWindow.xaml:29` 绑 `CurrentPage` | 导航是状态不是通知；未知路由不会静默换空页；`NavigationServiceTests` 4 条 | P2 | FIXED |
+| W-05 | WPF-V1.3 | **已修（S3a/S3b）**：`MainWindow.xaml.cs` 只剩 `InitializeComponent` + `DataContext` + `Closing` 转发；导航搬进 `NavigationService`，F2 搬成 `Window.InputBindings` → `ShellViewModel.ToggleRoiEditorCommand`（`ShellViewModel.cs:66`，按当前页类型路由，非检测页不做事），编辑态搬进 `InspectionPageViewModel`（`:54`）；动态窗口标题取消（纯装饰，且属于 View） | code-behind 不再承载业务；快捷键跟窗口走，不依赖焦点落点 | P2 | FIXED |
 | W-06 | WPF-A1.2 / A1.3 | `MainViewModel` 同时做采图、Pipeline、标注、存图、存库、统计、消息（`MainViewModel.cs:143-235`），注释仍写“只做这一件事”（`MainViewModel.cs:22`） | VM 过大；工作流无法复用/测试；注释与代码不符 | P3 | OPEN |
 | W-07 | WPF-T1.1 / T1.2 | 整条检测链路在 UI 线程执行：`OnTriggered` 切到 Dispatcher（`MainViewModel.cs:132-138`），`ProcessFrame` 内跑 `_pipeline.Run`（`MainViewModel.cs:171`）与 `SaveAsync`（`MainViewModel.cs:206`） | 检测/存库慢时界面卡死；自动运行下更明显 | P3 | OPEN |
 | W-08 | WPF-T1.3 | `MatToBitmap` 未 `Freeze()`（`MainViewModel.cs:285-310`） | 位图不能安全跨线程；阻塞把转换移到后台 | P3 | OPEN |
@@ -75,7 +75,7 @@
 | W-21 | WPF-L1.4 | 关闭已有序：`IAppWindow.Closing` → `AppHost.HandleWindowClosingAsync`（`AppHost.cs:180`）→ `AppHost.StopAsync`（`AppHost.cs:212`）六步**直线代码**，每步一行带编号日志；`ShutdownState`（`ShutdownState.cs:13`，bool + CTS）提供应用级取消，`MainViewModel.OnTriggered` 先查 `IsStopping` 再碰 Dispatcher（`MainViewModel.cs:141`）；`ProcessFrame` 用 `InFlightWorkMonitor` 租约登记在途（`MainViewModel.cs:169`）；`App.OnExit` 降级为有界兜底（`App.xaml.cs:191`） | 在途帧不会落在已释放的容器上；关窗有上界（8s 预算，实测 279-375ms） | P2 | FIXED |
 | W-22 | 具体缺陷 | 旧实现 `ControlPanelViewModel.cs:134` 判断 `_camera is FileCamera`，但 DI 注入的是 `SwappableCamera`（`ServiceCollectionExtensions.cs:67`）；已改为 `_camera.open()`（`ControlPanelViewModel.cs:139`） | File/Hik 重连已恢复；Webcam 的 `open()` 在 `_opened` 时仍是 no-op，另记 | P1 | FIXED |
 | W-23 | 具体缺陷 | 旧实现 `RoiEditorViewModel.cs:286-301` 先改内存再 `File.WriteAllText`，并直接弹 `MessageBox`；现改为 copy-on-write + `IRecipeStore`（`RoiEditorViewModel.cs:291-321`） | 写失败不再污染内存配方；临时文件原子替换 | P1 | FIXED |
-| W-24 | WPF-V1.2 | View 只有带参构造函数，无法设计时实例化，也没有 `d:DataContext`（如 `ControlPanelView.xaml.cs:7-11`、`CameraPageView.xaml.cs:7-11`） | XAML 设计器空白；View 只能由 DI 创建，进一步锁死 W-03 | P2 | OPEN |
+| W-24 | WPF-V1.2 | **已修（S3b）**：9 个 View 全部无参构造；每个 View 都加了 `d:DataContext="{d:DesignInstance vm:XxxViewModel, IsDesignTimeCreatable=False}"` + `mc:Ignorable="d"`（如 `CameraPageView.xaml:1-8`）；需要 VM 的 code-behind（`ImagePanelView` / `RoiEditorView`）改为从 `DataContext` 取 | 设计器可打开且不再依赖 DI；预览无数据（面板 VM 有依赖，`IsDesignTimeCreatable=False`） | P2 | FIXED |
 
 ---
 
@@ -85,7 +85,7 @@
 |---|---|---|---|
 | **P0** | 规则、现状、ADR、AGENTS 索引 | `docs/`、`AGENTS.md` | **DONE**（2026-10-20） |
 | **P1** | 护栏：`VisionStation.App.Tests`；`IUiDispatcher` / `IDialogService` / `INavigationService`；去 VM 内 `MessageBox`；修 W-12/W-20/W-22/W-23 | App、新测试工程 | IN_PROGRESS（S1-1~S1-6 DONE；W-20 已 FIXED；`IUiDispatcher`/`INavigationService` 未做；S1-5 缩放/平移 NOT_RUN） |
-| **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | IN_PROGRESS（**S2 全部 DONE**；W-01/W-02/W-20/W-21 FIXED；W-03/W-04/W-05/W-24 属 S3；W-01 的 VM 订阅部分见 W-01-retry） |
+| **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | **DONE**（S2、S3 全部完成；W-01/W-02/W-03/W-04/W-05/W-20/W-21/W-24 FIXED；W-01 的 VM 订阅部分见 W-01-retry，属 S4） |
 | **P3** | 线程与工作流：检测/存图移出 UI 线程；`Freeze`；日志 sink；结果面板数据驱动；修 W-06/W-07/W-08/W-09/W-11/W-13 | App、Service | NOT_RUN |
 | **P4** | 配置与路径：强类型 Options；安装资源/用户数据分离；`reloadOnChange` 决策；修 W-14/W-15 | App、Service | NOT_RUN（需决策） |
 | **P5** | 资源、命名、注释：拆 ResourceDictionary；`Open/Close`；事故编号移出业务代码；修 W-16/W-18/W-19 | App、Devices、docs | NOT_RUN |
@@ -457,4 +457,58 @@ L3 走查（临时副本 + File 相机，4 次运行）：
 
 测试：UnitTests 199 + App.Tests 24 = **223**（新增 5 条）；告警 115 持平；`ci.cmd` 0。
 
-- 下一步：S3（View 退出 DI + `DataTemplate` 导航），见指南 §3。
+### S3（2026-10-20）：Shell、导航、View/VM 边界（DONE，W-03/W-04/W-05/W-24 FIXED）
+
+分两个提交，各自可编译、可启动：
+
+**S3a 抽页面（行为不变）**
+
+- 新增 `InspectionPageViewModel`（`ViewModels/InspectionPageViewModel.cs:19`）：持有五块面板子 VM + `IsRoiEditorOpen`，
+  原图与覆盖层的互斥用派生属性 `IsImagePanelVisible`（不引入反向转换器）。
+- 新增 `InspectionPageView`（`Views/InspectionPageView.xaml`）：把 `MainWindow.xaml` 里那段版面原样搬过来。
+- F2 从 `MainWindow` 的 `KeyDown` + `ToggleEditMode()` 收进页面 VM 的命令；动态窗口标题取消。
+- `MainWindow` 参数从 12 降到 6，`NavigateMessage` 处理器改为「切页 → `ExitEditMode()`」。
+- 验收：`InspectionPageViewModelTests` 4 条（进入编辑交图、互斥、无图不抛、退出幂等）+ 真实启动/关窗。
+
+**S3b 导航与 DI 归位**
+
+- 新增 `INavigationService` / `NavigationService`：路由表写死两页（检测/相机），未知路由 false + WRN；
+  页面实例构造注入，**没有 `IPageFactory`、没有 `IServiceProvider` 查询**。
+- 新增 `ShellViewModel`（`ViewModels/ShellViewModel.cs:19`）：Sidebar / StatusBar / CurrentPage / F2 路由；
+  离开检测页时调用 `ExitEditMode()`，覆盖层不会漂到相机页。
+- `MainWindow` 只剩 1 个构造参数；XAML 三个 `ContentControl` 绑 VM（`MainWindow.xaml:20,29,31`）。
+- `App.xaml:14-56` 九条 `DataTemplate` 完成 VM→View；`AddViews` 不再注册任何 View。
+- 侧边栏导航从「`SelectionChanged` 事件」改成「`SelectedItem` 双向绑定」（`SidebarView.xaml:69-70`），
+  `SidebarView.xaml.cs` 现在没有任何逻辑。
+
+**过程中修掉的两个真问题**
+
+1. `MainViewModel` 之前是被 `MainWindow` 注入才被创建的；窗口不再注入它之后，**没人解析它 = 没人订阅触发 = 不采图**。
+   现在 `AppHost.InitializeAsync` 显式取一次（`AppHost.cs:162`），并写清理由。
+2. 关注点：页面的子面板 VM 必须保持单例。`MainViewModel` 每帧直接写 `ImagePanel` / `StatusBar`，
+   写成 Transient 会写到"界面上没显示的那一份"，表现为界面永远不动且无异常。
+
+**验证**
+
+L1：App.Tests 24 → **41**（新增 17：`InspectionPageViewModel` 4、`NavigationService` 4、`SidebarViewModel` 3、
+`ShellViewModel` 4、`AppComposition` 2）；UnitTests 199 不变；合计 **240**；告警 115 持平；`ci.cmd` 0。
+
+L3（临时副本 + File 相机，带一次性的可视化树导出，验完已删除、`git diff` 确认无残留）：
+
+| 场景 | 结果 |
+|---|---|
+| 启动 | 7.7s，窗口出现，日志零 ERR/WRN，设备连接 2/2、自检 OK |
+| 检测页可视化树 | `MainWindow dc=ShellViewModel` → `ContentControl` → `InspectionPageView dc=InspectionPageViewModel` → 五块面板视图齐全（`ImagePanelView` / `RoiEditorView` / `ResultPanelView` / `LogPanelView` / `ControlPanelView`）+ `SidebarView` + `StatusBarView` |
+| 导航到相机页 | 树里只剩 `CameraPageView dc=CameraPageViewModel` + `SidebarView` + `StatusBarView`，检测页视图已卸载 |
+| 导航回检测页 | 视图重新由模板创建，子 VM 仍是原实例（面板状态不丢） |
+| 关窗 | 189-203ms，退出码 0，五行关闭日志齐全 |
+
+**没验到的（记 NOT_RUN，不写 PASS）**
+
+- **鼠标点击侧边栏、按 F2、连续切页 20 次**：本机 `Add-Type`（含 `UIAutomationClient`、`System.Drawing`、反射加载程序集）
+  被安全策略禁用，无法注入输入、也无法截图。补偿：`SidebarViewModelTests` / `ShellViewModelTests` 覆盖同一批 VM 行为；
+  视图层只验证到「模板能创建出正确的 View 且 DataContext 正确」。
+- **设计器预览**：没有 Visual Studio 交互环境，只保证 `d:DataContext` 存在且 `ci.cmd` 不报 MC 告警。
+- **切页后 `ImagePanelView` 的缩放倍数被重置**：视图由模板重建，属预期行为（VM 状态不丢），未做专门回归。
+
+- 下一步：S4（线程、工作流、日志），见指南 §4。W-01-retry、W-06~W-09 都在那一片。

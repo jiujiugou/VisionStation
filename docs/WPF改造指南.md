@@ -35,7 +35,7 @@
 S0 基线冻结                       DONE
  └─ S1 测试护栏 + 最小抽象        DONE（W-10/12/17/22/23）
      └─ S2 组合根/启动/关闭       DONE（W-01/02/20/21 全部 FIXED）
-         └─ S3 Shell/导航边界      OPEN（diff 最大）
+         └─ S3 Shell/导航边界      DONE（W-03/04/05/24 全部 FIXED）
              └─ S4 线程/工作流     OPEN（技术上最难）
                  └─ S5 配置/路径    OPEN（含需拍板决策）
                      └─ S6 资源/命名  OPEN
@@ -46,7 +46,7 @@ S0 基线冻结                       DONE
 | S0 | 记录改造前基线 | DONE | — |
 | S1 | App 测试工程、`IDialogService`、`IRecipeStore`、去 VM 弹窗与文件 IO、删图像双写 | DONE | W-10/W-12/W-17/W-22/W-23 |
 | S2 | 组合根三段、异步建库、有序关闭、应用级取消、设备连接时机 | **DONE** | W-01（设备部分）/W-02/W-20/W-21 |
-| S3 | View 退出 DI、`DataTemplate` 导航、页面 VM Transient | OPEN | W-01（App 部分）/W-03/W-04/W-05/W-24 |
+| S3 | View 退出 DI、`DataTemplate` 导航、Shell + 导航服务 | **DONE** | W-03/W-04/W-05/W-24 |
 | S4 | 检测/存图移出 UI 线程、位图 `Freeze`、日志 sink、结果面板数据驱动 | OPEN | W-06/W-07/W-08/W-09/W-11/W-13 |
 | S5 | 强类型 Options、可写路径分离、热重载决策 | OPEN | W-14/W-15 |
 | S6 | 资源字典、去硬编码色、命名、注释 | OPEN | W-16/W-18/W-19 |
@@ -103,9 +103,22 @@ S2.1~S2.5 全部 DONE，W-01（设备部分）/W-02/W-20/W-21 已 FIXED。现在
 
 ---
 
-## 3. S3：Shell、导航、View/VM 边界（diff 最大的一片）
+## 3. S3：Shell、导航、View/VM 边界（DONE，勿重做）
 
-拆成两个可独立编译的提交：S3a 导航骨架，S3b 去 View DI。
+**已完成（2026-10-20）**，W-03/W-04/W-05/W-24 全部 FIXED。现在的形态：
+
+- `ShellViewModel` 是窗口的唯一 DataContext：`Sidebar` / `StatusBar` / `CurrentPage` + F2 命令路由；
+- `NavigationService` 写死路由表（检测/相机），未知路由返回 false；
+- `App.xaml` 九条 `DataTemplate` 完成 VM→View，容器里没有任何 View；
+- 所有 View 无参构造 + `d:DataContext`；`MainWindow` 只剩 1 个构造参数。
+
+证据与 NOT_RUN 清单见 `docs/WPF规范落地记录.md` 的 S3 段。下面是拆分记录，留作以后加页面时的参照。
+
+拆成两个提交，每一步都必须**单独可编译、单独能真实启动**：S3a 抽页面（行为不变）、S3b 导航与 DI 归位。
+
+> 为什么按这个顺序：`InspectionPageViewModel` 不存在，导航就无处可指；`MainWindow` 手里的
+> `ImagePanel` / `RoiEditor` 两个 `x:Name` 和 `_imagePanelVm` / `_roiEditorVm` 两个字段不交给页面 VM，
+> F2 就没法命令化。先抽页面，再换导航——反过来做第一步编译不过。
 
 ### 3.1 目标形态
 
@@ -128,18 +141,38 @@ MainWindow (View，无业务依赖)
 - View 不进 DI；页面 VM 默认 Transient；Shell/StatusBar 等跨页状态可以是 Singleton。
 - `IServiceProvider` 只允许出现在组合根；VM 里不允许 `GetRequiredService`。
 
-### 3.2 S3a 导航骨架
+### 3.2 S3a 抽页面（行为不变）
+
+目标：把检测页从 `MainWindow` 里搬出来，**不改任何可见行为**（导航仍是 `Visibility` 切换）。
+
+1. 新增 `InspectionPageViewModel`：持有 `ImagePanel` / `ResultPanel` / `LogPanel` / `ControlPanel` /
+   `RoiEditor` 五个子 VM，加 `IsRoiEditorOpen` 与 `ToggleRoiEditorCommand`。子 VM 之间**不互相引用**；
+   父页面 VM 持有子 VM 是组合关系，不算跨页通信。
+2. 新增 `InspectionPageView.xaml`：把 `MainWindow.xaml:23-50` 那一段版面（`Grid x:Name="InspectionPage"` 内部）
+   整体搬过去，`ContentControl Content="{Binding ImagePanel}"` 等。
+3. F2 命令化：删 `MainWindow.xaml.cs` 的 `KeyDown` 处理与 `ToggleEditMode()`（`:77-112`），
+   改 `KeyBinding` → `ToggleRoiEditorCommand`；`IsRoiEditorOpen` 用 `BooleanToVisibilityConverter` 驱动覆盖层。
+4. `MainWindow.xaml` 把原版面换成一个 `ContentControl x:Name="InspectionPage" Content="{Binding InspectionPage}"`；
+   `Visibility` 切换、标题改写暂时**原样保留**。
+5. 窗口标题不再由 code-behind 改写。二选一：绑 `{Binding CurrentPage.WindowTitle}`，或固定标题、
+   "编辑 ROI" 只体现为覆盖层可见。**默认取后者**（少一个纯装饰属性），要动态标题再说。
+6. `MainViewModel` 里只留检测链路（`ProcessFrame`）与它自己用的成员，版面相关的搬走；**不要在这一步抽
+   `IInspectionWorkflow`**，那是 S4。
+
+验收：把旧版和新版的窗口截图对照，版面像素级一致；F2 正常进出 ROI 编辑、切页自动退出；`ci.cmd` 0。
+
+### 3.3 S3b 导航与 DI 归位
 
 1. 新增 `INavigationService` / `NavigationService`：`Navigate(string route)`、`object? CurrentPage`、
    `string CurrentRoute`；**未知路由明确失败**（抛异常或返回 false），不要静默什么都不做。
 2. 页面 VM 由 `NavigationService` 内部 `new`（路由 → VM 的 switch）。
    **不建 `IPageFactory`**：页面 VM 目前没有构造参数，多一层工厂等于绕开 `DataTemplate`；
    等真出现"打开某条记录详情"这类带参数的页面再加。
-   - `"检测"` → `InspectionPageViewModel`；`"相机"` → `CameraPageViewModel`；
+   - `"检测"` → `InspectionPageViewModel`（S3a 已有）；`"相机"` → `CameraPageViewModel`；
    - 其余路由：**先禁用**或显示占位页，行为要由人确认，不能假装能导航。
 3. `SidebarViewModel` 改成调用 `INavigationService.Navigate(route)`，`ActivePage` 从导航状态推导；
    删除 `NavigateMessage`（`Messages.cs:68-75`）。
-4. `MainWindow.xaml` 改成三个 `ContentControl`：
+4. `MainWindow.xaml` 改成三个 `ContentControl`，删掉所有 `x:Name` 与 `Visibility` 切换：
 
 ```xml
 <ContentControl Grid.Column="0" Content="{Binding Sidebar}" />
@@ -147,21 +180,8 @@ MainWindow (View，无业务依赖)
 <ContentControl Grid.Row="1" Content="{Binding StatusBar}" />
 ```
 
-5. `MainWindow.xaml.cs` 只保留 `InitializeComponent()` 和 `DataContext`；删除 `Visibility` 切换、
-   `NavigateMessage` 订阅、标题改写。
-6. F2 改成命令：`InspectionPageViewModel.ToggleRoiEditorCommand`，XAML 用 `KeyBinding`；
-   `IsRoiEditorOpen` 通过 `BooleanToVisibilityConverter` 控制覆盖层。
-
-### 3.3 S3b 页面组合与去 View DI
-
-1. 新增 `InspectionPageViewModel`，持有 `ImagePanel` / `ResultPanel` / `LogPanel` / `ControlPanel` /
-   `RoiEditor` 子 VM 和 `IsRoiEditorOpen`。子 VM 由页面内创建；**子 VM 之间不互相引用**，
-   跨页 VM 更不允许。父页面 VM 持有子 VM 是组合关系，不算跨页通信。
-2. 新增 `InspectionPageView.xaml`，用 `ContentControl Content="{Binding ImagePanel}"` 等把版面搬过去；
-   `MainWindow` 不再知道这些面板。
-3. 所有 View 改无参构造：删除 `DataContext = vm`；需要 VM 时从 `DataContext` 取；
-   加 `d:DataContext="{d:DesignInstance ...}"` 保证设计器可预览（W-24）。
-4. `App.xaml` 加 `DataTemplate`（VM 类型 → View），这是 WPF 的现成机制，不要用工厂绕：
+5. `MainWindow.xaml.cs` 只保留 `InitializeComponent()` 和 `DataContext`。
+6. `App.xaml` 加 `DataTemplate`（VM 类型 → View），这是 WPF 的现成机制，不要用工厂绕：
 
 ```xml
 <DataTemplate DataType="{x:Type vm:InspectionPageViewModel}">
@@ -172,20 +192,35 @@ MainWindow (View，无业务依赖)
 </DataTemplate>
 ```
 
-5. DI：删除 `AddViews` 里所有 View / `MainWindow` 注册；页面 VM 用 `AddTransient`；
-   Shell / StatusBar / 服务保持 `AddSingleton`；`MainWindow` 由 `AppHost.Show()` 直接 `new`。
-6. 每个页面至少一个设计时 VM 或 `d:DataContext`，设计器不能空白。
+7. 所有 View 改无参构造：删除 `DataContext = vm`；需要 VM 时从 `DataContext` 取；
+   加 `d:DataContext="{d:DesignInstance ...}"` 保证设计器可预览（W-24）。每个页面至少一个设计时 VM，
+   设计器不能空白。
+8. DI：删除 `AddViews` 里所有 View / `MainWindow` 注册；**页面 VM 用 `AddSingleton`**；
+   `MainWindow` 由 `AppHost` 直接 `new`（`sp => new MainWindow(sp.GetRequiredService<ShellViewModel>())`）。
+   - 为什么不是 `AddTransient`：`MainViewModel` 每帧直接写 `ImagePanel` / `StatusBar`，
+     面板 VM 一旦是 Transient，就会写到"界面上没显示的那一份"，表现为界面永远不动、且不报错。
+     页面在本应用是常驻工作台（不是"打开某条记录"式多实例页），活到进程结束是正确的归属；
+     真出现多实例页面时，页面 VM 才该 Transient，且要把"谁写面板"改成消息或服务，不能只改注册。
+9. `AppHost.InitializeAsync` 要显式 `GetRequiredService<MainViewModel>()`：
+   窗口不再注入它之后，没人解析它 = 没人订阅触发 = 不采图。
 
 ### 3.4 测试与验收
 
-测试：`NavigationServiceTests`（路由 → 预期 VM 类型、未知路由行为、重复导航是否复用/新建符合声明）、
-`SidebarViewModelTests`（点击 → `Navigate` 被调用、`ActivePage` 更新）、
-`AppCompositionTests`（容器里没有 `Window` / `UserControl` / View 类型；页面 VM 是 Transient）。
-**不写 `MainWindow` 单元测试**，窗口行为靠走查。
+**S3a 单独验收**（此时导航还没换，别提前测导航）：
 
-验收：连续切页 20 次内存/句柄不持续增长；离开页面后后台刷新停止（当前只有相机页，先确认无常驻定时器）；
-View 不在 DI；代码里搜不到 `NavigateMessage` 和用 `Visibility` 切页面；F2 编辑 ROI 正常、切页自动退出编辑；
-设计器能预览"检测""相机"两页；`ci.cmd` 0 + 启动走查。
+- 测试：`InspectionPageViewModelTests` —— F2 命令连续两次调用 `IsRoiEditorOpen` 真假交替；
+  打开时 `RoiEditor.Image` 等于 `ImagePanel.OriginalImage`。
+- 走查：新旧窗口截图对照版面一致；F2 进/出编辑；切到"相机"页再切回，编辑态已退出；`ci.cmd` 0。
+- **不写 `MainWindow` 单元测试**，窗口行为靠走查。
+
+**S3b 单独验收**：
+
+- 测试：`NavigationServiceTests`（路由 → 预期 VM 类型、未知路由明确失败、重复导航按声明复用或新建）、
+  `SidebarViewModelTests`（点击 → `Navigate` 被调用、`ActivePage` 更新）、
+  `AppCompositionTests`（容器里没有 `Window` / `UserControl` / 任何 View 类型；页面 VM 与导航服务已注册）。
+- 走查：连续切页 20 次内存/句柄不持续增长；离开页面后后台刷新停止（当前只有相机页，先确认无常驻定时器）；
+  代码里搜不到 `NavigateMessage`、搜不到用 `Visibility` 切页面；F2 仍正常；设计器能预览"检测""相机"两页；
+  `ci.cmd` 0 + 启动/关窗走查。
 
 ---
 
@@ -348,9 +383,9 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 
 ## 9. 当前执行点
 
-**S1 DONE → S2 DONE → 下一步 S3（View 退出 DI + `DataTemplate` 导航）。**
+**S1 DONE → S2 DONE → S3 DONE → 下一步 S4（线程、工作流与日志）。**
 
-当前基线：UnitTests 199 + App.Tests 24 = **223**，告警 115，`ci.cmd` 0。
+当前基线：UnitTests 199 + App.Tests 41 = **240**，告警 115，`ci.cmd` 0。
 
-做 S3 之前不要碰线程（S4）、设备构造函数（已定案，见 §2）和配置路径（S5）。
-S3 会同时改 `MainWindow` / `Views` / `ViewModels` / DI 注册，diff 大，先按 §3.2 / §3.3 拆成两个提交。
+S4 之前不要碰配置路径（S5）和资源/命名（S6）。S4 会同时动 `MainViewModel`、`InspectionPageViewModel`
+和日志管线，按 §4.1~§4.3 顺序做：先抽 workflow（可单测），再把位图转换挪后台，最后换 `UiLogSink`。

@@ -6,9 +6,11 @@ namespace VisionStation.App;
 // ═══════════════════════════════════════════════════════════════
 //  消息定义 —— ViewModel 之间的唯一通信方式
 //
-//  原则：任何 ViewModel 都不直接引用另一个 ViewModel。
-//       想通信 → 发消息。关心的 → 订阅消息。
-//       谁发的、谁收的，互相不知道。
+//  原则：ViewModel 之间的**通知**走消息（谁关心谁订阅，收发双方互不知道）。
+//       但"当前页是谁"不是通知，是状态 —— 那条走 INavigationService，别再发消息。
+//
+//  注意：页面切换曾经是 NavigateMessage + MainWindow 改 Visibility，
+//       结果是窗口必须认识所有页面。S3b 已把它换成导航服务 + DataTemplate。
 //
 //  用法：
 //    发：WeakReferenceMessenger.Default.Send(new XxxMessage(data));
@@ -63,15 +65,6 @@ public sealed class CameraStatusMessage : ValueChangedMessage<bool>
 public sealed class RoisUpdatedMessage : ValueChangedMessage<bool>
 {
     public RoisUpdatedMessage() : base(true) { }
-}
-
-/// <summary>
-/// 页面导航消息
-/// 发送者：SidebarVM → 订阅者：MainWindow（切换页面）
-/// </summary>
-public sealed class NavigateMessage : ValueChangedMessage<string>
-{
-    public NavigateMessage(string page) : base(page) { }
 }
 
 /// <summary>

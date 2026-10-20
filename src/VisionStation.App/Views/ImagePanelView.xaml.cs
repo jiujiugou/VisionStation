@@ -7,20 +7,19 @@ namespace VisionStation.App.Views;
 
 public partial class ImagePanelView : UserControl
 {
-    private readonly ImagePanelViewModel _vm;
-
     // 缩放/平移状态
     private double _zoom = 1.0;
     private Point _panStart;
     private Point _mousePos;
     private bool _isPanning;
 
-    public ImagePanelView(ImagePanelViewModel vm)
-    {
-        InitializeComponent();
-        _vm = vm;
-        DataContext = _vm;
-    }
+    /// <summary>
+    /// VM 从 DataContext 取（S3b）：视图由 DataTemplate 创建，构造函数没有参数，
+    /// 也不允许再自己 new 一个 VM —— 那样界面上显示的就不是检测链路写入的那一份。
+    /// </summary>
+    private ImagePanelViewModel? Vm => DataContext as ImagePanelViewModel;
+
+    public ImagePanelView() => InitializeComponent();
 
     // ════════════════════════════════════════════════
     //  滚轮缩放（以鼠标位置为中心，zoom 1x~20x）
@@ -59,8 +58,9 @@ public partial class ImagePanelView : UserControl
     {
         // 实时记录鼠标位置并显示像素坐标
         _mousePos = e.GetPosition(ImageDisplay);
-        double imgW = _vm.CurrentImage?.PixelWidth ?? 0;
-        double imgH = _vm.CurrentImage?.PixelHeight ?? 0;
+        var vm = Vm;
+        double imgW = vm?.CurrentImage?.PixelWidth ?? 0;
+        double imgH = vm?.CurrentImage?.PixelHeight ?? 0;
         double dispW = ImageDisplay.ActualWidth;
         double dispH = ImageDisplay.ActualHeight;
 

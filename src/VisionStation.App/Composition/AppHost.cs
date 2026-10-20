@@ -127,6 +127,19 @@ public sealed class AppHost : IAsyncDisposable
             ?? throw new InvalidOperationException("AppHost 尚未 Configure");
 
         var log = services.GetRequiredService<ILogger<App>>();
+
+        // S2.4：设备连接在这里做，不在 DI 工厂里 —— 解析一个对象不该有"打开设备"这种副作用，
+        // 否则启动顺序会被"谁先被解析"决定，测试一建容器就会去开真相机。
+        // 必须早于自检：HealthChecker 读的是 DeviceManager.AllConnected。
+        var devices = services.GetRequiredService<DeviceManager>();
+        var connectFailures = devices.ConnectAll();
+        var (online, total) = devices.ConnectionStats;
+        if (connectFailures.Count == 0)
+            log.LogInformation("设备连接完成 {Online}/{Total}", online, total);
+        else
+            log.LogWarning("设备连接完成 {Online}/{Total}，失败: {Failures}",
+                online, total, string.Join("; ", connectFailures));
+
         var health = services.GetRequiredService<IHealthChecker>();
         var results = health.RunAll();
 

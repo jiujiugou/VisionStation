@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using VisionStation.App.Composition;
 using VisionStation.Core.Models;
+using VisionStation.Devices;
 using VisionStation.Service;
 using VisionStation.Service.Housekeeping;
 using VisionStation.Storage;
@@ -121,6 +122,48 @@ public class AppHostTests
             await Assert.ThrowsAsync<IOException>(
                 () => host.InitializeAsync(CancellationToken.None));
             Assert.Equal(0, showCount);
+
+            await host.StopAsync(TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
+    /// <summary>
+    /// S2.4：设备连接从 DI 工厂搬到 InitializeAsync，且必须早于自检
+    /// （HealthChecker 读的是 DeviceManager.AllConnected）。
+    /// 这条把"顺序"钉成可执行的断言：自检开始时设备的 Connect 已经跑过一次。
+    /// </summary>
+    [Fact]
+    public async Task InitializeAsync_ConnectsDevicesBeforeHealthCheck()
+    {
+        var root = NewRoot();
+        var device = new RecordingDevice();
+        var health = new FakeHealthChecker();
+        var connectsSeenByHealth = -1;
+
+        health.OnRun = () => connectsSeenByHealth = device.ConnectCount;
+
+        try
+        {
+            var host = new AppHost(Config(root), services =>
+            {
+                var dm = new DeviceManager();
+                dm.Register(device);
+                services.AddSingleton(dm);          // 后注册覆盖 AddDevices 里的真实 DeviceManager
+                services.AddSingleton<IInspectionRepository>(new FakeRepository());
+                services.AddSingleton<IHealthChecker>(health);
+                services.AddSingleton<IHousekeepingService>(new FakeHousekeeping());
+            }, _ => new FakeWindow(() => { }));
+
+            host.Configure();
+            await host.InitializeAsync(CancellationToken.None);
+
+            Assert.Equal(1, device.ConnectCount);          // 只连一次，不是"每解析一次连一次"
+            Assert.Equal(1, connectsSeenByHealth);         // 自检开始时已经连过
+            Assert.Equal(1, health.RunCount);
 
             await host.StopAsync(TimeSpan.FromSeconds(1));
         }
@@ -300,11 +343,27 @@ public class AppHostTests
         public List<HealthResult> Results { get; } = new();
         public int RunCount { get; private set; }
 
+        /// <summary>自检被调用的瞬间要观察什么（用来断言"连接早于自检"这类顺序）</summary>
+        public Action? OnRun { get; set; }
+
         public List<HealthResult> RunAll()
         {
             RunCount++;
+            OnRun?.Invoke();
             return Results;
         }
+    }
+
+    /// <summary>记录 Connect 次数的设备替身</summary>
+    private sealed class RecordingDevice : IDevice
+    {
+        public int ConnectCount { get; private set; }
+        public string Name => "recording";
+        public string Type => "Fake";
+        public bool IsConnected => ConnectCount > 0;
+        public string Status => IsConnected ? "在线" : "离线";
+        public void Connect() => ConnectCount++;
+        public void Disconnect() { }
     }
 
     private sealed class FakeHousekeeping : IHousekeepingService

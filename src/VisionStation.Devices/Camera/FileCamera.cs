@@ -37,8 +37,6 @@ public sealed class FileCamera : ICamera
     public int FrameCount { get; private set; }
     public int TotalFiles => _files.Count;
 
-    public void open() => RefreshFileList();
-
     /// <summary>本实现只持有托管对象（文件路径列表），关闭无需动作。</summary>
     public void close() { }
 
@@ -54,6 +52,12 @@ public sealed class FileCamera : ICamera
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// 只赋值，不扫目录（W-01/W-02 / S2.5）。
+    /// 构造函数有副作用 = "new 一个对象"就会碰磁盘：DI 装配、热切换的候选实例、
+    /// 单元测试都会顺手触发一次真实 IO，而且失败路径只能靠 constructor 里 catch 兜住。
+    /// 连接语义统一交给 open()。
+    /// </summary>
     public FileCamera(string folderPath, string fileFilter = "*.jpg", bool loop = true,
         ILogger<FileCamera>? logger = null)
     {
@@ -61,9 +65,10 @@ public sealed class FileCamera : ICamera
         _fileFilter = fileFilter;
         _loop = loop;
         _logger = logger;
-
-        RefreshFileList();
     }
+
+    /// <summary>连接 = 扫一次目录。未 open 时文件列表为空，IsAvailable 必为 false。</summary>
+    public void open() => RefreshFileList();
 
     public void RefreshFileList()
     {
@@ -88,7 +93,8 @@ public sealed class FileCamera : ICamera
                 extensions = new[] { ".jpg", ".png", ".bmp" };
 
             // 目录存在 ≠ 可读：权限、被占用、路径过长都会在这里抛。
-            // 构造函数就会调用本方法，异常若逃出去 = 整个程序启动失败，必须就地降级为空列表。
+            // open() 会调用本方法，异常若逃出去 = 启动失败（或热切换候选构造失败），
+            // 必须就地降级为空列表。
             var all = Directory.GetFiles(_folderPath);
 
             foreach (var file in all)

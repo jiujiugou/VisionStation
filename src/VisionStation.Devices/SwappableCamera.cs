@@ -83,12 +83,19 @@ public class SwappableCamera : ICamera
                 return false;    // 工厂抛异常：旧相机不受影响，交给调用方报错
             }
 
-            if (candidate == null || !candidate.IsAvailable)
+            if (candidate == null)
+                return false;
+
+            // S2.5：工厂只造对象、不连接，所以"连上"这一步必须在这里做。
+            // 切换的语义是"连上并验证可用"，不是"造了个对象就算切过去了"。
+            // open 失败不抛（各实现内部自己 catch 并降级），可用性仍由 IsAvailable 判。
+            candidate.open();
+
+            if (!candidate.IsAvailable)
             {
                 // 典型场景：旧海康还占着设备，新建的第二个实例必然 OpenDevice 失败。
                 // 此时既不能替换 _active，更不能 Dispose 旧实例。
-                // 工厂返回 null 也走这里，所以 candidate 可能为空 —— 不能写成 candidate.Dispose()
-                candidate?.Dispose();
+                candidate.Dispose();
                 return false;
             }
 

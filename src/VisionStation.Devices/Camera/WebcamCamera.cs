@@ -27,11 +27,14 @@ public class WebcamCamera : ICamera
     public int FrameCount { get; private set; }
 
     /// <param name="deviceIndex">摄像头索引，0=默认摄像头</param>
+    /// <remarks>
+    /// 只赋值，不打开设备（W-01/W-02 / S2.5）。构造即连接会让"造一个候选实例"
+    /// 变成独占摄像头，热切换时新旧实例抢同一个设备必然失败。
+    /// </remarks>
     public WebcamCamera(int deviceIndex = 0, ILogger<WebcamCamera>? logger = null)
     {
         _deviceIndex = deviceIndex;
         _logger = logger;
-        OpenDevice();
     }
 
     /// <summary>打开（或重新打开）摄像头 —— close() 之后可再次调用</summary>

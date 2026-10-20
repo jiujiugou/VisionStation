@@ -23,12 +23,20 @@ public class DeviceLayerTests
     private sealed class FakeCamera : ICamera
     {
         public bool Available { get; set; } = true;
+
+        /// <summary>open() 之后是否变可用 —— 用来模拟"工厂只造对象、连接后才可用"的真实相机</summary>
+        public bool AvailableAfterOpen { get; set; }
+
         public int OpenCount { get; private set; }
         public int CloseCount { get; private set; }
         public int DisposeCount { get; private set; }
         public bool IsAvailable => Available;
         public int FrameCount => 0;
-        public void open() => OpenCount++;
+        public void open()
+        {
+            OpenCount++;
+            if (AvailableAfterOpen) Available = true;
+        }
         public void close() => CloseCount++;
         public CameraFrame? Capture() => null;
         public void Dispose() => DisposeCount++;
@@ -56,6 +64,17 @@ public class DeviceLayerTests
         public bool IsConnected { get; set; }
         public string Status => IsConnected ? "在线" : "离线";
         public void Connect() { }
+        public void Disconnect() { }
+    }
+
+    /// <summary>Connect 直接抛的设备：证明单台失败不会带走整个 ConnectAll</summary>
+    private sealed class ThrowingDevice : IDevice
+    {
+        public string Name => "boom";
+        public string Type => "Fake";
+        public bool IsConnected => false;
+        public string Status => "离线";
+        public void Connect() => throw new InvalidOperationException("设备被占用");
         public void Disconnect() { }
     }
 
@@ -187,6 +206,27 @@ public class DeviceLayerTests
         Assert.Equal(1, old.DisposeCount);
     }
 
+    /// <summary>
+    /// S2.5：工厂只造对象、不连接，所以"连上"必须由 SwapTo 负责。
+    /// 候选相机构造后不可用、open 之后才可用 —— 如果 SwapTo 不调 open，
+    /// 这条会失败（切换永远回滚），正是改造前真实相机的行为。
+    /// </summary>
+    [Fact]
+    public void SwapTo_OpensCandidate_BecauseFactoryOnlyCreates()
+    {
+        var old = new FakeCamera { Available = true };
+        var candidate = new FakeCamera { Available = false, AvailableAfterOpen = true };
+        using var swappable = new SwappableCamera(old, _ => candidate, "File");
+
+        bool ok = swappable.SwapTo("Hikvision");
+
+        Assert.True(ok);
+        Assert.Equal(1, candidate.OpenCount);
+        Assert.True(swappable.IsAvailable);
+        Assert.Equal("Hikvision", swappable.CurrentMode);
+        Assert.Equal(1, old.DisposeCount);
+    }
+
     [Fact]
     public void SwapTo_FactoryThrows_RollsBack()
     {
@@ -305,17 +345,76 @@ public class DeviceLayerTests
     public void DeviceManager_RegisterNull_Throws()
         => Assert.Throws<ArgumentNullException>(() => new DeviceManager().Register(null!));
 
+    /// <summary>
+    /// S2.4：连接必须由调用方显式触发，且单台失败只上报不抛。
+    /// 旧实现里 ConnectAll 在 DI 工厂内被调用 —— 解析一个对象就等于开机连设备，
+    /// 启动顺序被"谁先被解析"决定，测试一建容器还会去开真相机。
+    /// </summary>
+    [Fact]
+    public void DeviceManager_ConnectAll_AllOnline_ReturnsNoFailure()
+    {
+        var dm = new DeviceManager();
+        dm.Register(new FakeDevice(true));
+
+        Assert.Empty(dm.ConnectAll());
+    }
+
+    [Fact]
+    public void DeviceManager_ConnectAll_ReportsFailuresInsteadOfThrowing()
+    {
+        var dm = new DeviceManager();
+        dm.Register(new FakeDevice(true));     // 连得上
+        dm.Register(new FakeDevice(false));    // Connect 是空实现，调完仍离线 —— 必须被报出来
+        dm.Register(new ThrowingDevice());     // Connect 抛异常 —— 不许带走其他设备
+
+        var failures = dm.ConnectAll();
+
+        // 两种失败都要能看见：抛异常的、以及"调了但没连上"的。
+        // 只看异常会漏掉后者——相机打不开时各实现基本自己 catch 掉了。
+        Assert.Equal(2, failures.Count);
+        Assert.Contains(failures, f => f.Contains("boom"));
+        Assert.Contains(failures, f => f.Contains("fake"));
+    }
+
     // ═══════════════════════════════════════════════════
     //  F-D07 / F-D08 / F-D01(File) 文件相机
     // ═══════════════════════════════════════════════════
 
     [Fact]
+    public void FileCamera_Construct_DoesNotScanDisk()
+    {
+        using var dir = new TempDir();
+        using (var img = new Mat(4, 4, MatType.CV_8UC1, new Scalar(10)))
+            Cv2.ImWrite(Path.Combine(dir.Path, "a.png"), img);
+
+        var cam = new FileCamera(dir.Path, "*.png");
+
+        // S2.5：构造函数只赋值。以前这里会在 new 的瞬间扫磁盘 —— DI 装配、
+        // 热切换的候选实例、单元测试都会顺手触发一次真实 IO。
+        Assert.Equal(0, cam.TotalFiles);
+        Assert.False(cam.IsAvailable);
+
+        // open() 才是"连接"
+        cam.open();
+        Assert.Equal(1, cam.TotalFiles);
+        Assert.True(cam.IsAvailable);
+    }
+
+    [Fact]
     public void FileCamera_MissingFolder_DoesNotThrowAndIsUnavailable()
     {
-        // 目录被删/路径打错是现场常态；旧实现让异常从构造函数一路抛到 DI 装配 = 启动失败
+        // 目录被删/路径打错是现场常态；构造函数不许碰磁盘（S2.5），open() 里也不许抛
         var cam = new FileCamera(Path.Combine(Path.GetTempPath(), "vs_missing_" + Guid.NewGuid().ToString("N")));
+
+        // 构造只赋值：没 open 之前一律不可用（不是"构造即就绪"）
         Assert.False(cam.IsAvailable);
         Assert.Null(cam.Capture());
+
+        cam.open();
+        Assert.False(cam.IsAvailable);
+        Assert.Equal(0, cam.TotalFiles);
+
+        // 重复 open 是重连语义，不能抛
         cam.RefreshFileList();
         Assert.Equal(0, cam.TotalFiles);
     }
@@ -329,6 +428,7 @@ public class DeviceLayerTests
                 Cv2.ImWrite(Path.Combine(dir.Path, name), img);
 
         var cam = new FileCamera(dir.Path, "*.png", loop: false);
+        cam.open();     // S2.5：连接语义在 open，不再靠构造函数
         Assert.True(cam.IsAvailable);
 
         for (int i = 0; i < 2; i++)
@@ -351,6 +451,7 @@ public class DeviceLayerTests
             Cv2.ImWrite(Path.Combine(dir.Path, "only.png"), img);
 
         var cam = new FileCamera(dir.Path, "*.png", loop: true);
+        cam.open();
         for (int i = 0; i < 3; i++)
         {
             var frame = cam.Capture();
@@ -371,6 +472,7 @@ public class DeviceLayerTests
             Cv2.ImWrite(Path.Combine(dir.Path, "x.png"), img);
 
         var cam = new FileCamera(dir.Path, "*.png", loop: true);
+        cam.open();
         Exception? failure = null;
         int stop = 0;
 

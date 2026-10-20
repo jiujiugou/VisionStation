@@ -51,8 +51,9 @@
 
 | ID | 规则 | 现状与证据 | 影响 | 优先级 | 状态 |
 |---|---|---|---|---|---|
-| W-01 | WPF-L1.2 | 构造函数产生副作用：`HikCamera` 构造即连接（`src/VisionStation.Devices/Camera/HikCamera.cs:71-75`）；`DeviceManager` 在 DI 工厂里 `ConnectAll`（`src/VisionStation.App/Services/ServiceCollectionExtensions.cs:69-76`）；`MainViewModel` 构造内订阅触发并发消息（`src/VisionStation.App/ViewModels/MainViewModel.cs:97-117`）；多个 VM 构造内注册 Messenger（`LogPanelViewModel.cs:37-48`、`ResultPanelViewModel.cs:41-84`） | 启动顺序由“谁先解析”决定；VM 无法脱离 UI 测试 | P2 | OPEN |
-| W-02 | WPF-L1.2 / L1.3 | 相机启动被初始化两次：`SwappableCamera` 构造时 `HikCamera` 已 `Initialize`（`ServiceCollectionExtensions.cs:57-63`、`HikCamera.cs:71-75`），随后 `ConnectAll` 的 `open()` 又 `TeardownDevice + Initialize`（`HikCamera.cs:387-394`） | 启动变慢；设备被关闭/重开的失败窗口翻倍 | P2 | OPEN |
+| W-01 | WPF-L1.2 | 构造函数产生副作用：`HikCamera` 构造即连接（`src/VisionStation.Devices/Camera/HikCamera.cs:71-75`）；`DeviceManager` 在 DI 工厂里 `ConnectAll`（`src/VisionStation.App/Services/ServiceCollectionExtensions.cs:69-76`）；`MainViewModel` 构造内订阅触发并发消息（`src/VisionStation.App/ViewModels/MainViewModel.cs:97-117`）；多个 VM 构造内注册 Messenger（`LogPanelViewModel.cs:37-48`、`ResultPanelViewModel.cs:41-84`）。**设备部分已修（S2.4/S2.5）**：三个相机构造函数都只赋值，连接统一走 `open()`；`DeviceManager` 的 DI 工厂只 `Register`，`AppHost.InitializeAsync` 在自检前显式 `ConnectAll()` 并记录失败清单（`AppHost.cs:129-142`）；`SwappableCamera.SwapTo` 创建候选后显式 `open()` 再判可用（`SwappableCamera.cs:74-96`） | 启动顺序由“谁先解析”决定；VM 无法脱离 UI 测试 | P2 | FIXED（设备部分，见 W-01-retry） |
+| W-01-retry | WPF-L1.2 | 从 W-01 拆出：`MainViewModel` 构造内订阅触发并发消息（`MainViewModel.cs:105-117`），多个 VM 构造内注册 Messenger 且 `Dispose` 才注销。VM 的生命周期归页面，构造即订阅 = 页面销毁时仍在收消息 | VM 无法脱离 UI 测试；页面切走后仍收消息 | P2 | OPEN |
+| W-02 | WPF-L1.2 / L1.3 | 相机启动被初始化两次：`SwappableCamera` 构造时 `HikCamera` 已 `Initialize`（`ServiceCollectionExtensions.cs:57-63`、`HikCamera.cs:71-75`），随后 `ConnectAll` 的 `open()` 又 `TeardownDevice + Initialize`（`HikCamera.cs:387-394`）。**已修（S2.5）**：`HikCamera` 构造函数不再 `Initialize()`，只有 `open()` 会走完整七步；启动时唯一的一次连接来自 `AppHost.InitializeAsync` → `ConnectAll` | 启动变慢；设备被关闭/重开的失败窗口翻倍 | P2 | FIXED |
 | W-03 | WPF-D1.2 / V1.1 | View 与 ViewModel 全部 Singleton，`MainWindow` 注入 8 个 View（`ServiceCollectionExtensions.cs:141-165`、`MainWindow.xaml.cs:15-44`） | View 生命周期脱离窗口；无法用 DataTemplate/设计时；页面 VM 无法按页面释放 | P2 | OPEN |
 | W-04 | WPF-N1.1 / A1.5 | 导航用 Messenger + `Visibility`：`SidebarViewModel.cs:49-53` 发 `NavigateMessage`，`MainWindow.xaml.cs:46-54` 改可见性，消息定义在 `Messages.cs:68-75` | 控制流分散；页面状态与可视树两套真相；导航不可单测 | P2 | OPEN |
 | W-05 | WPF-V1.3 | `MainWindow` code-behind 同时承担导航、F2 编辑模式、标题与可见性切换（`MainWindow.xaml.cs:46-80`） | 视图边界模糊，后续功能会继续往 code-behind 堆 | P2 | OPEN |
@@ -71,7 +72,7 @@
 | W-18 | WPF-S1.1 | `ICamera` 方法小写 `open/close`（`src/VisionStation.Devices/Camera/ICamera.cs:32,35`） | 契约与其余 PascalCase API 不一致 | P5 | OPEN |
 | W-19 | WPF-S1.3 | 业务代码内堆积事故编号/修复史（15 处 `修复（F-...）`，如 `HealthChecker.cs:42,73,85,115,163,198`、`HousekeepingService.cs:21,39,87,156,197,283`） | 规则与历史混在正文，阅读成本高 | P5 | OPEN |
 | W-20 | WPF-T1.1 | 启动期同步等建库已消除：`OnStartup` 同步入口 + `_ = StartAsync()` fire-and-forget（`App.xaml.cs:27,57`），`await host.InitializeAsync(...)`（`App.xaml.cs:74`）由 `AppHost.InitializeAsync` 内 `await EnsureCreatedAsync`（`AppHost.cs:118`）；健康检查弹框改为状态栏/日志面板上报（`App.xaml.cs:97`） | 冷启动不再卡 Dispatcher；启动失败走 `Shutdown(1)` | P1 | FIXED |
-| W-21 | WPF-L1.4 | 关闭已有序：`IAppWindow.Closing` → `AppHost.HandleWindowClosingAsync`（`AppHost.cs:194`）→ `ShutdownCoordinator` 六步（`ShutdownCoordinator.cs:46`）；`AppLifetime`（`IAppLifetime.cs:33`）提供应用级取消，`MainViewModel.OnTriggered` 先查 `IsStopping` 再碰 Dispatcher（`MainViewModel.cs:141`）；`ProcessFrame` 用 `IInFlightWorkMonitor` 租约登记在途（`MainViewModel.cs:169`）；`App.OnExit` 降级为有界兜底（`App.xaml.cs:191`） | 在途帧不会落在已释放的容器上；关窗有上界（8s 预算，实测 279-375ms） | P2 | FIXED |
+| W-21 | WPF-L1.4 | 关闭已有序：`IAppWindow.Closing` → `AppHost.HandleWindowClosingAsync`（`AppHost.cs:180`）→ `AppHost.StopAsync`（`AppHost.cs:212`）六步**直线代码**，每步一行带编号日志；`ShutdownState`（`ShutdownState.cs:13`，bool + CTS）提供应用级取消，`MainViewModel.OnTriggered` 先查 `IsStopping` 再碰 Dispatcher（`MainViewModel.cs:141`）；`ProcessFrame` 用 `InFlightWorkMonitor` 租约登记在途（`MainViewModel.cs:169`）；`App.OnExit` 降级为有界兜底（`App.xaml.cs:191`） | 在途帧不会落在已释放的容器上；关窗有上界（8s 预算，实测 279-375ms） | P2 | FIXED |
 | W-22 | 具体缺陷 | 旧实现 `ControlPanelViewModel.cs:134` 判断 `_camera is FileCamera`，但 DI 注入的是 `SwappableCamera`（`ServiceCollectionExtensions.cs:67`）；已改为 `_camera.open()`（`ControlPanelViewModel.cs:139`） | File/Hik 重连已恢复；Webcam 的 `open()` 在 `_opened` 时仍是 no-op，另记 | P1 | FIXED |
 | W-23 | 具体缺陷 | 旧实现 `RoiEditorViewModel.cs:286-301` 先改内存再 `File.WriteAllText`，并直接弹 `MessageBox`；现改为 copy-on-write + `IRecipeStore`（`RoiEditorViewModel.cs:291-321`） | 写失败不再污染内存配方；临时文件原子替换 | P1 | FIXED |
 | W-24 | WPF-V1.2 | View 只有带参构造函数，无法设计时实例化，也没有 `d:DataContext`（如 `ControlPanelView.xaml.cs:7-11`、`CameraPageView.xaml.cs:7-11`） | XAML 设计器空白；View 只能由 DI 创建，进一步锁死 W-03 | P2 | OPEN |
@@ -84,7 +85,7 @@
 |---|---|---|---|
 | **P0** | 规则、现状、ADR、AGENTS 索引 | `docs/`、`AGENTS.md` | **DONE**（2026-10-20） |
 | **P1** | 护栏：`VisionStation.App.Tests`；`IUiDispatcher` / `IDialogService` / `INavigationService`；去 VM 内 `MessageBox`；修 W-12/W-20/W-22/W-23 | App、新测试工程 | IN_PROGRESS（S1-1~S1-6 DONE；W-20 已 FIXED；`IUiDispatcher`/`INavigationService` 未做；S1-5 缩放/平移 NOT_RUN） |
-| **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | IN_PROGRESS（S2.1/S2.2/S2.3 DONE；W-21 FIXED；W-01/W-02 设备部分仍 OPEN） |
+| **P2** | 组合与生命周期：View 退出 DI；DataTemplate 导航；显式启动/停止；单例审计；修 W-01/W-02/W-03/W-04/W-05/W-21/W-24 | App、Devices | IN_PROGRESS（**S2 全部 DONE**；W-01/W-02/W-20/W-21 FIXED；W-03/W-04/W-05/W-24 属 S3；W-01 的 VM 订阅部分见 W-01-retry） |
 | **P3** | 线程与工作流：检测/存图移出 UI 线程；`Freeze`；日志 sink；结果面板数据驱动；修 W-06/W-07/W-08/W-09/W-11/W-13 | App、Service | NOT_RUN |
 | **P4** | 配置与路径：强类型 Options；安装资源/用户数据分离；`reloadOnChange` 决策；修 W-14/W-15 | App、Service | NOT_RUN（需决策） |
 | **P5** | 资源、命名、注释：拆 ResourceDictionary；`Open/Close`；事故编号移出业务代码；修 W-16/W-18/W-19 | App、Devices、docs | NOT_RUN |
@@ -358,7 +359,7 @@ App.Tests：7/7
   - 启动失败：DB 路径被文件占位 → 不显示窗口，退出码 1，`crash.log` 与日志 `[FTL] 未处理异常 (startup)`
     记录 `SqliteException: SQLite Error 14: 'unable to open database file'`。
 - 待决策：配方损坏是回退还是判为启动失败（当前回退）；自检失败项哪些致命/哪些降级。
-- 下一步：S2.3 关闭顺序（`ShutdownCoordinator`、接 `MainWindow.Closing`、W-21）。
+- 下一步（当时）：S2.3 关闭顺序 —— 已完成，见下节。
 
 ### S2.3（2026-10-20）：关闭顺序（DONE，W-21 FIXED）
 
@@ -420,5 +421,40 @@ C9 看门狗语义不变、C10 关闭不冻界面。每条契约的验证层与�
   `IShutdownStages`+`AppShutdownStages` 为 mock 而存在的三层、`IShutdownCoordinator`、`ILogShutdown`、`IWatchdogSignal`…），
   被指出"这是用 ASP.NET Core 的方式写 WPF"。已砍到 2 个类，净减约 600 行、10 个类型。
   代价如实记录：六步顺序从单测降级为「带编号日志 + 一次真实走查」，不再有 `ShutdownCoordinatorTests`。
-- W-21 → `FIXED`。W-01/W-02（设备构造副作用、`ConnectAll` 在 DI 工厂）仍 `OPEN`，属 S2.4/S2.5。
-- 下一步：S2.4 `DeviceManager` 移出 DI 工厂的 `ConnectAll`（`ServiceCollectionExtensions.cs:73-79`）。
+- W-21 → `FIXED`。W-01/W-02 已在 S2.4/S2.5 关闭（设备部分）。
+
+### S2.4（2026-10-20）：设备连接移出 DI 工厂（DONE，W-01 设备部分 / W-02 FIXED）
+
+改了三处：
+
+1. `DeviceManager.ConnectAll()` 由 `void` 改为返回失败清单。失败判据不止异常——各实现的
+   `Connect` 内部基本都自己 catch（相机打不开是常态，不该把进程带走），所以 `Connect` 之后
+   还要查一次 `IsConnected`，否则"调了但没连上"会被当成成功。
+2. `ServiceCollectionExtensions.AddDevices` 的工厂只 `Register`，不再 `ConnectAll`。
+   解析一个对象不该有"打开设备"这种副作用；否则启动顺序由"谁先被解析"决定，
+   测试一建容器就会去开真相机。
+3. `AppHost.InitializeAsync` 在 `health.RunAll()` **之前**显式 `ConnectAll()`，
+   成功记 `设备连接完成 {Online}/{Total}`，失败记 WRN + 失败清单。
+
+S2.5（同一提交）：三个相机构造函数只赋值不连接；`SwappableCamera.SwapTo` 创建候选后
+显式 `open()` 再判可用（工厂不再顺手连接，"连上"必须由切换逻辑负责）。见 W-02。
+
+L1：`DeviceManager_ConnectAll_ReportsFailuresInsteadOfThrowing`（一抛异常 + 一"调了仍离线"，
+断言两条都被报出且不抛）、`DeviceManager_ConnectAll_AllOnline_ReturnsNoFailure`、
+`FileCamera_Construct_DoesNotScanDisk`（目录里有图也不许被扫进来，open 后才有）、
+`SwapTo_OpensCandidate_BecauseFactoryOnlyCreates`、
+`InitializeAsync_ConnectsDevicesBeforeHealthCheck`（自检发生时 `ConnectCount` 已是 1）。
+
+L3 走查（临时副本 + File 相机，4 次运行）：
+
+| 场景 | 结果 |
+|---|---|
+| 正常启动 | `[INF] 设备连接完成 2/2` → `[INF] 自检 设备连接: OK (2/2 在线)`；启动 7.1s |
+| 二次启动 | 3.6s，`2/2 在线`，无「设备被占用」 |
+| 连点 3 次关闭 | 收尾 1 份，304ms，退出码 0，残留进程 0 |
+| 故障注入（相机目录不存在） | `[WRN] 设备连接完成 1/2，失败: 工业相机: 已调用 Connect 但仍未连接`；自检 FAIL 但不阻塞，窗口正常出现，退出码 0 |
+| `FileCamera` 扫描次数 | 每次运行恰好 1 次（`刷新完成 … 找到 5 张图`），证明构造不再扫盘、只由 `open()` 触发 |
+
+测试：UnitTests 199 + App.Tests 24 = **223**（新增 5 条）；告警 115 持平；`ci.cmd` 0。
+
+- 下一步：S3（View 退出 DI + `DataTemplate` 导航），见指南 §3。

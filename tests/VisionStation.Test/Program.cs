@@ -79,6 +79,7 @@ Console.WriteLine($"   [OK] 数据库: {dbPath}\n");
 Console.WriteLine("[5/6] 模拟产线检测流程...\n");
 
 var camera = new FileCamera(testDir, "*.jpg", loop: false);
+camera.open();   // S2.5：连接在 open，不在构造函数
 int frameNum = 0;
 
 while (true)

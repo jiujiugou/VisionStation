@@ -33,14 +33,37 @@ public class DeviceManager
         _devices.Add(device);
     }
 
-    /// <summary>连接所有设备</summary>
-    public void ConnectAll()
+    /// <summary>
+    /// 连接所有设备。返回连接失败的信息（空 = 全部成功）。
+    ///
+    /// 必须由调用方在"启动流程"里显式调用，不能塞进 DI 工厂：
+    /// 工厂里 Connect 等于"谁先解析谁触发设备连接"，启动顺序变成解析顺序的副作用，
+    /// 而且测试一构造容器就会去开真相机。
+    ///
+    /// 失败判据不能只看异常：各实现的 Connect 内部基本都自己 catch（相机打不开是常态，
+    /// 不该把进程带走），所以还要在 Connect 之后查一次 IsConnected。
+    /// </summary>
+    public IReadOnlyList<string> ConnectAll()
     {
+        var failures = new List<string>();
+
         foreach (var d in _devices)
         {
-            try { d.Connect(); }
-            catch { /* 单个失败不影响其他 */ }
+            try
+            {
+                d.Connect();
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{d.Name}: {ex.GetType().Name} {ex.Message}");
+                continue;
+            }
+
+            if (!d.IsConnected)
+                failures.Add($"{d.Name}: 已调用 Connect 但仍未连接");
         }
+
+        return failures;
     }
 
     /// <summary>断开所有设备</summary>

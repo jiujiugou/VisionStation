@@ -68,10 +68,15 @@ public class HikCamera : ICamera
 
     public int FrameCount => _frameCount;
 
+    /// <remarks>
+    /// 只赋值，不连接（W-01/W-02 / S2.5）。
+    /// 构造即连接有两个实打实的问题：热切换会先造候选实例，候选必然因为旧实例还占着设备
+    /// 而 open 失败；测试和 DI 装配里 new 一下就会去抢物理相机。
+    /// 连接统一走 open()。
+    /// </remarks>
     public HikCamera(ILogger<HikCamera>? logger = null)
     {
         _logger = logger;
-        Initialize();
     }
 
     private void Initialize()

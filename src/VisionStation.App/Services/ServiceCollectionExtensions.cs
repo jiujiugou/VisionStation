@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using VisionStation.App.Abstractions;
+using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Infrastructure;
 using VisionStation.App.Services;
 using VisionStation.App.ViewModels;
@@ -105,6 +106,11 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAppServices(this IServiceCollection services,
         AppPaths appPaths, IConfiguration config)
     {
+        // S2.3：关闭流程的三个可替身点。放这里而不是 AddViews，因为它们不属于"界面"。
+        services.AddSingleton<IAppLifetime, AppLifetime>();
+        services.AddSingleton<IInFlightWorkMonitor, InFlightWorkMonitor>();
+        services.AddSingleton<ILogShutdown, SerilogLogShutdown>();
+
         services.AddSingleton<IHealthChecker>(sp =>
         {
             var recipe = sp.GetRequiredService<RecipeConfig>();

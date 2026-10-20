@@ -1,9 +1,13 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 using VisionStation.App.Composition;
+using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services;
+using VisionStation.App.ViewModels;
 using VisionStation.Service;
 
 namespace VisionStation.App;
@@ -17,6 +21,9 @@ public partial class App : Application
 
     /// <summary>正常关闭信号：看门狗据此区分"正常退出"与"崩溃"，收到即结束不自拉</summary>
     private static EventWaitHandle? _shutdownSignal;
+
+    /// <summary>组合根。OnExit 的兜底收尾要用它（正常关窗路径已经走过，幂等）。</summary>
+    private static AppHost? _host;
 
     /// <summary>启动是否走完 —— 只有走完的正常关闭才算 clean，启动失败要留给看门狗重试</summary>
     private static bool _startupCompleted;
@@ -46,18 +53,39 @@ public partial class App : Application
             if (args.ExceptionObject is Exception ex)
                 Fatal("domain", ex);
         };
+
+        // 启动体必须异步（W-20：建库不能卡 UI 线程），而 OnStartup 的签名是 void，
+        // 重写不能改成 async Task。这里显式 fire-and-forget：StartAsync 方法体第一行起就
+        // 被 try/catch 罩住，失败走 Shutdown(1)；即使有漏网异常也只会进上面的
+        // UnobservedTaskException（记痕、不崩进程），不会像 async void 那样直接掀翻进程。
+        _ = StartAsync();
+    }
+
+    /// <summary>
+    /// 启动体。声明为 static 有两个实际理由：它不依赖任何实例成员，
+    /// 而且静态方法里写静态字段是唯一能如实表达"这些是进程级状态"的写法。
+    /// </summary>
+    private static async Task StartAsync()
+    {
         try
         {
             StartWatchdog();
 
-            var host = new AppHost();
+            // 看门狗信号通过委托注入：是否算"正常退出"取决于 _startupCompleted（启动失败仍要让看门狗重试）。
+            // 放在 App 而不是 AppHost，避免组合根反向依赖 WPF 入口类。
+            var host = new AppHost(new DelegateWatchdogSignal(NotifyWatchdogCleanExit));
+            _host = host;
             host.Configure();
             _paths = host.Paths;
             Services = host.Services;
 
-            host.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
-            ShowHealthFailures(host.HealthResults);
+            // W-20：建库不再在 UI 线程上同步等待。原来 .GetAwaiter().GetResult()
+            // 会把 Dispatcher 卡死整个冷启动，异常路径还有死锁风险；改 await 后
+            // 等待期间消息循环照常泵消息。
+            await host.InitializeAsync(CancellationToken.None);
+
             host.Show();
+            ReportHealthFailures(host.HealthResults);
             _startupCompleted = true;
         }
         catch (Exception ex)
@@ -66,18 +94,36 @@ public partial class App : Application
             // 若为确定性失败（配方损坏等），由看门狗的崩溃循环保护兜底，不会无限抖动。
             // 不弹模态框 —— 无人值守时对话框会卡住进程，让看门狗误以为系统还在跑。
             LogCrash("startup", ex);
-            Shutdown(1);
+            Current?.Shutdown(1);
         }
     }
 
-    private static void ShowHealthFailures(IEnumerable<HealthResult> results)
+    /// <summary>
+    /// 自检失败上报 —— 启动路径不再弹模态框。
+    ///
+    /// 原来每项失败弹一个 MessageBox：无人值守时对话框会卡住 Dispatcher，
+    /// 进程不退出，看门狗的 WaitForExit 永远等不到退出信号，守护形同虚设。
+    /// 改为：文件日志（AppHost.InitializeAsync 已逐项写 Error）+ 状态栏文案 + 日志面板。
+    /// </summary>
+    private static void ReportHealthFailures(IReadOnlyList<HealthResult> results)
     {
-        foreach (var r in results)
-        {
-            if (r.OK) continue;
+        var failures = results.Where(r => !r.OK).ToList();
+        if (failures.Count == 0) return;
 
-            MessageBox.Show($"{r.Item}: {r.Error}", "自检失败",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+        try
+        {
+            var statusBar = Services.GetService<StatusBarViewModel>();
+            if (statusBar != null)
+                statusBar.StatusText = HealthSummary.Describe(failures);
+
+            foreach (var f in failures)
+                WeakReferenceMessenger.Default.Send(new LogMessage(
+                    $"自检失败 {f.Item}: {f.Error}", LogMsgLevel.Error));
+        }
+        catch (Exception ex)
+        {
+            // 上报失败不能反过来把启动带走；原始失败项已经进了文件日志
+            Log.Warning(ex, "自检失败上报到界面时出错");
         }
     }
 
@@ -144,9 +190,21 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // 释放 DI 容器持有的 IDisposable（HikCamera 等）——
-        // 不释放会占用相机句柄，下次启动 MV_CC_OpenDevice 报"设备被占用"
-        (Services as IDisposable)?.Dispose();
+        // 兜底路径（启动失败 / 系统注销 / 异常退出）。正常关窗已经走过 ShutdownCoordinator，
+        // StopAsync 幂等，这里基本立即返回。
+        //
+        // 这里允许有界阻塞（最多 2 秒）：进程即将结束，没有 UI 需要响应。
+        // 但绝不能无条件等待 —— 那会让"启动失败后退不掉"变成新问题。
+        try
+        {
+            _host?.StopAsync(TimeSpan.FromSeconds(2)).Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (Exception ex)
+        {
+            try { Log.Warning(ex, "退出兜底收尾失败"); } catch { /* 退出路径不再抛 */ }
+        }
+
+        // 容器与设备已由 StopAsync 释放（重复释放是安全的）。这两步本身幂等，留着兜底。
         Log.CloseAndFlush();
 
         // 只有启动走完的正常关闭才发信号；启动失败不发 ——
@@ -157,5 +215,15 @@ public partial class App : Application
         }
 
         base.OnExit(e);
+    }
+
+    /// <summary>
+    /// 通知看门狗"本次是正常退出"。由 <c>ShutdownCoordinator</c> 第 6 步调用。
+    /// 启动没走完时保持沉默 —— 那是崩溃/失败，看门狗必须重试。
+    /// </summary>
+    private static void NotifyWatchdogCleanExit()
+    {
+        if (!_startupCompleted) return;
+        try { _shutdownSignal?.Set(); } catch { /* 信号发不出去不能反过来影响退出 */ }
     }
 }

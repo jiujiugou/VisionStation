@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
+using VisionStation.App.Composition.Lifecycle;
 using VisionStation.Core;
 using VisionStation.Core.Models;
 using VisionStation.Core.Tools;
@@ -50,6 +51,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly RecipeConfig _recipe;
     private readonly StatusBarViewModel _statusBar;
 
+    // S2.3（关闭顺序）依赖：关闭开始后拒绝新触发、并让关闭流程能看到"还有没有一帧在跑"。
+    // 骨架期只建立依赖，拦截与租约在实现阶段接入（见 docs/S2.3-关闭顺序-设计.md）。
+    private readonly IAppLifetime _lifetime;
+    private readonly IInFlightWorkMonitor _inFlight;
+
     // ── 检测区域：来自配方文件 ──
     private List<RoiRegion> _rois;
 
@@ -77,7 +83,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         ITriggerSource trigger, ICamera camera, Pipeline pipeline,
         IInspectionRepository repo, ImageStoreService imageStore,
         CalibrationConfig calib, ILogger<MainViewModel> logger,
-        ImagePanelViewModel imagePanel, StatusBarViewModel statusBar, RecipeConfig recipe)
+        ImagePanelViewModel imagePanel, StatusBarViewModel statusBar, RecipeConfig recipe,
+        IAppLifetime lifetime, IInFlightWorkMonitor inFlight)
     {
         _trigger = trigger; _camera = camera; _pipeline = pipeline;
         _repo = repo; _imageStore = imageStore;
@@ -85,6 +92,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _imagePanel = imagePanel;
         _statusBar = statusBar;
         _recipe = recipe;
+        _lifetime = lifetime;
+        _inFlight = inFlight;
 
         // 从配方文件取 ROI
         _rois = recipe.Rois.Select(d => new RoiRegion
@@ -131,6 +140,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private async void OnTriggered()
     {
+        // 关闭已开始：不再开新的一帧。
+        // 这一步必须在碰 Dispatcher 之前 —— 关闭流程可能停在任意线程上，
+        // 而此时 Application.Current 未必还可用。
+        if (_lifetime.IsStopping)
+        {
+            _logger.LogDebug("关闭已开始，忽略本次触发");
+            return;
+        }
+
         if (Application.Current.Dispatcher.CheckAccess())
             await ProcessFrame();
         else
@@ -145,6 +163,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // 防并发：上一帧没跑完，这一帧直接跳过
         if (_isProcessing) return;
         _isProcessing = true;
+
+        // 在途登记（C3）：关闭流程靠这个计数回答"还有没有一帧在跑"，而不是 sleep 一段再猜。
+        // Begin 只做锁内自增、不会抛；租约由 using 在所有退出路径（含中途 return/异常）归还。
+        using var lease = _inFlight.Begin();
 
         var sw = Stopwatch.StartNew();
 

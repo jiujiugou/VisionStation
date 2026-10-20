@@ -13,6 +13,15 @@ public partial class MainWindow : Window, IAppWindow
     private readonly ImagePanelViewModel _imagePanelVm;
     private readonly RoiEditorViewModel _roiEditorVm;
 
+    /// <summary>自有关闭事件（S2.3）：把 WPF 的 CancelEventArgs 翻译成不依赖 WPF 的 args，见 IAppWindow。</summary>
+    private event EventHandler<WindowCloseRequestedEventArgs>? CloseRequested;
+
+    event EventHandler<WindowCloseRequestedEventArgs>? IAppWindow.Closing
+    {
+        add => CloseRequested += value;
+        remove => CloseRequested -= value;
+    }
+
     public MainWindow(
         MainViewModel mainVm,
         SidebarView sidebar,
@@ -58,6 +67,14 @@ public partial class MainWindow : Window, IAppWindow
         {
             if (e.Key == Key.F2 && InspectionPage.Visibility == Visibility.Visible)
                 ToggleEditMode();
+        };
+
+        // S2.3：关闭请求转成自有事件，由 AppHost 决定是否拦截（它会在收尾完成后自行 Shutdown）。
+        Closing += (_, e) =>
+        {
+            var args = new WindowCloseRequestedEventArgs();
+            CloseRequested?.Invoke(this, args);
+            e.Cancel = args.Cancel;
         };
     }
 

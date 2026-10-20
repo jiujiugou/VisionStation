@@ -182,6 +182,68 @@ public class AppHostTests
         }
     }
 
+    [Fact]
+    public async Task HandleWindowClosing_首次请求_接管并请求退出()
+    {
+        var root = NewRoot();
+        var shutdownCount = 0;
+
+        try
+        {
+            var host = new AppHost(Config(root), null, _ => new FakeWindow(() => { }),
+                requestShutdown: () => shutdownCount++);
+
+            host.Configure();
+            host.Show();
+
+            var args = new WindowCloseRequestedEventArgs();
+            var handled = await host.HandleWindowClosingAsync(args);
+
+            // C1 + C6：窗口先留住（Cancel），收尾完成后才请求退出，且只请求一次
+            Assert.True(handled);
+            Assert.True(args.Cancel);
+            Assert.Equal(1, shutdownCount);
+
+            await host.StopAsync(TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
+    [Fact]
+    public async Task HandleWindowClosing_重复请求_不重复收尾也不重复退出()
+    {
+        var root = NewRoot();
+        var shutdownCount = 0;
+
+        try
+        {
+            var host = new AppHost(Config(root), null, _ => new FakeWindow(() => { }),
+                requestShutdown: () => shutdownCount++);
+
+            host.Configure();
+            host.Show();
+
+            await host.HandleWindowClosingAsync(new WindowCloseRequestedEventArgs());
+
+            var second = new WindowCloseRequestedEventArgs();
+            var handledAgain = await host.HandleWindowClosingAsync(second);
+
+            // 第二次仍然要接管（否则窗口会自己关掉、绕过收尾），但不能再收尾、不能再请求退出
+            Assert.True(handledAgain);
+            Assert.True(second.Cancel);
+            Assert.Equal(1, shutdownCount);
+
+            await host.StopAsync(TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            Delete(root);
+        }
+    }
+
     private static IConfiguration Config(string root) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -261,6 +323,16 @@ public class AppHostTests
             _onShow = onShow;
         }
 
+        public event EventHandler<WindowCloseRequestedEventArgs>? Closing;
+
         public void Show() => _onShow();
+
+        /// <summary>模拟用户点 X，返回窗口是否被接管（true = 本次关闭被拦下）。</summary>
+        public bool RaiseClosing()
+        {
+            var args = new WindowCloseRequestedEventArgs();
+            Closing?.Invoke(this, args);
+            return args.Cancel;
+        }
     }
 }

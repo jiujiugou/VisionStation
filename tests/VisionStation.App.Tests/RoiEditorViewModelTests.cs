@@ -80,6 +80,10 @@ public class RoiEditorViewModelTests
         public RecipeConfig? Saved { get; private set; }
         public Exception? Failure { get; set; }
 
+        public string Folder => @"C:\recipes";
+
+        public string? ActiveName => "saved.json";
+
         public Task<string> SaveAsync(RecipeConfig recipe, CancellationToken ct = default)
         {
             SaveCount++;
@@ -89,6 +93,15 @@ public class RoiEditorViewModelTests
                 ? Task.FromResult(@"C:\recipes\saved.json")
                 : Task.FromException<string>(Failure);
         }
+
+        public Task<IReadOnlyList<RecipeSummary>> ListAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeSummary>>(Array.Empty<RecipeSummary>());
+
+        public Task<RecipeConfig?> LoadAsync(string fileName, CancellationToken ct = default)
+            => Task.FromResult<RecipeConfig?>(null);
+
+        public Task SetActiveAsync(string fileName, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private sealed class FakeDialog : IDialogService

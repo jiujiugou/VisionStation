@@ -114,7 +114,7 @@ public sealed class AppHost : IAsyncDisposable
         // 全部写不出去，等于"关了但没留痕"。
         services.AddLogging(b => b.AddSerilog(dispose: false));
 
-        var recipe = LoadRecipe(appPaths.RecipePath);
+        var recipe = LoadRecipe(appPaths);
 
         services
             .AddSingleton(appPaths)
@@ -327,24 +327,67 @@ public sealed class AppHost : IAsyncDisposable
 
     public ValueTask DisposeAsync() => new(StopAsync(TimeSpan.FromSeconds(5)));
 
-    private static RecipeConfig LoadRecipe(string path)
+    /// <summary>
+    /// 加载当前配方（S7）。
+    ///
+    /// 顺序：`.active` 指针指向的文件 → 配置里的 Recipe:Path → 内嵌默认配方。
+    /// 指针优先是"换型"的落地点：现场切了配方，下次启动就该装新的那份，
+    /// 而不是每次动 appsettings（那要 rebuild，等于没得切）。
+    /// </summary>
+    private static RecipeConfig LoadRecipe(AppPaths paths)
     {
-        try
+        var activePath = ResolveActiveRecipePath(paths);
+        var candidates = activePath is null
+            ? new[] { paths.RecipePath }
+            : new[] { activePath, paths.RecipePath };
+
+        foreach (var path in candidates)
         {
-            if (File.Exists(path))
+            try
             {
+                if (!File.Exists(path)) continue;
+
                 var json = File.ReadAllText(path);
                 var recipe = JsonSerializer.Deserialize<RecipeConfig>(json, RecipeJsonOptions);
-                if (recipe != null && recipe.Tools.Count > 0) return recipe;
+                if (recipe is { Tools.Count: > 0 })
+                {
+                    Log.Information("已加载配方 {Name}（{Path}）", recipe.Name, path);
+                    return recipe;
+                }
             }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "配方加载失败 ({Path})", path);
+            }
+        }
+
+        Log.Warning("配方加载失败（缺失/损坏/为空），回退到内嵌默认配方。候选: {Candidates}",
+            string.Join(" → ", candidates));
+        return LoadEmbeddedRecipe();
+    }
+
+    /// <summary>读 .active 指针，返回指针指向的配方绝对路径；没有指针/指向的文件不存在时返回 null。</summary>
+    private static string? ResolveActiveRecipePath(AppPaths paths)
+    {
+        var pointer = Path.Combine(paths.RecipeFolder, JsonRecipeStore.ActivePointerFile);
+        try
+        {
+            if (!File.Exists(pointer)) return null;
+
+            var name = File.ReadAllText(pointer).Trim();
+            if (string.IsNullOrEmpty(name)) return null;
+
+            var path = Path.Combine(paths.RecipeFolder, Path.GetFileName(name));
+            if (File.Exists(path)) return path;
+
+            Log.Warning("配方指针指向的文件不存在：{Name}（回退到默认配方）", name);
+            return null;
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "配方加载失败 ({Path})", path);
+            Log.Warning(ex, "读取配方指针失败，回退到默认配方");
+            return null;
         }
-
-        Log.Warning("配方 {Path} 加载失败（缺失/损坏/为空），回退到内嵌默认配方", path);
-        return LoadEmbeddedRecipe();
     }
 
     private static RecipeConfig LoadEmbeddedRecipe()

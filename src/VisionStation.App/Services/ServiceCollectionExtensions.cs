@@ -136,8 +136,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IInspectionWorkflow, InspectionWorkflow>();
 
         // 配方保存从 VM 移到 Service：VM 只表达“保存”，不碰路径、JSON 和临时文件。
+        // S7 起是"配方目录"而不是单文件：目录里放多份配方，靠 .active 指针决定用哪份。
         services.AddSingleton<IRecipeStore>(sp => new JsonRecipeStore(
-            appPaths.RecipePath,
+            appPaths.RecipeFolder,
             sp.GetService<ILogger<JsonRecipeStore>>()));
 
         return services;

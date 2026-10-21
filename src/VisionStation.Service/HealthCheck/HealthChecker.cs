@@ -25,10 +25,10 @@ public class HealthChecker : IHealthChecker
     private readonly string _dbPath;
     private readonly string _storagePath;
     private readonly string _templatePath;
-    private readonly RecipeConfig _recipe;
+    private readonly RecipeConfig? _recipe;
 
     public HealthChecker(DeviceManager devices,
-        string dbPath, string storagePath, string templatePath, RecipeConfig recipe)
+        string dbPath, string storagePath, string templatePath, RecipeConfig? recipe)
     {
         _devices = devices;
         _dbPath = dbPath;
@@ -154,6 +154,33 @@ public class HealthChecker : IHealthChecker
 
     private HealthResult CheckTemplate()
     {
+        // S7：模板可以随配方走（每个 Presence 工具自带 template 字段）。
+        // 自检必须检查"实际会被加载的那几个" —— 否则会出现最坏的情况：
+        // 自检说模板 OK，工具那边 File.Exists 不成立就静默不加载，匹配结果全凭运气。
+        // _recipe 可空（部分探针测试只验单项检查），空时退到全局模板路径。
+        var fromRecipe = _recipe is null
+            ? new List<string>()
+            : _recipe.Tools
+                .Where(t => t.Enabled && string.Equals(t.Type, "Presence", StringComparison.OrdinalIgnoreCase))
+                .Select(t => t.Template)
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+        if (fromRecipe.Count > 0)
+        {
+            var missing = fromRecipe.Where(p => !File.Exists(p)).ToList();
+            if (missing.Count > 0)
+                return new HealthResult("模板文件", false, string.Join("；", missing), "配方声明的模板不存在");
+
+            var undecodable = fromRecipe.FirstOrDefault(p => !LooksLikeImage(p));
+            if (undecodable != null)
+                return new HealthResult("模板文件", false, undecodable, "文件存在但不是可识别的图像");
+
+            return new HealthResult("模板文件", true, string.Join("；", fromRecipe));
+        }
+
+        // 配方没声明模板 → 检查全局默认（单配方时代的写法，保持兼容）
         if (string.IsNullOrEmpty(_templatePath))
             return new HealthResult("模板文件", false, "未配置", "TemplatePath 为空");
 

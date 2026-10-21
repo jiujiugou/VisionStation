@@ -40,6 +40,12 @@ public sealed class AppPaths
     /// <summary>配方 JSON 文件路径</summary>
     public string RecipePath { get; }
 
+    /// <summary>
+    /// 配方目录（S7：同一目录下的多个 json 就是多份配方，靠 .active 指针切换）。
+    /// 由 RecipePath 推导，配置里仍然只写一个文件路径 —— 不新增配置键。
+    /// </summary>
+    public string RecipeFolder => Path.GetDirectoryName(RecipePath) ?? DataRoot;
+
     public AppPaths(AppOptions options)
     {
         DataRoot      = options.DataRoot;

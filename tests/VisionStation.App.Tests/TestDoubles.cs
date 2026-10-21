@@ -119,8 +119,21 @@ internal sealed class NoopDialog : IDialogService
 /// <summary>配方存储替身：页面组合不写盘。</summary>
 internal sealed class NoopRecipeStore : IRecipeStore
 {
+    public string Folder => System.IO.Path.GetTempPath();
+
+    public string? ActiveName => "test.json";
+
     public Task<string> SaveAsync(RecipeConfig recipe, CancellationToken ct = default)
         => Task.FromResult(@"C:/recipes/test.json");
+
+    public Task<IReadOnlyList<RecipeSummary>> ListAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<RecipeSummary>>(Array.Empty<RecipeSummary>());
+
+    public Task<RecipeConfig?> LoadAsync(string fileName, CancellationToken ct = default)
+        => Task.FromResult<RecipeConfig?>(null);
+
+    public Task SetActiveAsync(string fileName, CancellationToken ct = default)
+        => Task.CompletedTask;
 }
 
 /// <summary>

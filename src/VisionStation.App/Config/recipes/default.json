@@ -1,5 +1,7 @@
 {
   "name": "金属垫圈检测",
+  "schemaVersion": 1,
+  "sensor": { "width": 1280, "height": 1024 },
   "calibration": {
     "pixelPerMillimeter": 15.0,
     "designedDiameterMm": 12.7,

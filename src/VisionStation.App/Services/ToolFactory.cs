@@ -53,8 +53,9 @@ public class ToolFactory
         {
             case "Presence":
                 var pt = new PresenceTool(tc.Params.GetValueOrDefault("threshold", 0.70));
-                if (!string.IsNullOrEmpty(_templatePath) && File.Exists(_templatePath))
-                    pt.LoadTemplate(_templatePath);
+                var templatePath = ResolveTemplatePath(tc);
+                if (templatePath != null && File.Exists(templatePath))
+                    pt.LoadTemplate(templatePath);
                 return pt;
 
             case "Dimension":
@@ -99,6 +100,25 @@ public class ToolFactory
                 System.Diagnostics.Debug.WriteLine($"[ToolFactory] 未知工具类型: {tc.Type}");
                 return null;
         }
+    }
+
+    /// <summary>
+    /// 解析 Presence 模板路径（S7：模板可以随配方走）。
+    ///
+    /// 顺序：
+    ///   1. 工具自己的 template 字段（换分辨率 = 换模板，两份配方各带各的）
+    ///   2. 全局默认 Detection:TemplatePath（单配方时代的写法，保持兼容）
+    ///
+    /// 相对路径按 exe 目录解析，找不到再交回调用方按 cwd 处理 —— 与 AppPaths 的读资源策略一致。
+    /// </summary>
+    private string? ResolveTemplatePath(ToolConfigData tc)
+    {
+        var value = string.IsNullOrWhiteSpace(tc.Template) ? _templatePath : tc.Template;
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        if (Path.IsPathRooted(value)) return value;
+
+        var basePath = Path.Combine(AppContext.BaseDirectory, value);
+        return File.Exists(basePath) ? basePath : Path.GetFullPath(value);
     }
 
     /// <summary>

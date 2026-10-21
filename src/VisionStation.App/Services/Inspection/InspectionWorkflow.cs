@@ -41,6 +41,13 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     /// </summary>
     private int _imageSaveFailures;
 
+    /// <summary>
+    /// 配方与画面尺寸不匹配是否已经报过。
+    /// 自动模式 2 秒一帧，每帧都记 ERROR 会把日志刷成一片，真正的问题反而看不见 ——
+    /// 只在第一次大声说，后续降到 Debug。
+    /// </summary>
+    private int _sensorMismatchReported;
+
     public InspectionWorkflow(
         ICamera camera,
         Pipeline pipeline,
@@ -110,6 +117,15 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
             _logger.LogInformation("[采图尺寸] 原始图像: {W}x{H} px, 通道数:{C}, 文件:{F}",
                 frame.Image.Width, frame.Image.Height, frame.Image.Channels(),
                 Path.GetFileName(frame.FilePath));
+
+            // 配方与画面尺寸不匹配 = 这帧的所有结论都不可信（ROI 框在零件外、标定比例算错），
+            // 必须拒绝，不能"照跑不误然后报 NG"——那会让现场以为是产品不良而不是配置错了。
+            var mismatch = _recipe.CheckSensor(frame.Image.Width, frame.Image.Height);
+            if (mismatch is not null)
+            {
+                ReportSensorMismatchOnce(mismatch);
+                return null;
+            }
 
             var original = MatBitmap.ToBitmapSource(frame.Image);
 
@@ -208,4 +224,20 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
     public void Dispose()
         => WeakReferenceMessenger.Default.UnregisterAll(this);
+
+    /// <summary>
+    /// 配方尺寸不匹配：第一次记 ERROR 并推到界面日志面板，之后只记 Debug。
+    /// 光写 ERROR 不够 —— 操作员看的是界面，不是日志文件。
+    /// </summary>
+    private void ReportSensorMismatchOnce(string reason)
+    {
+        if (Interlocked.Exchange(ref _sensorMismatchReported, 1) == 1)
+        {
+            _logger.LogDebug("[配方] {Reason}", reason);
+            return;
+        }
+
+        _logger.LogError("[配方] {Reason}", reason);
+        WeakReferenceMessenger.Default.Send(new LogMessage(reason, LogMsgLevel.Error));
+    }
 }

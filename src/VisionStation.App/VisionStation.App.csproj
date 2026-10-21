@@ -24,6 +24,12 @@
     <None Update="Config\recipes\**\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <!-- 配方激活指针（S7）：内容就是"当前用哪份配方"。
+         不复制的话，bin 里永远没有指针，程序只能靠"文件名排序第一份"兜底 ——
+         能跑，但那是巧合而不是意图。 -->
+    <None Update="Config\recipes\.active" Condition="Exists('Config\recipes\.active')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <!-- 兜底配方内嵌进程序集：磁盘配方损坏时回退到同一份文件，
          杜绝"代码里手抄一份兜底参数"和 default.json 悄悄对不上的问题 -->
     <EmbeddedResource Include="Config\recipes\default.json" />

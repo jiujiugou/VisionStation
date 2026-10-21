@@ -1,5 +1,6 @@
 using System.IO;
 using Microsoft.Extensions.Configuration;
+using VisionStation.Devices.Plc;
 using VisionStation.Service.Housekeeping;
 
 namespace VisionStation.App.Composition;
@@ -11,6 +12,17 @@ namespace VisionStation.App.Composition;
 public sealed record CameraOptions(string Mode, string ImageFolder, string FileFilter, bool Loop);
 
 public sealed record TriggerOptions(int TimerIntervalMs);
+
+/// <summary>
+/// PLC 通讯段。Enabled=false 时整段不生效（默认）——没有 PLC 的环境照常跑手动/定时触发。
+/// 地址写法见 ModbusAddressParser：汇川习惯 D100/M10 或 Modbus 原生 4x100。
+/// 寄存器分配（与 PLC 侧约定，AutoShop 变量监控表可验证）：
+///   Trigger   = PLC 写 1 请求拍照，软件触发后回写 0（自清除）；
+///   Result    = 软件每帧判定后写 1(OK)/2(NG)；
+///   Heartbeat = 软件每次轮询 +1，PLC 看到它变化就知道软件活着。
+/// </summary>
+public sealed record PlcOptions(bool Enabled, string Ip, int Port, byte Station,
+    string TriggerAddress, string ResultAddress, string HeartbeatAddress, int PollIntervalMs);
 
 public sealed record StorageOptions(string Mode, string ImageFolder, string DbPath);
 
@@ -27,6 +39,7 @@ public sealed record AppOptions
 {
     public CameraOptions Camera { get; init; } = new("File", "TestImages", "*.jpg;*.png;*.bmp", true);
     public TriggerOptions Trigger { get; init; } = new(2000);
+    public PlcOptions Plc { get; init; } = new(false, "127.0.0.1", 502, 1, "D100", "D101", "D102", 100);
     public StorageOptions Storage { get; init; } = new("All", "InspectedImages", "visionstation.db");
     public DetectionOptions Detection { get; init; } = new(@"TestImages\hole_template.png");
     public RecipeOptions Recipe { get; init; } = new(@"Config\recipes\default.json");
@@ -75,6 +88,8 @@ public static class AppOptionsBinder
         if (trigger.TimerIntervalMs <= 0)
             errors.Add("Trigger:TimerIntervalMs 必须大于 0（毫秒）");
 
+        var plc = ReadPlc(config, errors);
+
         var storage = new StorageOptions(
             Mode: Read(config, "Storage:Mode", "All"),
             ImageFolder: Read(config, "Storage:ImageFolder", "InspectedImages"),
@@ -104,6 +119,7 @@ public static class AppOptionsBinder
         {
             Camera = camera,
             Trigger = trigger,
+            Plc = plc,
             Storage = storage,
             Detection = detection,
             Recipe = recipe,
@@ -111,6 +127,50 @@ public static class AppOptionsBinder
             Housekeeping = housekeeping,
             DataRoot = dataRoot
         };
+    }
+
+    /// <summary>
+    /// PLC 段：Enabled=false 时其余键全部走默认值不校验（没有 PLC 的环境不该被迫配它）；
+    /// Enabled=true 时端口/轮询间隔/三个地址全部校验，地址非法启动期就报——
+    /// 配置错当场炸，不能等到轮询线程里静默哑掉。
+    /// </summary>
+    private static PlcOptions ReadPlc(IConfiguration config, List<string> errors)
+    {
+        var enabled = ReadBool(config, "Plc:Enabled", false, errors);
+        if (!enabled)
+            return new PlcOptions(false, "127.0.0.1", 502, 1, "D100", "D101", "D102", 100);
+
+        var ip = Read(config, "Plc:Ip", "127.0.0.1");
+        var port = ReadInt(config, "Plc:Port", 502, errors);
+        if (port is <= 0 or > 65535)
+            errors.Add("Plc:Port 必须在 1~65535 之间");
+
+        var poll = ReadInt(config, "Plc:PollIntervalMs", 100, errors);
+        if (poll <= 0)
+            errors.Add("Plc:PollIntervalMs 必须大于 0（毫秒）");
+
+        var station = ReadByte(config, "Plc:Station", 1, errors);
+
+        var triggerAddr = Read(config, "Plc:TriggerAddress", "D100");
+        if (!ModbusAddressParser.TryParse(triggerAddr, out _, out var e1))
+            errors.Add($"Plc:TriggerAddress {e1}");
+        var resultAddr = Read(config, "Plc:ResultAddress", "D101");
+        if (!ModbusAddressParser.TryParse(resultAddr, out _, out var e2))
+            errors.Add($"Plc:ResultAddress {e2}");
+        var heartbeatAddr = Read(config, "Plc:HeartbeatAddress", "D102");
+        if (!ModbusAddressParser.TryParse(heartbeatAddr, out _, out var e3))
+            errors.Add($"Plc:HeartbeatAddress {e3}");
+
+        return new PlcOptions(true, ip, port, station, triggerAddr, resultAddr, heartbeatAddr, poll);
+    }
+
+    private static byte ReadByte(IConfiguration config, string key, byte defaultValue, List<string> errors)
+    {
+        var value = config[key];
+        if (string.IsNullOrWhiteSpace(value)) return defaultValue;
+        if (byte.TryParse(value, out var parsed)) return parsed;
+        errors.Add($"{key} = \"{value}\" 不是合法字节（0~255）");
+        return defaultValue;
     }
 
     private static HousekeepingOptions ReadHousekeeping(IConfiguration config, List<string> errors)

@@ -13,6 +13,7 @@ using VisionStation.Core;
 using VisionStation.Core.Models;
 using VisionStation.Core.Tools;
 using VisionStation.Devices;
+using VisionStation.Devices.Plc;
 using VisionStation.Service;
 using VisionStation.Service.Housekeeping;
 using VisionStation.Service.Recipes;
@@ -69,7 +70,35 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICamera>(sp => sp.GetRequiredService<SwappableCamera>());
 
         services.AddSingleton<ITriggerSource>(sp =>
-            new TimerTrigger(options.Trigger.TimerIntervalMs));
+        {
+            var plc = options.Plc;
+            if (!plc.Enabled)
+                return new TimerTrigger(options.Trigger.TimerIntervalMs);
+
+            // PLC 模式：连接是单例（触发源轮询、结果回写共用），归属组合根；
+            // 触发源 Dispose 时不关连接（谁 new 谁管）。
+            var conn = new ModbusTcpPlc(plc.Ip, plc.Port, plc.Station);
+            return new PlcTriggerSource(
+                conn,
+                ModbusAddressParser.Parse(plc.TriggerAddress),
+                ModbusAddressParser.Parse(plc.HeartbeatAddress),
+                plc.PollIntervalMs,
+                onError: ex => sp.GetService<ILogger<PlcTriggerSource>>()
+                    ?.LogError(ex, "PLC 触发源轮询异常"));
+        });
+
+        if (options.Plc.Enabled)
+        {
+            services.AddSingleton(sp =>
+            {
+                var conn = sp.GetRequiredService<ITriggerSource>() is PlcTriggerSource p
+                    ? p.ConnectedPlc
+                    : throw new InvalidOperationException("PLC 已启用但触发源不是 PlcTriggerSource");
+                return new PlcResultWriter(conn,
+                    ModbusAddressParser.Parse(options.Plc.ResultAddress),
+                    sp.GetService<ILogger<PlcResultWriter>>());
+            });
+        }
 
         services.AddSingleton<DeviceManager>(sp =>
         {

@@ -15,12 +15,17 @@ public class TriggerDevice : IDevice
 
     public string Status => _trigger switch
     {
+        PlcTriggerSource p => p.IsConnected ? "PLC已连接" : "PLC离线",
         TimerTrigger => "自动模式",
         _ => "手动模式"
     };
 
-    // 触发源没有"连接失败"这个概念——手工和定时器始终可用
-    public string? LastError => null;
+    // 手工/定时触发源没有"连接失败"概念；PLC 触发源把底层连接的原因带出来
+    public string? LastError => _trigger switch
+    {
+        PlcTriggerSource p => p.LastError,
+        _ => null
+    };
 
     public TriggerDevice(ITriggerSource trigger) => _trigger = trigger;
 

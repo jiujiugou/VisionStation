@@ -42,6 +42,9 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     /// <summary>累计丢弃的触发数（上一帧没跑完，这一帧不排队）。</summary>
     private long _droppedTotal;
 
+    // PLC 结果回写（可空：未启用 PLC 时为 null）。判定完成后把 OK/NG 写回结果寄存器。
+    private readonly PlcResultWriter? _plcWriter;
+
     /// <summary>自上次报告以来丢弃的次数。</summary>
     private int _droppedPending;
 
@@ -84,6 +87,7 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         ShutdownState shutdown,
         InFlightWorkMonitor inFlight,
         ILogger<InspectionPageViewModel> logger,
+        PlcResultWriter? plcWriter = null,
         SynchronizationContext? uiContext = null)
     {
         ImagePanel = imagePanel;
@@ -98,6 +102,7 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         _shutdown = shutdown;
         _inFlight = inFlight;
         _logger = logger;
+        _plcWriter = plcWriter;
         _ui = uiContext;
 
         // 触发信号 → 本页。订阅放这里（而不是某个"主 VM"）是因为：
@@ -160,6 +165,10 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         {
             var result = await _workflow.RunOnceAsync(_shutdown.Token).ConfigureAwait(true);
             if (result is null) return;
+
+            // 判定完成即回写 PLC（内部有界队列，永不阻塞 UI）。
+            // 放在 Publish 前：产线上 PLC 拿到判定才能动剔除机构，越早越好。
+            _plcWriter?.Write(result.Report.IsOk);
 
             // 到这里已经回到 UI 线程（await 捕获了构造时注入的上下文）
             Publish(result);

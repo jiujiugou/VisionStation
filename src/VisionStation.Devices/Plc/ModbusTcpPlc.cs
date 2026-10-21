@@ -1,3 +1,4 @@
+using System.Globalization;
 using HslCommunication;
 using HslCommunication.ModBus;
 
@@ -61,7 +62,7 @@ public sealed class ModbusTcpPlc : IDisposable
             LastError = $"{a} 不是保持寄存器，16 位读取只支持 D/4x 区域";
             return null;
         }
-        var r = _client.ReadInt16(a.Offset.ToString());
+        var r = _client.ReadInt16(Addr(a.Offset));
         return Settle(r, r.IsSuccess ? (short?)r.Content : null);
     }
 
@@ -70,8 +71,8 @@ public sealed class ModbusTcpPlc : IDisposable
     {
         OperateResult<bool> r = a.Area switch
         {
-            ModbusArea.Coil => _client.ReadCoil(a.Offset.ToString()),
-            ModbusArea.DiscreteInput => _client.ReadDiscrete(a.Offset.ToString()),
+            ModbusArea.Coil => _client.ReadCoil(Addr(a.Offset)),
+            ModbusArea.DiscreteInput => _client.ReadDiscrete(Addr(a.Offset)),
             _ => OperateResult.CreateFailedResult<bool>(new OperateResult("保持寄存器要用 ReadShort 读，不能按位读")),
         };
         return Settle(r, r.IsSuccess ? (bool?)r.Content : null);
@@ -85,7 +86,7 @@ public sealed class ModbusTcpPlc : IDisposable
             LastError = $"{a} 不是保持寄存器，16 位写入只支持 D/4x 区域";
             return false;
         }
-        var r = _client.Write(a.Offset.ToString(), value);
+        var r = _client.Write(Addr(a.Offset), value);
         return Settle(r, r.IsSuccess);
     }
 
@@ -97,7 +98,7 @@ public sealed class ModbusTcpPlc : IDisposable
             LastError = $"{a} 不是线圈，位写入只支持 M/Y/0x 区域";
             return false;
         }
-        var r = _client.Write(a.Offset.ToString(), value);
+        var r = _client.Write(Addr(a.Offset), value);
         return Settle(r, r.IsSuccess);
     }
 
@@ -116,4 +117,7 @@ public sealed class ModbusTcpPlc : IDisposable
     }
 
     public void Dispose() => Disconnect();
+
+    /// <summary>寄存器偏移转 Hsl 地址串。不变文化：Modbus 地址没有区域差异可言。</summary>
+    private static string Addr(ushort offset) => offset.ToString(CultureInfo.InvariantCulture);
 }

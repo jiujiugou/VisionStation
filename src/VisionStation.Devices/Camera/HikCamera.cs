@@ -40,6 +40,7 @@ public class HikCamera : ICamera
     private bool _available;                        // 开流成功且未判定失联（IsAvailable 的"真"位）
     private long _lastFrameTick;                    // 最近一次成功取帧的 Environment.TickCount64
     private bool _sdkHeld;                          // 本实例是否持有进程级 SDK 引用计数
+    private volatile string? _lastError;            // 最近一次失败原因（自检/DeviceManager 直接展示，不再译成"设备离线"）
     private static int _sdkRefs;                    // 进程级 SDK 引用计数：多实例并存时只有最后一个 Finalize
 
     // ── 最新帧缓存（生产者-消费者核心）──
@@ -67,6 +68,9 @@ public class HikCamera : ICamera
         => lastFrameMs > 0 && staleAfterMs > 0 && nowMs >= lastFrameMs && nowMs - lastFrameMs <= staleAfterMs;
 
     public int FrameCount => _frameCount;
+
+    /// <inheritdoc />
+    public string? LastError => _lastError;
 
     /// <remarks>
     /// 只赋值，不连接（W-01/W-02 / S2.5）。
@@ -104,6 +108,7 @@ public class HikCamera : ICamera
             {
                 _logger?.LogWarning("[HikCamera] 未发现相机 错误码:{Code} 数量:{Count}",
                     ret, deviceList.nDeviceNum);
+                _lastError = $"未发现相机（错误码 {ret}）：检查供电/接线/驱动；虚拟相机需先在虚拟设备工具里启动";
                 ReleaseSdk();
                 return;
             }
@@ -120,6 +125,7 @@ public class HikCamera : ICamera
             if (ret != 0)
             {
                 _logger?.LogError("[HikCamera] 创建设备失败:{Code}", ret);
+                _lastError = $"创建设备句柄失败（错误码 {ret}）";
                 _camera = null;
                 ReleaseSdk();
                 return;
@@ -134,6 +140,7 @@ public class HikCamera : ICamera
             if (ret != 0)
             {
                 _logger?.LogError("[HikCamera] 打开设备失败:{Code}", ret);
+                _lastError = ExplainOpenFailure(ret);
                 TeardownDevice();
                 ReleaseSdk();
                 return;
@@ -179,11 +186,13 @@ public class HikCamera : ICamera
             _grabThread = new Thread(GrabLoop) { IsBackground = true };
             _grabThread.Start();
 
+            _lastError = null;   // 初始化成功，之前的原因（没发现设备/被独占）已不复存在
             _logger?.LogInformation("[HikCamera] 初始化成功");
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[HikCamera] 初始化异常");
+            _lastError = $"初始化异常：{ex.Message}";
             _available = false;
         }
     }
@@ -201,6 +210,21 @@ public class HikCamera : ICamera
         int ret = MyCamera.MV_CC_Initialize_NET();
         if (ret != 0) Interlocked.Decrement(ref _sdkRefs);
         return ret;
+    }
+
+    /// <summary>
+    /// 把打开设备的错误码翻成一句能直接照着排查的话。
+    /// 只有 0x80000203 值得展开 —— 它是现场最高频、也最容易被"设备离线"带偏方向的一个。
+    /// </summary>
+    private static string ExplainOpenFailure(int code)
+    {
+        return (uint)code switch
+        {
+            0x80000203 => "打开设备被拒（0x80000203 设备被独占/无数据源）："
+                + "上一个进程异常退出后心跳会话未释放，或 MVS 客户端正连接该设备；"
+                + "虚拟相机还可能是没启动数据源（VirtualDeviceTool 里删掉重加）",
+            _ => $"打开设备失败（错误码 {code} / 0x{code:X8}），含义见 MVS SDK 文档错误码表",
+        };
     }
 
     private void ReleaseSdk()

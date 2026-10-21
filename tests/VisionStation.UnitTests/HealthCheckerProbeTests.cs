@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using VisionStation.Core.Models;
 using VisionStation.Devices;
 using VisionStation.Service;
 using Xunit;
@@ -69,5 +70,32 @@ public class HealthCheckerProbeTests
         var r = hc.RunAll().First(x => x.Item == "模板文件");
 
         Assert.False(r.OK, "文本文件改扩展名必须被判为不可用");
+    }
+
+    [Fact]
+    public void 设备离线_自检带出每台的原因而不是一句有设备离线()
+    {
+        var dir = NewRoot();
+        var dm = new DeviceManager();
+        dm.Register(new CameraDevice(new OfflineCamera()));
+
+        var hc = new HealthChecker(dm, Path.Combine(dir, "a.db"), dir, "", null);
+
+        var item = hc.RunAll().Single(x => x.Item == "设备连接");
+        Assert.False(item.OK);
+        Assert.Contains("被独占", item.Error);
+        Assert.DoesNotContain("有设备离线", item.Error);
+    }
+
+    /// <summary>离线且带原因的相机替身（模拟 HikCamera 被 0x80000203 拒绝）</summary>
+    private sealed class OfflineCamera : ICamera
+    {
+        public string? LastError { get; } = "打开设备被拒（0x80000203 设备被独占/无数据源）";
+        public bool IsAvailable => false;
+        public int FrameCount => 0;
+        public void Open() { }
+        public void Close() { }
+        public CameraFrame? Capture() => null;
+        public void Dispose() { }
     }
 }

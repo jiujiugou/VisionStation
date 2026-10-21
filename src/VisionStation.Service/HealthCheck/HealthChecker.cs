@@ -72,10 +72,21 @@ public class HealthChecker : IHealthChecker
         var (online, total) = _devices.ConnectionStats;
         // 空设备表不能判「全部在线」：0==0 会让判据失效，必须要求 total > 0。
         bool ok = total > 0 && online == total;
+        if (ok)
+            return new HealthResult("设备连接", true, $"{online}/{total} 在线");
+
+        if (total == 0)
+            return new HealthResult("设备连接", false, "0/0 未注册任何设备", "未注册任何设备");
+
+        // 离线时把每台的原因带出来，而不是一句"有设备离线"——
+        // "目录不存在"和"设备被独占"的排查方向完全不同，笼统的离线会把人引向查线。
+        var reasons = _devices.Devices
+            .Where(d => !d.IsConnected)
+            .Select(d => $"{d.Name}: {d.LastError ?? "离线（未记录原因）"}");
         return new HealthResult("设备连接",
-            ok,
-            total == 0 ? "0/0 未注册任何设备" : $"{online}/{total} 在线",
-            ok ? null : (total == 0 ? "未注册任何设备" : "有设备离线"));
+            false,
+            $"{online}/{total} 在线",
+            string.Join("；", reasons));
     }
 
     private HealthResult CheckDatabase()

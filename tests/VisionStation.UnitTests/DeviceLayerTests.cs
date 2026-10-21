@@ -22,6 +22,7 @@ public class DeviceLayerTests
 
     private sealed class FakeCamera : ICamera
     {
+        public string? LastError { get; set; }
         public bool Available { get; set; } = true;
 
         /// <summary>Open() 之后是否变可用 —— 用来模拟"工厂只造对象、连接后才可用"的真实相机</summary>
@@ -58,6 +59,7 @@ public class DeviceLayerTests
 
     private sealed class FakeDevice : IDevice
     {
+        public string? LastError { get; set; }
         public FakeDevice(bool connected) => IsConnected = connected;
         public string Name => "fake";
         public string Type => "Fake";
@@ -70,6 +72,7 @@ public class DeviceLayerTests
     /// <summary>Connect 直接抛的设备：证明单台失败不会带走整个 ConnectAll</summary>
     private sealed class ThrowingDevice : IDevice
     {
+        public string? LastError => null;
         public string Name => "boom";
         public string Type => "Fake";
         public bool IsConnected => false;
@@ -374,6 +377,34 @@ public class DeviceLayerTests
         Assert.Equal(2, failures.Count);
         Assert.Contains(failures, f => f.Contains("boom"));
         Assert.Contains(failures, f => f.Contains("fake"));
+    }
+
+    [Fact]
+    public void DeviceManager_ConnectAll_失败信息带出设备自己记录的原因()
+    {
+        // F2 修复的钉子：以前这里写"已调用 Connect 但仍未连接"——零信息量，
+        // 自检再译成"有设备离线"，把"目录不存在/被独占"全引向"线没插好"。
+        var cam = new FakeCamera { Available = false, LastError = "图片目录不存在: D:////nope" };
+        var dm = new DeviceManager();
+        dm.Register(new CameraDevice(cam));
+
+        var failures = dm.ConnectAll();
+
+        var line = Assert.Single(failures);
+        Assert.Contains("图片目录不存在", line);
+        Assert.DoesNotContain("已调用 Connect", line);
+    }
+
+    [Fact]
+    public void FileCamera_目录不存在_LastError说明路径()
+    {
+        var cam = new FileCamera(@"Z://no//such//dir", "*.png");
+
+        cam.Open();
+
+        Assert.False(cam.IsAvailable);
+        Assert.NotNull(cam.LastError);
+        Assert.Contains("图片目录不存在", cam.LastError);
     }
 
     // ═══════════════════════════════════════════════════

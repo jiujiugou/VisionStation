@@ -56,6 +56,9 @@ internal sealed class FakeTriggerSource : ITriggerSource
 /// <summary>相机替身：数 Capture 次数。默认采不到图（返回 null）。</summary>
 internal sealed class FakeCamera : ICamera
 {
+
+    /// <summary>可由测试注入的失败原因（断言自检/DeviceManager 会把它带出来）</summary>
+    public string? LastError { get; set; }
     /// <summary>非空时每次采图都调用它产出一帧。注意每次要新建 Mat：工作流会把上一帧释放掉。</summary>
     public Func<CameraFrame?>? FrameFactory { get; set; }
 

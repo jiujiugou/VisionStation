@@ -43,6 +43,17 @@ public interface ICamera : IDisposable
     /// <summary>相机是否可用（在线 + 有图像源）</summary>
     bool IsAvailable { get; }
 
+    /// <summary>
+    /// 最近一次失败的原因，一句能直接照着排查的话（含错误码/路径/文件名）。
+    ///
+    /// 为什么必须有：现场排障时第一条要回答的是"它为什么不工作"。
+    /// 没有这个属性时，真实原因只存在于实现类的日志里
+    /// （FileCamera 知道"文件夹不存在"，HikCamera 知道 0x80000203 被独占），
+    /// 而自检和状态栏只能说出"设备离线"——把人引向"线没插好"的错误方向。
+    /// null = 当前没有未恢复的失败。
+    /// </summary>
+    string? LastError { get; }
+
     /// <summary>已采集帧数（累计）</summary>
     int FrameCount { get; }
 }

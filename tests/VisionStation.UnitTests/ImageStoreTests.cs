@@ -115,4 +115,18 @@ public class ImageStoreTests : IDisposable
         report.SetToolResult("Presence", new Core.Tools.ToolResult { IsOk = ok, Summary = ok ? "OK" : "NG" });
         return report;
     }
+
+    [Fact]
+    public void 存储目录被同名文件占用_启动期给出中文原因()
+    {
+        // F5：原文是英文 IOException，操作员看不出问题出在"存图目录"上。
+        var occupied = Path.Combine(_root, "InspectedImages");
+        File.WriteAllText(occupied, "这个文件占住了目录的位置");
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new ImageStoreService(occupied));
+
+        Assert.Contains("存储目录不可用", ex.Message);
+        Assert.Contains(occupied, ex.Message);
+    }
+
 }

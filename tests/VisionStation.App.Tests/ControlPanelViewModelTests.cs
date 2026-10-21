@@ -92,6 +92,7 @@ public class ControlPanelViewModelTests
 
     private sealed class FakeCamera : ICamera
     {
+        public string? LastError => null;
         public bool IsAvailable { get; set; }
         public bool NextOpenSucceeds { get; set; }
         public int OpenCount { get; private set; }

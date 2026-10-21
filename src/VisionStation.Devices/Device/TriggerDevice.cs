@@ -19,6 +19,9 @@ public class TriggerDevice : IDevice
         _ => "手动模式"
     };
 
+    // 触发源没有"连接失败"这个概念——手工和定时器始终可用
+    public string? LastError => null;
+
     public TriggerDevice(ITriggerSource trigger) => _trigger = trigger;
 
     // 断开前记住自动模式是否在跑：Connect 是 Disconnect 的逆操作，

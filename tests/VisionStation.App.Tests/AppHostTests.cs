@@ -357,6 +357,7 @@ public class AppHostTests
     /// <summary>记录 Connect 次数的设备替身</summary>
     private sealed class RecordingDevice : IDevice
     {
+        public string? LastError => null;
         public int ConnectCount { get; private set; }
         public string Name => "recording";
         public string Type => "Fake";

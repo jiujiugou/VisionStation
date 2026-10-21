@@ -62,7 +62,18 @@ public class ImageStoreService
     public ImageStoreService(string baseFolder)
     {
         _baseFolder = baseFolder;
-        Directory.CreateDirectory(baseFolder);
+        try
+        {
+            Directory.CreateDirectory(baseFolder);
+        }
+        catch (Exception ex)
+        {
+            // 不启动是正确语义（停线优于每帧静默丢图），但原文是英文 IOException，
+            // 操作员看不出问题出在"存图目录"上 —— 这里把路径和方向一并给出。
+            throw new InvalidOperationException(
+                $"存储目录不可用：{baseFolder}（{ex.Message}）。"
+                + "检测图片将无处落盘，拒绝启动。请检查该路径是否被同名文件占用、权限是否足够、磁盘是否可写。", ex);
+        }
     }
 
     /// <summary>设置存储模式和抽样比例</summary>

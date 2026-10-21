@@ -26,6 +26,9 @@ public class WebcamCamera : ICamera
     public bool IsAvailable => _opened && _consecutiveFailures < FailureThreshold;
     public int FrameCount { get; private set; }
 
+    /// <inheritdoc />
+    public string? LastError { get; private set; }
+
     /// <param name="deviceIndex">摄像头索引，0=默认摄像头</param>
     /// <remarks>
     /// 只赋值，不打开设备（W-01/W-02 / S2.5）。构造即连接会让"造一个候选实例"
@@ -53,6 +56,7 @@ public class WebcamCamera : ICamera
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[Webcam] 打开摄像头异常 index={Index}", _deviceIndex);
+            LastError = $"打开摄像头异常（index={_deviceIndex}）：{ex.Message}";
             _opened = false;
             return;
         }
@@ -60,6 +64,7 @@ public class WebcamCamera : ICamera
         if (!_capture.IsOpened())
         {
             _logger?.LogWarning("[Webcam] 无法打开摄像头 index={Index}", _deviceIndex);
+            LastError = $"无法打开摄像头（index={_deviceIndex}）：被其他程序占用，或设备不存在";
             _capture.Dispose();
             _capture = null;
             _opened = false;
@@ -68,6 +73,7 @@ public class WebcamCamera : ICamera
 
         _opened = true;
         _consecutiveFailures = 0;
+        LastError = null;
         _logger?.LogInformation("[Webcam] 摄像头已就绪 index={Index}", _deviceIndex);
     }
 
@@ -79,6 +85,7 @@ public class WebcamCamera : ICamera
         if (!_capture.Read(mat) || mat.Empty())
         {
             _consecutiveFailures++;
+            LastError = $"连续 {_consecutiveFailures} 次读帧失败（可能已拔线/被占用）";
             if (_consecutiveFailures == FailureThreshold)
                 _logger?.LogError("[Webcam] 连续 {N} 次读帧失败，判定离线 index={Index}",
                     _consecutiveFailures, _deviceIndex);
@@ -86,6 +93,7 @@ public class WebcamCamera : ICamera
         }
 
         _consecutiveFailures = 0;
+        LastError = null;
         FrameCount++;
         return new CameraFrame
         {

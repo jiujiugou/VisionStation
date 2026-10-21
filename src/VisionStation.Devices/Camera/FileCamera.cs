@@ -21,6 +21,9 @@ public sealed class FileCamera : ICamera
     private volatile List<string> _files = new();   // 只整体替换，不原地修改
     private int _index;
 
+    /// <summary>最近一次失败原因。volatile：扫描/采集在不同线程，写读两侧都要看到最新值。</summary>
+    private volatile string? _lastError;
+
     /// <summary>过滤器分隔符（"*.jpg|*.png" 这种写法），提成静态字段避免每次刷新都分配数组</summary>
     private static readonly char[] FilterSeparators = { '|', ';' };
 
@@ -35,6 +38,9 @@ public sealed class FileCamera : ICamera
     }
 
     public int FrameCount { get; private set; }
+
+    /// <inheritdoc />
+    public string? LastError => _lastError;
     public int TotalFiles => _files.Count;
 
     /// <summary>本实现只持有托管对象（文件路径列表），关闭无需动作。</summary>
@@ -79,6 +85,7 @@ public sealed class FileCamera : ICamera
             if (!Directory.Exists(_folderPath))
             {
                 _logger?.LogWarning("[FileCamera] 文件夹不存在: {Path}", _folderPath);
+                _lastError = $"图片目录不存在: {_folderPath}（检查配置 Camera:ImageFolder，或目录被删/盘未挂）";
                 Publish(list);
                 return;
             }
@@ -111,12 +118,20 @@ public sealed class FileCamera : ICamera
                 _folderPath, list.Count, string.Join(",", extensions));
 
             if (list.Count == 0)
+            {
                 _logger?.LogWarning("[FileCamera] 警告: 未找到匹配图片! 目录中的文件: {Files}",
                     string.Join(", ", all.Select(Path.GetFileName)));
+                _lastError = $"目录里没有匹配 {FilterDescription(extensions)} 的图片: {_folderPath}";
+            }
+            else
+            {
+                _lastError = null;   // 目录恢复即清除，LastError 只反映"当前"状态
+            }
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[FileCamera] 扫描目录失败，按空列表继续运行: {Path}", _folderPath);
+            _lastError = $"图片目录不可读: {_folderPath}（{ex.Message}）";
             list.Clear();
         }
 
@@ -164,9 +179,12 @@ public sealed class FileCamera : ICamera
         if (image.Empty())
         {
             _logger?.LogError("[FileCamera] 读取失败,图片为空: {File}", filePath);
+            _lastError = $"图片损坏或格式不支持（解码结果为空）: {filePath}";
             image.Dispose();
             return null;
         }
+
+        _lastError = null;   // 成功采到一帧，之前的原因（目录为空/损坏图）已不复存在
 
         FrameCount++;
         return new CameraFrame
@@ -176,4 +194,7 @@ public sealed class FileCamera : ICamera
             FilePath = filePath
         };
     }
+
+    /// <summary>把扩展名数组还原成配置里的写法（仅用于错误信息展示）</summary>
+    private static string FilterDescription(string[] extensions) => string.Join(";", extensions);
 }

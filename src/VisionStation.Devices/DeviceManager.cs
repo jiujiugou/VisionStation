@@ -60,7 +60,12 @@ public class DeviceManager
             }
 
             if (!d.IsConnected)
-                failures.Add($"{d.Name}: 已调用 Connect 但仍未连接");
+            {
+                // LastError 里是实现类自己记的原因（错误码/路径/文件名）。
+                // 以前这里写"已调用 Connect 但仍未连接"——零信息量，
+                // 自检再译成"有设备离线"，把"目录不存在/被独占"全引向"线没插好"。
+                failures.Add($"{d.Name}: {d.LastError ?? "已调用 Connect 但仍未连接（实现未记录原因）"}");
+            }
         }
 
         return failures;

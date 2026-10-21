@@ -14,6 +14,9 @@ public class CameraDevice : IDevice
         ? $"就绪 · {_camera.FrameCount}帧"
         : "离线";
 
+    /// <summary>失败原因直接来自底层相机实现（错误码/路径/文件名都在那儿）</summary>
+    public string? LastError => _camera.LastError;
+
     public CameraDevice(ICamera camera) => _camera = camera;
 
     // 必须转发到 ICamera 的 open/close —— 旧实现只对 `_camera is FileCamera` 生效，

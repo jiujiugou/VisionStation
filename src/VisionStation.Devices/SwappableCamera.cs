@@ -36,6 +36,7 @@ public class SwappableCamera : ICamera
     // ══ ICamera 接口 — 全部委托给 _active ══
     public bool IsAvailable => _active.IsAvailable;
     public int FrameCount => _active.FrameCount;
+    public string? LastError => _active.LastError;
     public string CurrentMode => _currentMode;
 
     /// <summary>可用相机类型列表（UI 下拉框用）</summary>

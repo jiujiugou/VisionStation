@@ -26,6 +26,12 @@ public interface IDevice
     /// <summary>状态摘要（一行文字，如 "640x480@30fps · 已采集128帧"）</summary>
     string Status { get; }
 
+    /// <summary>
+    /// 最近一次失败的原因（人话，可直接展示）；null = 当前没有未恢复的失败。
+    /// 自检/DeviceManager 用它替代"已调用 Connect 但仍未连接"/"有设备离线"这类没有信息量的句子。
+    /// </summary>
+    string? LastError { get; }
+
     /// <summary>连接设备</summary>
     void Connect();
 

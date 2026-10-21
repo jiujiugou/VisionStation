@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VisionStation.App.Abstractions;
 using VisionStation.App.Composition.Lifecycle;
@@ -217,7 +218,8 @@ internal static class TestPages
         FakeTriggerSource? trigger = null,
         FakeCamera? camera = null,
         ShutdownState? shutdown = null,
-        InFlightWorkMonitor? inFlight = null)
+        InFlightWorkMonitor? inFlight = null,
+        ILogger<InspectionPageViewModel>? logger = null)
     {
         trigger ??= new FakeTriggerSource();
         camera ??= new FakeCamera();
@@ -233,7 +235,7 @@ internal static class TestPages
             camera,
             shutdown ?? new ShutdownState(),
             inFlight ?? new InFlightWorkMonitor(),
-            NullLogger<InspectionPageViewModel>.Instance);
+            logger ?? NullLogger<InspectionPageViewModel>.Instance);
     }
 
     public static CameraPageViewModel Camera()
@@ -292,4 +294,23 @@ internal sealed class FakeNavigationService : INavigationService
 
         return true;
     }
+}
+
+/// <summary>
+/// 日志替身：把每条日志（含格式化后的文本）收进列表，供断言"这件事有没有被说出来"。
+///
+/// 存在的理由：本项目的多处契约不是"返回值对不对"，而是"出问题时有没有留下可归因的痕迹"。
+/// 丢帧、存图连续失败、配方不匹配都属于这一类 —— 用 NullLogger 就永远测不到。
+/// </summary>
+internal sealed class ListLogger<T> : ILogger<T>
+{
+    public List<(LogLevel Level, string Message)> Entries { get; } = new();
+
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+    public bool IsEnabled(LogLevel logLevel) => true;
+
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+        Func<TState, Exception?, string> formatter)
+        => Entries.Add((logLevel, formatter(state, exception)));
 }

@@ -39,6 +39,18 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     /// <summary>0 = 空闲，1 = 有一帧在跑。用 Interlocked 而不是 bool：触发来自线程池。</summary>
     private int _running;
 
+    /// <summary>累计丢弃的触发数（上一帧没跑完，这一帧不排队）。</summary>
+    private long _droppedTotal;
+
+    /// <summary>自上次报告以来丢弃的次数。</summary>
+    private int _droppedPending;
+
+    /// <summary>上次报告丢弃的时间（Environment.TickCount64，毫秒）。</summary>
+    private long _droppedLastReport;
+
+    /// <summary>丢弃报告的节流间隔：节拍压到 50ms 时每帧都丢，逐帧记日志等于把日志刷没。</summary>
+    private const int DropReportIntervalMs = 5000;
+
     public ImagePanelViewModel ImagePanel { get; }
     public ResultPanelViewModel ResultPanel { get; }
     public LogPanelViewModel LogPanel { get; }
@@ -134,7 +146,11 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     private async Task RunFrameAsync()
     {
         // 防重入：上一帧没跑完，这一帧丢弃（不排队 —— 排队的帧只会让界面追不上现场）
-        if (Interlocked.Exchange(ref _running, 1) == 1) return;
+        if (Interlocked.Exchange(ref _running, 1) == 1)
+        {
+            ReportDroppedFrame();
+            return;
+        }
 
         // 在途登记：关闭流程靠这个计数回答"还有没有一帧在跑"。
         // 租约覆盖工作流执行 + 结果广播，最后一条消息发完才算收尾。
@@ -162,6 +178,36 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         {
             Volatile.Write(ref _running, 0);
         }
+    }
+
+    /// <summary>
+    /// 记录一次"因上一帧未完成而丢弃的触发"。
+    ///
+    /// 丢弃本身是设计（不排队，否则界面永远追不上现场），但**丢弃必须可见**：
+    /// 节拍 50ms、单帧 200ms 时每 4 次触发就丢 3 次，界面上完全看不出来，
+    /// 现场只会觉得"偶尔漏检"，事后翻日志一条证据都没有。
+    ///
+    /// 节流 5 秒一条：逐帧记会把日志刷没，反而把真正的问题埋掉。
+    /// </summary>
+    private void ReportDroppedFrame()
+    {
+        var total = Interlocked.Increment(ref _droppedTotal);
+        Interlocked.Increment(ref _droppedPending);
+
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _droppedLastReport);
+        if (now - last < DropReportIntervalMs) return;
+
+        // 只有一个线程能完成这次跃迁，避免同一时刻冒出多条汇总
+        if (Interlocked.CompareExchange(ref _droppedLastReport, now, last) != last) return;
+
+        var reported = Interlocked.Exchange(ref _droppedPending, 0);
+        if (reported <= 0) return;
+
+        _logger.LogWarning("上一帧未完成，已丢弃 {Reported} 次触发（累计 {Total} 次）：单帧耗时超过触发间隔",
+            reported, total);
+        WeakReferenceMessenger.Default.Send(new LogMessage(
+            $"节拍跟不上：已丢弃 {reported} 次触发（累计 {total} 次）", LogMsgLevel.Warning));
     }
 
     /// <summary>把一帧的结果广播给面板。必须在 UI 线程调用。</summary>

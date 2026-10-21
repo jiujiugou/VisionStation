@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services.Inspection;
 using VisionStation.App.ViewModels;
@@ -112,6 +113,32 @@ public class InspectionPageOrchestrationTests
 
         Assert.Equal(1, workflow.RunCount);
         Assert.True(workflow.LastToken.IsCancellationRequested);
+
+        page.Dispose();
+    }
+
+    [Fact]
+    public async Task 丢帧必须留痕_节流期内只汇总一条警告()
+    {
+        // 丢弃是设计（不排队），但静默丢弃是缺陷：
+        // 节拍 50ms、单帧 200ms 时每 4 次触发丢 3 次，界面上完全看不出来。
+        var gate = new TaskCompletionSource<InspectionRunResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var trigger = new FakeTriggerSource();
+        var logger = new ListLogger<InspectionPageViewModel>();
+        var workflow = new FakeWorkflow { Gate = gate };
+
+        var page = TestPages.Inspection(workflow, trigger, logger: logger);
+
+        trigger.Fire();   // 第一帧挂在 gate 上
+        trigger.Fire();   // 丢弃 → 应报
+        trigger.Fire();   // 丢弃 → 5 秒节流内，不重复报
+
+        gate.SetResult(null);
+        await WaitUntilAsync(() => logger.Entries.Count > 0);
+
+        var warnings = logger.Entries.Where(e => e.Level == LogLevel.Warning).ToList();
+        Assert.Single(warnings);
+        Assert.Contains("丢弃", warnings[0].Message);
 
         page.Dispose();
     }

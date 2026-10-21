@@ -43,3 +43,6 @@ StrykerOutput/
 
 # 本地 CI 产物：构建日志每次变，基线文件入库（棘轮的锚点）
 artifacts/ci/*.log
+
+# 走查工装每次运行的数据根（db/图片/日志，不进展）
+artifacts/runs/

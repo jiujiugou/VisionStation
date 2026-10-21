@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>ClosureProbe</AssemblyName>
+    <RootNamespace>ClosureProbe</RootNamespace>
+    <!-- 工装不进 ci 的告警棘轮（ci 只构建 src 与 tests），这里允许告警。 -->
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\VisionStation.App\VisionStation.App.csproj" />
+  </ItemGroup>
+
+</Project>

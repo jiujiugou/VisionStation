@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VisionStation.Core.Models;
@@ -81,11 +82,23 @@ public class InspectionRepository : IInspectionRepository
         {
             return await work(db).ConfigureAwait(false);
         }
+        catch (DbUpdateException ex) when (IsDatabaseLocked(ex))
+        {
+            // SQLite 的 "database is locked" 冒上去是一串英文堆栈，操作员看不懂，
+            // 现场只能看到"检测异常"四个字。这里翻译成一句能直接照着排查的话，
+            // 并明确"本条结果没入库" —— 否则会以为记录已经存下了。
+            throw new InvalidOperationException(
+                "数据库被锁定，本条检测结果未入库（可能有另一个实例、后台清理或外部工具正在写同一个 db）", ex);
+        }
         finally
         {
             if (owned) await db.DisposeAsync().ConfigureAwait(false);
         }
     }
+
+    /// <summary>SQLite 错误码 5 = SQLITE_BUSY（另一个连接持锁）。</summary>
+    private static bool IsDatabaseLocked(DbUpdateException ex)
+        => ex.InnerException is SqliteException { SqliteErrorCode: 5 };
 
     /// <summary>确保数据库和表已创建（SQLite 文件不存在 → 自动创建）</summary>
     public Task EnsureCreatedAsync() => RunAsync(async db =>

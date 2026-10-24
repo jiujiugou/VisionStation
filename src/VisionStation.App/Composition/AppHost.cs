@@ -15,6 +15,7 @@ using VisionStation.Core;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
 using VisionStation.Service;
+using VisionStation.Service.Audit;
 using VisionStation.Service.Housekeeping;
 using VisionStation.Service.Recipes;
 using VisionStation.Storage;
@@ -195,6 +196,14 @@ public sealed class AppHost : IAsyncDisposable
                     loadedRecipe.Engine);
             }
         }
+
+        // 审计流的第一条：证明「这个库是从这次启动开始记的」。
+        // 放在初始化最末 —— 前面的自检、建表、监听都已经完成，记下来的是一条"启动成功"，
+        // 而不是"开始尝试启动"。两者在排障时完全是不同的信息。
+        services.GetRequiredService<IAuditService>().Record(
+            AuditAction.AppStart,
+            target: loadedRecipe.Name,
+            detail: $"引擎={loadedRecipe.Engine}；VmLink={(appOptions.VmLink.Enabled ? "开" : "关")}");
     }
 
     public void Show()
@@ -313,6 +322,28 @@ public sealed class AppHost : IAsyncDisposable
         catch (Exception ex)
         {
             Log.Warning(ex, "[关闭] 3.5 界面日志刷新失败");
+        }
+
+        // 3.8 审计收尾：先记 AppStop，再把队列里剩下的写完。
+        //
+        // 必须在第 4 步之前 —— 容器一释放，审计队列和仓储就都没了。
+        // 先 Record 后 Flush 的顺序也不能反：反了这条 AppStop 自己就被漏在队列里。
+        try
+        {
+            var audit = services.GetService<IAuditService>();
+            if (audit != null)
+            {
+                audit.Record(AuditAction.AppStop, target: "",
+                    detail: $"正常关闭（累计 {budget.ElapsedMilliseconds}ms）");
+
+                var auditBudget = timeout - budget.Elapsed;
+                audit.Flush(auditBudget > TimeSpan.Zero ? auditBudget : TimeSpan.FromSeconds(1));
+                Log.Information("[关闭] 3.8 审计收尾 OK（{Elapsed}ms）", budget.ElapsedMilliseconds);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[关闭] 3.8 审计收尾失败");
         }
 
         // 4 释放设备与容器。必须在后台线程：HousekeepingService.Dispose 内部会同步等最多 5 秒，

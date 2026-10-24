@@ -38,7 +38,7 @@ public class ShellViewModelTests
 
         // 顶栏 2026-10-24 加入外壳。它只读配方 + 设备状态，不参与导航，
         // 所以这里给一份最小配方即可 —— 断言仍然是"切页必须通知两处"。
-        var topBar = new TopBarViewModel(new RecipeConfig(), new FakeTriggerSource());
+        var topBar = new TopBarViewModel(new RecipeConfig(), new FakeTriggerSource(), new FakeAuditService());
 
         var shell = new ShellViewModel(
             new SidebarViewModel(navigation),

@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
+using VisionStation.Service.Audit;
 
 namespace VisionStation.App.ViewModels;
 
@@ -27,6 +28,7 @@ namespace VisionStation.App.ViewModels;
 public partial class TopBarViewModel : ObservableObject
 {
     private readonly ITriggerSource _trigger;
+    private readonly IAuditService _audit;
 
     /// <summary>工位名。取自窗口标题的同一套语义，不放配置里 —— 现场改名字改这一个常量即可。</summary>
     public string StationName { get; } = "金属零件视觉检测工位";
@@ -59,9 +61,10 @@ public partial class TopBarViewModel : ObservableObject
     /// <summary>模式显示文字</summary>
     public string ModeText => IsEngineerMode ? "工程师模式" : "运行模式";
 
-    public TopBarViewModel(RecipeConfig recipe, ITriggerSource trigger)
+    public TopBarViewModel(RecipeConfig recipe, ITriggerSource trigger, IAuditService audit)
     {
         _trigger = trigger;
+        _audit = audit;
 
         RecipeName = string.IsNullOrWhiteSpace(recipe.Name) ? "未命名配方" : recipe.Name;
         EngineText = string.IsNullOrWhiteSpace(recipe.Engine) ? "未指定引擎" : recipe.Engine;
@@ -84,6 +87,13 @@ public partial class TopBarViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(ModeText));
         WeakReferenceMessenger.Default.Send(new EngineerModeMessage(value));
+
+        // 埋点放在这里而不是 ToggleMode 里：这是模式真正变化的唯一入口，
+        // 将来（阶段 2）登录后自动降级/登出也会走这个属性，一样能被记到。
+        _audit.Record(AuditAction.ModeSwitch,
+            target: RecipeName,
+            before: value ? "运行模式" : "工程师模式",
+            after: value ? "工程师模式" : "运行模式");
     }
 
     /// <summary>

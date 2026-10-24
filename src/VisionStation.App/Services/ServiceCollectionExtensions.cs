@@ -13,6 +13,7 @@ using VisionStation.Core.Models;
 using VisionStation.Devices;
 using VisionStation.Devices.Plc;
 using VisionStation.Service;
+using VisionStation.Service.Audit;
 using VisionStation.Service.Housekeeping;
 using VisionStation.Service.Recipes;
 using VisionStation.Storage;
@@ -132,6 +133,12 @@ public static class ServiceCollectionExtensions
         // Repository 现在每个操作自建/自释 context，所以注册为单例也安全。
         services.AddSingleton<IInspectionRepository>(sp =>
             new InspectionRepository(appPaths.DbPath, sp.GetService<ILogger<InspectionRepository>>()));
+
+        // 审计走独立仓储而不是复用 IInspectionRepository：
+        // 检测记录 30 天后由管家删，审计要按年留 —— 保留策略不同，将来清理规则一分就乱。
+        // 库文件是同一个（备份一个文件就是完整证据），但表的生命周期各管各的。
+        services.AddSingleton<IAuditRepository>(sp =>
+            new AuditRepository(appPaths.DbPath, sp.GetService<ILogger<AuditRepository>>()));
         services.AddSingleton(sp =>
         {
             var s = new ImageStoreService(appPaths.StorageFolder);
@@ -169,6 +176,16 @@ public static class ServiceCollectionExtensions
             appPaths.StorageFolder,
             options.Housekeeping,
             sp.GetService<ILogger<HousekeepingService>>()));
+
+        // 审计服务：Record 只做一次 TryWrite（微秒级），落库在后台线程 ——
+        // 调用点全在按钮命令里，不能被 SQLite 的 5 秒锁超时卡住。
+        //
+        // identity 传 null：阶段 1 还没有登录模块，AuditService 内部回落到 Windows 账户
+        // 并把角色记作「未登录」。阶段 2 接入会话后只改这一行委托，所有埋点不用动。
+        services.AddSingleton<IAuditService>(sp => new AuditService(
+            sp.GetRequiredService<IAuditRepository>(),
+            identity: null,
+            sp.GetService<ILogger<AuditService>>()));
 
         // 检测链路（采图→检测→标注→存图→存库）从 VM 移到 App 服务层（S4a）。
         // 它不引用任何界面类型，只有位图转换会产出 WPF 的 BitmapSource —— 那属于呈现适配。

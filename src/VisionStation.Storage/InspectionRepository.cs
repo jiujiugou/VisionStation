@@ -102,12 +102,15 @@ public class InspectionRepository : IInspectionRepository
     /// <summary>确保数据库和表已创建（SQLite 文件不存在 → 自动创建）</summary>
     public Task EnsureCreatedAsync() => RunAsync(async db =>
     {
-        // 不能只调 EnsureCreated：它对已存在的库不做 ALTER TABLE，
-        // 加一列后现场老库会在第一条保存时抛 "no such column"。
-        var (journal, added) = await StorageSchema.EnsureUpToDateAsync(db).ConfigureAwait(false);
+        // 不能只调 EnsureCreated：它对已存在的库既不加列也不建表，
+        // 加一列会 "no such column"，加一张表会 "no such table"。
+        var (journal, addedTables, addedColumns) =
+            await StorageSchema.EnsureUpToDateAsync(db).ConfigureAwait(false);
 
-        if (added.Count > 0)
-            _logger?.LogWarning("[DB] 结构升级：补充缺失列 {Columns}", string.Join(", ", added));
+        if (addedTables.Count > 0)
+            _logger?.LogWarning("[DB] 结构升级：新建缺失表 {Tables}", string.Join(", ", addedTables));
+        if (addedColumns.Count > 0)
+            _logger?.LogWarning("[DB] 结构升级：补充缺失列 {Columns}", string.Join(", ", addedColumns));
         _logger?.LogInformation("[DB] 数据库初始化完成（journal={Journal}）", journal);
         return true;
     });

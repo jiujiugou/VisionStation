@@ -9,6 +9,7 @@ using VisionStation.App.Services;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
+using VisionStation.Service.Audit;
 
 namespace VisionStation.App.ViewModels;
 
@@ -36,6 +37,13 @@ public partial class ControlPanelViewModel : ObservableObject
     private readonly IInspectionEngine _engine;
     private readonly AppPaths _paths;
     private readonly RecipeConfig _recipe;
+    private readonly IAuditService _audit;
+
+    /// <summary>
+    /// 审计对象名。用配方名而不是空字符串 —— 事后要能回答"这班是谁在用哪份配方"，
+    /// 只记"操作员按了启动"等于什么都没记。
+    /// </summary>
+    private string RecipeName => string.IsNullOrWhiteSpace(_recipe.Name) ? "未命名配方" : _recipe.Name;
 
     /// <summary>扫描结果序列化选项（缓存复用：每次 new 会被 CA1869 判为热路径浪费）</summary>
     private static readonly JsonSerializerOptions ScanJsonOptions = new()
@@ -75,7 +83,8 @@ public partial class ControlPanelViewModel : ObservableObject
         IDialogService dialog,
         IInspectionEngine engine,
         AppPaths paths,
-        RecipeConfig recipe)
+        RecipeConfig recipe,
+        IAuditService audit)
     {
         _trigger = trigger;
         _camera = camera;
@@ -83,6 +92,7 @@ public partial class ControlPanelViewModel : ObservableObject
         _engine = engine;
         _paths = paths;
         _recipe = recipe;
+        _audit = audit;
         CameraOnline = _camera.IsAvailable; // 初始化：检查相机是否可用
     }
 
@@ -121,6 +131,7 @@ public partial class ControlPanelViewModel : ObservableObject
         IsAutoMode = false;
         WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
         WeakReferenceMessenger.Default.Send(new LogMessage("手动停止", LogMsgLevel.Warning));
+        _audit.Record(AuditAction.Stop, RecipeName, detail: "手动停止");
     }
 
     /// <summary>
@@ -136,11 +147,13 @@ public partial class ControlPanelViewModel : ObservableObject
         {
             _trigger.Start();
             WeakReferenceMessenger.Default.Send(new TriggerStateMessage(true));
+            _audit.Record(AuditAction.Start, RecipeName, detail: "进入自动运行");
         }
         else
         {
             _trigger.Stop();
             WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
+            _audit.Record(AuditAction.Stop, RecipeName, detail: "退出自动运行");
         }
     }
 
@@ -158,6 +171,8 @@ public partial class ControlPanelViewModel : ObservableObject
         IsAutoMode = false;
         WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
         WeakReferenceMessenger.Default.Send(new LogMessage("急停已触发", LogMsgLevel.Error));
+        _audit.Record(AuditAction.EStopPressed, RecipeName,
+            detail: "急停触发：触发源已停止，自动模式已退出");
     }
 
     /// <summary>
@@ -201,6 +216,12 @@ public partial class ControlPanelViewModel : ObservableObject
         WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
 
         var problem = _engine.Reload();
+
+        // 引擎重载是"改了判定逻辑"的动作，必须留痕：换完 .sol 前后结论漂了，
+        // 得能查出是哪一分钟换的、换的是哪个引擎。
+        _audit.Record(AuditAction.EngineReload, _engine.Name,
+            result: problem is null ? AuditResult.Success : AuditResult.Failed,
+            detail: problem);
 
         WeakReferenceMessenger.Default.Send(new LogMessage(
             problem is null ? $"引擎已重载（{_engine.Name}）" : $"引擎重载失败：{problem}",

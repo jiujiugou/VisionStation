@@ -13,8 +13,12 @@ namespace VisionStation.Storage;
 /// 对已存在的库不做任何 ALTER TABLE。给实体加一列，现场老库的表结构不会跟着变，
 /// 第一条保存就抛 "no such column" —— 而开发机（新库）完全复现不出来。
 ///
-/// 只做「补缺失的列」，不做删列 / 改类型：后者要重建表，属迁移工具的职责。
-/// 补列是唯一能安全自动化的形态 —— SQLite 的 ALTER TABLE ADD COLUMN 不重建表、不动已有数据。
+/// 同一个坑的另一种形态是**加新表**：EnsureCreated 同样不会给已有的库建表。
+/// 2026-10-24 加 AuditLogs 时就会踩到 —— 开发机删库重建一切正常，现场老库
+/// 第一条审计抛 "no such table"。所以这里管三件事：库在、表齐、列齐。
+///
+/// 只做「补缺失的表/列」，不做删列 / 改类型：后者要重建表，属迁移工具的职责。
+/// 补表补列是唯一能安全自动化的形态 —— 都是纯追加，不动已有数据。
 /// </summary>
 internal static class StorageSchema
 {
@@ -24,14 +28,82 @@ internal static class StorageSchema
     private static readonly CompositeFormat AddColumnFormat = CompositeFormat.Parse(AddColumnSql);
     private static readonly CompositeFormat TableInfoFormat = CompositeFormat.Parse(TableInfoSql);
 
-    /// <summary>确保库、WAL、列结构三者与当前代码一致。返回实际改动，供调用方记日志。</summary>
-    public static async Task<(string JournalMode, IReadOnlyList<string> AddedColumns)> EnsureUpToDateAsync(
-        InspectionDbContext db)
+    /// <summary>确保库、WAL、表结构、列结构四者与当前代码一致。返回实际改动，供调用方记日志。</summary>
+    public static async Task<(string JournalMode, IReadOnlyList<string> AddedTables, IReadOnlyList<string> AddedColumns)>
+        EnsureUpToDateAsync(InspectionDbContext db)
     {
         await db.Database.EnsureCreatedAsync().ConfigureAwait(false);
         var journal = await EnableWalAsync(db).ConfigureAwait(false);
-        var added = await AddMissingColumnsAsync(db).ConfigureAwait(false);
-        return (journal, added);
+        var addedTables = await AddMissingTablesAsync(db).ConfigureAwait(false);
+        var addedColumns = await AddMissingColumnsAsync(db).ConfigureAwait(false);
+        return (journal, addedTables, addedColumns);
+    }
+
+    /// <summary>
+    /// 给已存在的库补上新增实体对应的表（连同它的索引）。
+    ///
+    /// 用 EF 从当前模型生成的建库脚本，把 CREATE 改成 IF NOT EXISTS：
+    /// 已有的表/索引被跳过，缺的建出来。这样表定义永远跟着实体走，
+    /// 不会出现"手写 DDL 忘了同步新增字段"的漂移。
+    /// </summary>
+    private static async Task<List<string>> AddMissingTablesAsync(InspectionDbContext db)
+    {
+        var expected = db.Model.GetEntityTypes()
+            .Select(e => e.GetTableName())
+            .Where(n => !string.IsNullOrEmpty(n))
+            .Select(n => n!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var actual = await ReadTablesAsync(db).ConfigureAwait(false);
+        var missing = expected
+            .Where(t => !actual.Contains(t, StringComparer.OrdinalIgnoreCase))
+            .ToList();
+
+        // 表齐了就别执行脚本 —— 建库脚本是整库的，白跑一遍没必要。
+        if (missing.Count == 0) return missing;
+
+        var script = db.Database.GenerateCreateScript();
+        if (string.IsNullOrWhiteSpace(script)) return missing;
+
+        await db.Database.ExecuteSqlRawAsync(MakeIdempotent(script)).ConfigureAwait(false);
+        return missing;
+    }
+
+    /// <summary>
+    /// 把 EF 生成的建库脚本改成可重复执行的。
+    ///
+    /// 顺序要紧：先改 UNIQUE INDEX，再改 TABLE/INDEX —— 反过来的话
+    /// "CREATE INDEX" 的替换会误伤 "CREATE UNIQUE INDEX" 吗？不会（子串不匹配），
+    /// 但先长后短更不容易在将来加语句类型时出错。
+    /// </summary>
+    private static string MakeIdempotent(string script) => script
+        .Replace("CREATE UNIQUE INDEX \"", "CREATE UNIQUE INDEX IF NOT EXISTS \"", StringComparison.Ordinal)
+        .Replace("CREATE TABLE \"", "CREATE TABLE IF NOT EXISTS \"", StringComparison.Ordinal)
+        .Replace("CREATE INDEX \"", "CREATE INDEX IF NOT EXISTS \"", StringComparison.Ordinal);
+
+    private static async Task<List<string>> ReadTablesAsync(InspectionDbContext db)
+    {
+        var conn = db.Database.GetDbConnection();
+        var shouldClose = conn.State != ConnectionState.Open;
+        if (shouldClose)
+            await db.Database.OpenConnectionAsync().ConfigureAwait(false);
+
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table';";
+            await using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+            var tables = new List<string>();
+            while (await reader.ReadAsync().ConfigureAwait(false))
+                tables.Add(reader.GetString(0));
+            return tables;
+        }
+        finally
+        {
+            if (shouldClose)
+                await db.Database.CloseConnectionAsync().ConfigureAwait(false);
+        }
     }
 
     /// <summary>

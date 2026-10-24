@@ -15,6 +15,7 @@ using VisionStation.Core.Models;
 using VisionStation.Core.Engines;
 using VisionStation.Devices;
 using VisionStation.Storage;
+using VisionStation.Service.Audit;
 using VisionStation.Service.Recipes;
 using VisionStation.Storage.Entities;
 
@@ -340,7 +341,7 @@ internal static class TestPages
             new ResultPanelViewModel(),
             new LogPanelViewModel(),
             new ControlPanelViewModel(trigger, camera, new NoopDialog(),
-                engine ?? new FakeEngine(), TestPaths.Create(), TestPaths.Recipe()),
+                engine ?? new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService()),
             workflow ?? new FakeWorkflow(),
             trigger,
             camera,
@@ -424,4 +425,28 @@ internal sealed class ListLogger<T> : ILogger<T>
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
         Func<TState, Exception?, string> formatter)
         => Entries.Add((logLevel, formatter(state, exception)));
+}
+
+/// <summary>
+/// 审计替身：只把调用收进列表，不写库、不起后台线程。
+///
+/// 需要它的理由：埋点直接写在命令里，而"按一下按钮有没有留痕"这种断言
+/// 不该依赖 SQLite —— 那会把一条命令测试变成数据库集成测试，跑得慢还更脆。
+/// </summary>
+internal sealed class FakeAuditService : IAuditService
+{
+    public List<(AuditAction Action, string Target, string? Before, string? After, AuditResult Result, string? Detail)>
+        Entries { get; } = new();
+
+    public void Record(AuditAction action, string target = "", string? before = null, string? after = null,
+        AuditResult result = AuditResult.Success, string? detail = null)
+        => Entries.Add((action, target, before, after, result, detail));
+
+    public Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200)
+        => Task.FromResult<IReadOnlyList<AuditEntry>>(Array.Empty<AuditEntry>());
+
+    public void Flush(TimeSpan timeout)
+    {
+        // 没有队列，无需收尾
+    }
 }

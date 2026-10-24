@@ -23,7 +23,7 @@ public class ControlPanelViewModelTests
         var trigger = new FakeTrigger();
         var dialog = new FakeDialog { ConfirmResult = false };
         var vm = new ControlPanelViewModel(trigger, new FakeCamera(), dialog,
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe())
+            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
         {
             IsAutoMode = true
         };
@@ -45,7 +45,7 @@ public class ControlPanelViewModelTests
         var trigger = new FakeTrigger();
         var dialog = new FakeDialog { ConfirmResult = true };
         var vm = new ControlPanelViewModel(trigger, new FakeCamera(), dialog,
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe())
+            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
         {
             IsAutoMode = true
         };
@@ -67,7 +67,7 @@ public class ControlPanelViewModelTests
     {
         var camera = new FakeCamera { IsAvailable = false, NextOpenSucceeds = true };
         var vm = new ControlPanelViewModel(new FakeTrigger(), camera, new FakeDialog(),
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe());
+            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ReconnectCommand.Execute(null);
 
@@ -86,7 +86,7 @@ public class ControlPanelViewModelTests
         var trigger = new FakeTrigger();
         var engine = new FakeEngine();
         var vm = new ControlPanelViewModel(trigger, new FakeCamera(), new FakeDialog(),
-            engine, TestPaths.Create(), TestPaths.Recipe())
+            engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
         {
             IsAutoMode = true
         };
@@ -104,7 +104,7 @@ public class ControlPanelViewModelTests
     {
         var engine = new FakeEngine { ReloadProblem = "方案里没有名为「流程1」的流程" };
         var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeCamera(), new FakeDialog(),
-            engine, TestPaths.Create(), TestPaths.Recipe());
+            engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ReloadEngineCommand.Execute(null);   // 不抛异常即为通过
 
@@ -119,7 +119,7 @@ public class ControlPanelViewModelTests
     public void ScanOutputs_WhenEngineCannotScan_DoesNotThrow()
     {
         var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeCamera(), new FakeDialog(),
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe());
+            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ScanOutputsCommand.Execute(null);
     }
@@ -165,7 +165,7 @@ public class ControlPanelViewModelTests
             }, null)
         };
         var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeCamera(), new FakeDialog(),
-            engine, TestPaths.Create(), TestPaths.Recipe());
+            engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ScanOutputsCommand.Execute(null);
 

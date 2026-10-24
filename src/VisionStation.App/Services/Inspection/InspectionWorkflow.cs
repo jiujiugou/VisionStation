@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows.Media.Imaging;
 using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
@@ -44,6 +44,13 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     /// </summary>
     private int _sensorMismatchReported;
 
+    /// <summary>
+    /// 上屏最大宽度。显示区不到 900px，按 2448 全尺寸转换等于每张白拷 15MB。
+    /// 1280 是折中：在 1080p 屏上放大看仍然清楚，转换开销只有全尺寸的 27%。
+    /// **标注仍画在原尺寸上**（坐标是绝对像素），画完再缩。
+    /// </summary>
+    private const int DisplayMaxWidth = 1280;
+
     public InspectionWorkflow(
         ICamera camera,
         IInspectionEngine engine,
@@ -63,7 +70,7 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     /// <summary>当前使用的引擎名（状态栏/日志用）</summary>
     public string EngineName => _engine.Name;
 
-    public Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct)
+    public Task<InspectionRunResult?> RunOnceAsync(TriggerOrigin origin, CancellationToken ct)
     {
         // 推驱动引擎（VM 模式）不响应主动检测。自动循环照旧会按节拍调到这里，
         // 必须**当场返回 null 且不入库** —— 否则每 2 秒一条"VM 模式不支持主动检测"的假 NG，
@@ -78,10 +85,10 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         // 存库（EF 同步段）都没有让出点，留在调用线程上 await 一样会卡死 UI。
         // 传 CancellationToken.None 给 Task.Run：取消由方法内部处理，
         // 避免"任务还没开始就被取消"和"跑到一半被取消"两种语义混在一起。
-        return Task.Run(() => RunCoreAsync(ct), CancellationToken.None);
+        return Task.Run(() => RunCoreAsync(origin, ct), CancellationToken.None);
     }
 
-    private async Task<InspectionRunResult?> RunCoreAsync(CancellationToken ct)
+    private async Task<InspectionRunResult?> RunCoreAsync(TriggerOrigin origin, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         CameraFrame? frame = null;
@@ -112,12 +119,14 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
                 return null;
             }
 
-            var original = MatBitmap.ToBitmapSource(frame.Image);
+            var original = MatBitmap.ToBitmapSource(frame.Image, DisplayMaxWidth);
 
             var report = _engine.Inspect(new InspectionRequest
             {
                 Image = frame.Image,
-                TriggerSource = "Manual",
+                // 来源由触发那一刻决定，不再写死。写死 Manual 的后果是：
+                // 定时跑了一整班的记录，历史页上全变成"人点出来的"，追责时说不清。
+                TriggerSource = origin.ToReportValue(),
                 ImagePath = frame.FilePath
             });
 
@@ -130,7 +139,7 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
             using var annotatedMat = frame.Image.Clone();
             DrawAnnotations(report, annotatedMat);
-            var annotated = MatBitmap.ToBitmapSource(annotatedMat);
+            var annotated = MatBitmap.ToBitmapSource(annotatedMat, DisplayMaxWidth);
 
             ct.ThrowIfCancellationRequested();
 
@@ -223,11 +232,11 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
                 }
                 else
                 {
-                    original = MatBitmap.ToBitmapSource(mat);
+                    original = MatBitmap.ToBitmapSource(mat, DisplayMaxWidth);
 
                     using var overlay = mat.Clone();
                     DrawAnnotations(report, overlay);
-                    annotated = MatBitmap.ToBitmapSource(overlay);
+                    annotated = MatBitmap.ToBitmapSource(overlay, DisplayMaxWidth);
 
                     imageAvailable = true;
                 }

@@ -1,4 +1,4 @@
-using OpenCvSharp;
+﻿using OpenCvSharp;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
 using Xunit;
@@ -48,10 +48,10 @@ public class DeviceLayerTests
         public bool IsRunning { get; private set; }
         public int StartCount { get; private set; }
         public int StopCount { get; private set; }
-        public event Action? Triggered;
+        public event Action<TriggerOrigin>? Triggered;
         public void Start() { IsRunning = true; StartCount++; }
         public void Stop() { IsRunning = false; StopCount++; }
-        public void Fire() => Triggered?.Invoke();
+        public void Fire() => Triggered?.Invoke(TriggerOrigin.Manual);
 
         // 接口继承 IDisposable 后必须实现；替身无资源，空实现即可
         public void Dispose() => GC.SuppressFinalize(this);
@@ -543,7 +543,7 @@ public class DeviceLayerTests
         Exception? reported = null;
 
         using var trigger = new TimerTrigger(20, ex => reported = ex);
-        trigger.Triggered += () =>
+        trigger.Triggered += _ =>
         {
             Interlocked.Increment(ref calls);
             throw new InvalidOperationException("boom");

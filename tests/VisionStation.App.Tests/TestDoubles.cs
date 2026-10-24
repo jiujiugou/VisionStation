@@ -31,12 +31,15 @@ namespace VisionStation.App.Tests;
 /// <summary>触发源替身：可手动 Fire，记录 Stop 次数。</summary>
 internal sealed class FakeTriggerSource : ITriggerSource
 {
-    public event Action? Triggered;
+    public event Action<TriggerOrigin>? Triggered;
 
     public bool IsRunning { get; private set; }
     public int StartCount { get; private set; }
     public int StopCount { get; private set; }
     public int FireCount { get; private set; }
+
+    /// <summary>下一次触发要带的来源。默认手动；测"定时触发要记成 Timer"时改成 Timer。</summary>
+    public TriggerOrigin NextOrigin { get; set; } = TriggerOrigin.Manual;
 
     public void Start()
     {
@@ -53,7 +56,7 @@ internal sealed class FakeTriggerSource : ITriggerSource
     public void Fire()
     {
         FireCount++;
-        Triggered?.Invoke();
+        Triggered?.Invoke(NextOrigin);
     }
 
     public void Dispose() { }
@@ -172,13 +175,17 @@ internal sealed class FakeWorkflow : IInspectionWorkflow
 
     public CancellationToken LastToken { get; private set; }
 
+    /// <summary>最近一次触发带进来的来源，用来断言"定时触发确实被记成 Timer"。</summary>
+    public TriggerOrigin LastOrigin { get; private set; }
+
     /// <summary>VM 推送进来的报告（按到达顺序记录），用来断言"外部结果确实走到了工作流"。</summary>
     public List<InspectionReport> ExternalReports { get; } = new();
 
-    public async Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct)
+    public async Task<InspectionRunResult?> RunOnceAsync(TriggerOrigin origin, CancellationToken ct)
     {
         RunCount++;
         LastToken = ct;
+        LastOrigin = origin;
 
         if (Gate is { } gate) return await gate.Task.WaitAsync(ct).ConfigureAwait(false);
 

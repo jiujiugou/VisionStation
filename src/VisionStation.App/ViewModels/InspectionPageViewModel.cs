@@ -111,7 +111,7 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     /// 关闭判断必须在这里、且在任何线程切换之前 —— 关闭流程可能停在任意线程上，
     /// 那时 Application 未必还可用。
     /// </summary>
-    private void OnTriggered()
+    private void OnTriggered(TriggerOrigin origin)
     {
         if (_shutdown.IsStopping)
         {
@@ -121,16 +121,20 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
 
         if (_ui is null || ReferenceEquals(SynchronizationContext.Current, _ui))
         {
-            _ = RunFrameAsync();
+            _ = RunFrameAsync(origin);
             return;
         }
 
-        // 只切这一次线程：后续 await 会自动回到这个上下文，
-        // 所以消息广播、面板更新天然在 UI 线程上，面板不需要各自再切一次。
-        _ui.Post(static state => _ = ((InspectionPageViewModel)state!).RunFrameAsync(), this);
+        // 来源必须一起带过去：Post 的回调跑在 UI 线程上，
+        // 那时已经问不到"刚才是谁触发的"——触发源只保证"触发那一刻"知道。
+        _ui.Post(static state =>
+        {
+            var (viewModel, triggerOrigin) = ((InspectionPageViewModel ViewModel, TriggerOrigin Origin))state!;
+            _ = viewModel.RunFrameAsync(triggerOrigin);
+        }, (this, origin));
     }
 
-    private async Task RunFrameAsync()
+    private async Task RunFrameAsync(TriggerOrigin origin)
     {
         // 防重入：上一帧没跑完，这一帧丢弃（不排队 —— 排队的帧只会让界面追不上现场）
         if (Interlocked.Exchange(ref _running, 1) == 1)
@@ -145,7 +149,7 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
 
         try
         {
-            var result = await _workflow.RunOnceAsync(_shutdown.Token).ConfigureAwait(true);
+            var result = await _workflow.RunOnceAsync(origin, _shutdown.Token).ConfigureAwait(true);
             if (result is null) return;
 
             // 判定完成即回写 PLC（内部有界队列，永不阻塞 UI）。

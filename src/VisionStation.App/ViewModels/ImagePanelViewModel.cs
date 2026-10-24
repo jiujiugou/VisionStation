@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Services.Inspection;
 using VisionStation.Core.Engines;
@@ -76,11 +77,67 @@ public partial class ImagePanelViewModel : ObservableObject
     [ObservableProperty]
     private ImageTab _selectedTab;
 
+    // ═══════════════════════════════════════════════════════════
+    //  NG 回看（2026-10-24 加入）
+    //
+    //  产线上操作员发现 NG 要叫人来看，但下一件一来图就换了 —— 等人走过来，
+    //  刚才那个 NG 已经找不到了。历史页能查，可"喊人来看"发生在几秒钟内。
+    //
+    //  这里**不阻塞产线**：图继续进、库继续记、PLC 继续回写。
+    //  只是把最近一张 NG 的位图留一份（1280 宽约 5MB，一张而已），
+    //  右上角给个入口，点了切回去看，再点回到实时。
+    //
+    //  为什么不做成"NG 就钉住不换"：那会让操作员以为产线停了，
+    //  而且下一个 NG 来的时候界面已经不反映现场了 —— 停在历史帧上的监视器比黑屏更危险。
+    // ═══════════════════════════════════════════════════════════
+
+    /// <summary>最近一张 NG 的原图（已 Freeze）</summary>
+    private BitmapSource? _recentNgOriginal;
+
+    /// <summary>最近一张 NG 的标注图（已 Freeze）</summary>
+    private BitmapSource? _recentNgAnnotated;
+
+    /// <summary>是否有可回看的 NG</summary>
+    [ObservableProperty]
+    private bool _hasRecentNg;
+
+    /// <summary>回看入口上的文字：时间 + NG</summary>
+    [ObservableProperty]
+    private string _recentNgText = "";
+
+    /// <summary>当前是否停在 NG 回看画面上（true 时图像区显示历史 NG，不是最新一帧）</summary>
+    [ObservableProperty]
+    private bool _isReviewingNg;
+
+    /// <summary>回看按钮上的文字。放在 VM 里而不是 XAML 的 DataTrigger 里：一句话的事，少一层触发器。</summary>
+    public string NgReviewButtonText => IsReviewingNg ? "返回实时" : "回看";
+
+    /// <summary>回看 / 返回实时。没有 NG 可看时不做任何事（按钮本身不可见）。</summary>
+    [RelayCommand]
+    private void ToggleNgReview()
+    {
+        if (!HasRecentNg) return;
+        IsReviewingNg = !IsReviewingNg;
+    }
+
     /// <summary>
-    /// 根据选中的 Tab 返回对应的图像
-    /// 检测 Tab → 标注图 / 其他 Tab → 原图
+    /// 根据选中的 Tab 返回对应的图像。
+    ///
+    /// 回看态下取的是"最近一张 NG"，与实时态共用同一套 Tab：
+    /// 看原图还是看标注，是同一个问题的两种看法，不该分成四个状态。
     /// </summary>
-    public BitmapSource? CurrentImage => SelectedTab?.Key == "Detection" ? AnnotatedImage : OriginalImage;
+    public BitmapSource? CurrentImage
+    {
+        get
+        {
+            var useAnnotated = SelectedTab?.Key == "Detection";
+
+            if (IsReviewingNg)
+                return useAnnotated ? _recentNgAnnotated : _recentNgOriginal;
+
+            return useAnnotated ? AnnotatedImage : OriginalImage;
+        }
+    }
 
     public ImagePanelViewModel()
         : this(null)
@@ -188,6 +245,17 @@ public partial class ImagePanelViewModel : ObservableObject
             EmptyAction = "";
             HasEmptyAction = false;
 
+            // 新 NG 到来：留一份，并把画面切回实时（这一帧本身就是那个 NG）。
+            // 顺序很重要 —— 先切回实时再赋值，否则正在回看旧 NG 时会看不出换了件。
+            if (!result.Report.IsOk)
+            {
+                _recentNgOriginal = result.OriginalImage;
+                _recentNgAnnotated = result.AnnotatedImage ?? result.OriginalImage;
+                HasRecentNg = true;
+                RecentNgText = $"{result.Report.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture)} NG";
+                IsReviewingNg = false;
+            }
+
             // 每帧自动切到"检测"页签：操作员看的是标注结果，不是原图。
             // 保留原行为（S4 只改线程归属，不改交互）。
             SelectedTab = Tabs[1];
@@ -225,10 +293,20 @@ public partial class ImagePanelViewModel : ObservableObject
         }
     }
 
-    // ── 属性变化通知 —— 确保 Tab 切换或图像更新时 UI 刷新 ──
+    // ── 属性变化通知 —— 确保 Tab 切换、图像更新或回看切换时 UI 刷新 ──
     partial void OnSelectedTabChanged(ImageTab value) => OnPropertyChanged(nameof(CurrentImage));
     partial void OnOriginalImageChanged(BitmapSource? value) => OnPropertyChanged(nameof(CurrentImage));
     partial void OnAnnotatedImageChanged(BitmapSource? value) => OnPropertyChanged(nameof(CurrentImage));
+
+    /// <summary>
+    /// 回看切换要手动通知 CurrentImage 与按钮文字：
+    /// 回看态变化时这两处都变，但它们绑的不是同一个属性，靠一个通知覆盖不到。
+    /// </summary>
+    partial void OnIsReviewingNgChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CurrentImage));
+        OnPropertyChanged(nameof(NgReviewButtonText));
+    }
 }
 
 /// <summary>

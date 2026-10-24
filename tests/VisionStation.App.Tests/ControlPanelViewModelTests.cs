@@ -1,4 +1,4 @@
-using VisionStation.App.Abstractions;
+﻿using VisionStation.App.Abstractions;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
@@ -176,7 +176,7 @@ public class ControlPanelViewModelTests
     {
         public int StopCount { get; private set; }
         public bool IsRunning { get; private set; }
-        public event Action? Triggered;
+        public event Action<TriggerOrigin>? Triggered;
 
         public void Start() => IsRunning = true;
 
@@ -186,7 +186,7 @@ public class ControlPanelViewModelTests
             IsRunning = false;
         }
 
-        public void Fire() => Triggered?.Invoke();
+        public void Fire() => Triggered?.Invoke(TriggerOrigin.Manual);
 
         public void Dispose() { }
     }

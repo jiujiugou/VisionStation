@@ -32,7 +32,7 @@ public class TimerTrigger : ITriggerSource
     private int _busy;                             // 0=空闲 1=占用（Interlocked 原子互斥）
     private volatile bool _disposed;
 
-    public event Action? Triggered;
+    public event Action<TriggerOrigin>? Triggered;
 
     /// <summary>自动触发是否在运行 —— 包装层（TriggerDevice）据此恢复断开前的状态</summary>
     public bool IsRunning => Volatile.Read(ref _running) == 1;
@@ -54,7 +54,7 @@ public class TimerTrigger : ITriggerSource
 
             // try/catch/finally：处理器抛异常既不逃逸到 ThreadPool（那会终止进程），
             // 也不让 _busy 卡住（卡住 = 从此再也不触发）。
-            try { Triggered?.Invoke(); }
+            try { Triggered?.Invoke(TriggerOrigin.Timer); }
             catch (Exception ex) { _onError?.Invoke(ex); }
             finally { Interlocked.Exchange(ref _busy, 0); }
         };
@@ -79,7 +79,7 @@ public class TimerTrigger : ITriggerSource
     }
 
     /// <summary>手动触发一次（不依赖定时器，不受 _busy 限制）</summary>
-    public void Fire() => Triggered?.Invoke();
+    public void Fire() => Triggered?.Invoke(TriggerOrigin.Manual);
 
     /// <summary>释放底层 Timer 资源</summary>
     public void Dispose()

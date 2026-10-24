@@ -1,4 +1,4 @@
-using VisionStation.Devices.Plc;
+﻿using VisionStation.Devices.Plc;
 
 namespace VisionStation.Devices;
 
@@ -35,7 +35,7 @@ public sealed class PlcTriggerSource : ITriggerSource
     private short _previousValue;          // 上升沿检测：上一轮询读到的触发寄存器值
     private short _heartbeatCounter;       // 心跳：每次轮询 +1，PLC 侧看到它变化就知道软件活着
 
-    public event Action? Triggered;
+    public event Action<TriggerOrigin>? Triggered;
 
     public bool IsRunning => Volatile.Read(ref _running) == 1;
 
@@ -89,7 +89,7 @@ public sealed class PlcTriggerSource : ITriggerSource
 
                 // CAS 单消费者：上一帧还在处理就丢弃本次触发（与 TimerTrigger 同语义）
                 if (Interlocked.CompareExchange(ref _busy, 1, 0) == 1) return;
-                try { Triggered?.Invoke(); }
+                try { Triggered?.Invoke(TriggerOrigin.Plc); }
                 catch (Exception ex) { _onError?.Invoke(ex); }
                 finally { Interlocked.Exchange(ref _busy, 0); }
             }
@@ -118,7 +118,7 @@ public sealed class PlcTriggerSource : ITriggerSource
     }
 
     /// <summary>手动触发一次（PLC 模式下界面按钮仍可用）</summary>
-    public void Fire() => Triggered?.Invoke();
+    public void Fire() => Triggered?.Invoke(TriggerOrigin.Manual);
 
     public void Dispose()
     {

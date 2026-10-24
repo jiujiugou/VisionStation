@@ -18,8 +18,14 @@ namespace VisionStation.Devices;
 /// </summary>
 public interface ITriggerSource : IDisposable
 {
-    /// <summary>触发信号。每次触发时调用 Invoke()。</summary>
-    event Action? Triggered;
+    /// <summary>
+    /// 触发信号。每次触发时调用 Invoke()，并带上**这一次**的来源。
+    ///
+    /// 为什么带参数而不是让订阅方去问触发源：同一个 TimerTrigger 既能被按钮 Fire（手动），
+    /// 也能被定时器打（自动），来源只有"触发那一刻"知道。问触发源拿"当前模式"会在
+    /// 边界上答错（刚点完按钮、定时器正好也到点）。
+    /// </summary>
+    event Action<TriggerOrigin>? Triggered;
 
     /// <summary>自动触发是否正在运行（包装层据此决定"断开后再连接"要不要恢复）</summary>
     bool IsRunning { get; }

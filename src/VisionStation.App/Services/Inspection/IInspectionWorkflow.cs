@@ -1,5 +1,6 @@
 using System.Windows.Media.Imaging;
 using VisionStation.Core.Models;
+using VisionStation.Devices;
 
 namespace VisionStation.App.Services.Inspection;
 
@@ -20,13 +21,15 @@ public interface IInspectionWorkflow
     /// <summary>
     /// 跑一帧。返回 null 表示这一帧没有可显示的结果（采图失败或被取消）。
     /// </summary>
+    /// <param name="origin">这一次是谁触发的。写进报告，历史页据此区分"定时拍的"与"人点出来的"。</param>
+    /// <param name="ct">取消令牌</param>
     /// <remarks>
     /// 实现约定（调用方可以依赖）：
     ///   1. 整段在后台线程执行，返回的位图已 <c>Freeze()</c>，可直接跨线程绑定；
     ///   2. 不访问 Dispatcher / 不更新任何 ViewModel / 不发消息；
     ///   3. 帧图像的 <c>Mat</c> 在方法内释放，调用方拿到的只有托管位图。
     /// </remarks>
-    Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct);
+    Task<InspectionRunResult?> RunOnceAsync(TriggerOrigin origin, CancellationToken ct);
 
     /// <summary>
     /// 外部引擎（VisionMaster）推来一帧结果：读图 → 标注 → 存库，返回可显示的结果。

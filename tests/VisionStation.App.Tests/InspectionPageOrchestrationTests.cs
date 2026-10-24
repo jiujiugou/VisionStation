@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services.Inspection;
 using VisionStation.App.ViewModels;
+using VisionStation.Devices;
 
 namespace VisionStation.App.Tests;
 
@@ -150,5 +151,55 @@ public class InspectionPageOrchestrationTests
             await Task.Delay(10);
 
         Assert.True(condition(), "等待条件超时");
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  触发来源（P2-2）
+    //
+    //  以前自动模式写死 "Manual"，定时跑一整班的记录在历史页上全变成"人点出来的" ——
+    //  出问题追责时"这批是定时拍的还是人触发的"查不出来。
+    //  下面的用例钉住"来源从触发那一刻带进工作流"这条契约。
+    // ═══════════════════════════════════════════════════════════
+
+    [Fact]
+    public void 手动触发_来源是Manual()
+    {
+        var trigger = new FakeTriggerSource { NextOrigin = TriggerOrigin.Manual };
+        var workflow = new FakeWorkflow { Result = TestResults.Frame() };
+        var page = TestPages.Inspection(workflow: workflow, trigger: trigger);
+
+        trigger.Fire();
+
+        Assert.Equal(1, workflow.RunCount);
+        Assert.Equal(TriggerOrigin.Manual, workflow.LastOrigin);
+
+        page.Dispose();
+    }
+
+    [Fact]
+    public void 定时与PLC触发_来源带成对应值而不是Manual()
+    {
+        var trigger = new FakeTriggerSource { NextOrigin = TriggerOrigin.Timer };
+        var workflow = new FakeWorkflow { Result = TestResults.Frame() };
+        var page = TestPages.Inspection(workflow: workflow, trigger: trigger);
+
+        trigger.Fire();
+        Assert.Equal(TriggerOrigin.Timer, workflow.LastOrigin);
+
+        trigger.NextOrigin = TriggerOrigin.Plc;
+        trigger.Fire();
+        Assert.Equal(TriggerOrigin.Plc, workflow.LastOrigin);
+
+        page.Dispose();
+    }
+
+    [Fact]
+    public void 来源枚举翻成报告用的字符串_只在一处定义()
+    {
+        // 存库、界面、历史筛选都读这个值。分散写的话迟早出现
+        // 库里是 "Timer"、界面写 "定时"、筛选用 "Timer" 又匹配不上。
+        Assert.Equal("Manual", TriggerOrigin.Manual.ToReportValue());
+        Assert.Equal("Timer", TriggerOrigin.Timer.ToReportValue());
+        Assert.Equal("PLC", TriggerOrigin.Plc.ToReportValue());
     }
 }

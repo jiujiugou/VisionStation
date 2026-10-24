@@ -100,6 +100,33 @@
                     </Image.RenderTransform>
                 </Image>
 
+                <!-- NG 回看入口：操作员发现 NG 要叫人来看，但下一件一来图就换了。
+                     这里**不阻塞产线**（库照记、PLC 照回写），只把最近一张 NG 留住。
+                     不做成"NG 就钉住不换"：停在历史帧上的监视器比黑屏更危险。 -->
+                <Border Panel.ZIndex="99" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,8,8,0" CornerRadius="4" Padding="8,4"
+                        Background="#D02C2C2C" BorderBrush="#60FFFFFF" BorderThickness="1">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasRecentNg}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding RecentNgText}" FontSize="11"
+                                   Foreground="#FFB4B4" VerticalAlignment="Center" />
+                        <Button Margin="8,0,0,0" Padding="7,1" FontSize="11" Cursor="Hand"
+                                Style="{StaticResource MinorButton}"
+                                Content="{Binding NgReviewButtonText}"
+                                Command="{Binding ToggleNgReviewCommand}" />
+                    </StackPanel>
+                </Border>
+
                 <!-- 空态：没有图像时这里原本就是一块纯黑，谁看都以为程序坏了。
                      现在分三层说清 —— 什么状态 / 为什么没图 / 该去做什么。
 

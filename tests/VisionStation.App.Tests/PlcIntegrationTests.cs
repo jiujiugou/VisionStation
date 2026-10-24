@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using HslCommunication.ModBus;
 using VisionStation.App.Services.Inspection;
@@ -53,7 +53,7 @@ public class PlcIntegrationTests
             var fired = new TaskCompletionSource();
             using var source = new PlcTriggerSource(conn, ModbusAddressParser.Parse("D200"),
                 heartbeatAddress: null, pollIntervalMs: 20);
-            source.Triggered += () => fired.TrySetResult();
+            source.Triggered += _ => fired.TrySetResult();
 
             plcSide.Write("200", (short)0);           // 初始 0
             source.Start();
@@ -87,7 +87,7 @@ public class PlcIntegrationTests
             var count = 0;
             using var source = new PlcTriggerSource(conn, ModbusAddressParser.Parse("D200"),
                 null, 20);
-            source.Triggered += () => Interlocked.Increment(ref count);
+            source.Triggered += _ => Interlocked.Increment(ref count);
 
             source.Start();
             plcSide.Write("200", (short)1);

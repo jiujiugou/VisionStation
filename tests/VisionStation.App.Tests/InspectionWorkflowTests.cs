@@ -1,7 +1,8 @@
-using System.IO;
+﻿using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenCvSharp;
 using VisionStation.App.Services.Inspection;
+using VisionStation.Devices;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
 using VisionStation.Storage;
@@ -25,7 +26,7 @@ public class InspectionWorkflowTests
         using var env = new TempEnv(withFrame: false);
         var workflow = env.CreateWorkflow();
 
-        var result = await workflow.RunOnceAsync(CancellationToken.None);
+        var result = await workflow.RunOnceAsync(TriggerOrigin.Manual, CancellationToken.None);
 
         Assert.Null(result);
         Assert.Equal(1, env.Camera.CaptureCount);
@@ -37,7 +38,7 @@ public class InspectionWorkflowTests
         using var env = new TempEnv();
         var workflow = env.CreateWorkflow();
 
-        var result = await workflow.RunOnceAsync(CancellationToken.None);
+        var result = await workflow.RunOnceAsync(TriggerOrigin.Manual, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.NotNull(result!.Report);
@@ -63,8 +64,8 @@ public class InspectionWorkflowTests
         using var env = new TempEnv();
         var workflow = env.CreateWorkflow(blockImageSaving: true);
 
-        var first = await workflow.RunOnceAsync(CancellationToken.None);
-        var second = await workflow.RunOnceAsync(CancellationToken.None);
+        var first = await workflow.RunOnceAsync(TriggerOrigin.Manual, CancellationToken.None);
+        var second = await workflow.RunOnceAsync(TriggerOrigin.Manual, CancellationToken.None);
 
         // 存图失败不该让整帧结果作废：报告仍然有价值，但失败必须被看见
         Assert.NotNull(first);
@@ -84,7 +85,7 @@ public class InspectionWorkflowTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => workflow.RunOnceAsync(cts.Token));
+            () => workflow.RunOnceAsync(TriggerOrigin.Manual, cts.Token));
 
         Assert.Equal(0, env.Camera.CaptureCount);
     }

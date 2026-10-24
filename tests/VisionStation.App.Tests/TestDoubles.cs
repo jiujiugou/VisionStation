@@ -459,6 +459,26 @@ internal sealed class FakeAuditService : IAuditService
     public Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200)
         => Task.FromResult<IReadOnlyList<AuditEntry>>(Array.Empty<AuditEntry>());
 
+    /// <summary>每次查询收到的参数，供断言"过滤条件确实传下去了"</summary>
+    public List<(AuditAction? Action, string? User, DateTime? Since, int Count)> Queries { get; } = new();
+
+    /// <summary>下一次查询返回什么</summary>
+    public List<AuditEntry> QueryResult { get; } = new();
+
+    /// <summary>非 null 时查询抛这个异常，用于验"查询失败要说出来"</summary>
+    public Exception? QueryException { get; set; }
+
+    public Task<IReadOnlyList<AuditEntry>> QueryAsync(
+        AuditAction? action = null, string? userName = null, DateTime? since = null, int count = 200)
+    {
+        Queries.Add((action, userName, since, count));
+
+        if (QueryException is not null)
+            throw QueryException;
+
+        return Task.FromResult<IReadOnlyList<AuditEntry>>(QueryResult.ToList());
+    }
+
     public void Flush(TimeSpan timeout)
     {
         // 没有队列，无需收尾

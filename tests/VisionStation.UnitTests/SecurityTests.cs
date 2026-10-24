@@ -183,6 +183,10 @@ public class UserServiceTests
         public Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200)
             => Task.FromResult<IReadOnlyList<AuditEntry>>(Array.Empty<AuditEntry>());
 
+        public Task<IReadOnlyList<AuditEntry>> QueryAsync(
+            AuditAction? action = null, string? userName = null, DateTime? since = null, int count = 200)
+            => Task.FromResult<IReadOnlyList<AuditEntry>>(Array.Empty<AuditEntry>());
+
         public void Flush(TimeSpan timeout) { }
     }
 

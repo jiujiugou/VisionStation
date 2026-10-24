@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
+using VisionStation.Core.Users;
 
 namespace VisionStation.App.Tests;
 
@@ -55,7 +56,7 @@ public class SidebarViewModelTests
         var inspection = TestPages.Inspection();
         var navigation = new FakeNavigationService(NavigationService.InspectionRoute, inspection)
             .With(NavigationService.InspectionRoute, inspection);
-        var sidebar = new SidebarViewModel(navigation);
+        var sidebar = new SidebarViewModel(navigation, new FakeSessionService());
 
         sidebar.NavigateCommand.Execute(CameraItem(sidebar));
 
@@ -71,8 +72,9 @@ public class SidebarViewModelTests
         // 以前 8 个图标里 6 个点了弹回去，操作员点名骂的就是这个。
         var inspection = TestPages.Inspection();
         var camera = TestPages.Camera();
-        var navigation = new NavigationService(inspection, camera, NullLogger<NavigationService>.Instance);
-        var sidebar = new SidebarViewModel(navigation);
+        var navigation = new NavigationService(inspection, camera,
+            new AuditPageViewModel(new FakeAuditService()), NullLogger<NavigationService>.Instance);
+        var sidebar = new SidebarViewModel(navigation, new FakeSessionService());
 
         foreach (var item in AllItems(sidebar))
         {
@@ -136,6 +138,73 @@ public class SidebarViewModelTests
             .With(NavigationService.InspectionRoute, inspection)
             .With(NavigationService.CameraRoute, camera);
 
-        return (new SidebarViewModel(navigation), navigation, camera);
+        return (new SidebarViewModel(navigation, new FakeSessionService()), navigation, camera);
+    }
+
+    /// <summary>带会话的构造：验"审计入口按权限出现/消失"要用它</summary>
+    private static (SidebarViewModel Sidebar, FakeSessionService Session, FakeNavigationService Navigation)
+        CreateWithSession()
+    {
+        var inspection = TestPages.Inspection();
+        var navigation = new FakeNavigationService(NavigationService.InspectionRoute, inspection)
+            .With(NavigationService.InspectionRoute, inspection)
+            .With(NavigationService.CameraRoute, TestPages.Camera())
+            .With(NavigationService.AuditRoute, new object());
+
+        var session = new FakeSessionService();
+        return (new SidebarViewModel(navigation, session), session, navigation);
+    }
+
+    private static bool HasAuditItem(SidebarViewModel sidebar)
+        => sidebar.VisibleBottomItems.Any(i => i.Route == NavigationService.AuditRoute);
+
+    /// <summary>没登录：审计入口不出现（它是管理员的页面，不是公开页面）</summary>
+    [Fact]
+    public void AuditItem_HiddenWhenNotLoggedIn()
+    {
+        var (sidebar, _, _) = CreateWithSession();
+
+        Assert.False(HasAuditItem(sidebar));
+    }
+
+    [Fact]
+    public void AuditItem_AppearsForAdmin()
+    {
+        var (sidebar, session, _) = CreateWithSession();
+
+        session.SignIn(UserRole.Admin);
+
+        Assert.True(HasAuditItem(sidebar));
+    }
+
+    /// <summary>
+    /// 工程师看不到审计 —— 这条边界是刻意的：
+    /// 能改参数的人不该能查"我改参数这件事有没有被记下来"。
+    /// </summary>
+    [Fact]
+    public void AuditItem_HiddenForEngineer()
+    {
+        var (sidebar, session, _) = CreateWithSession();
+
+        session.SignIn(UserRole.Engineer);
+
+        Assert.False(HasAuditItem(sidebar));
+    }
+
+    /// <summary>登出时人正停在审计页：必须退回检测页，不能留在已隐藏的页上</summary>
+    [Fact]
+    public void Logout_WhileOnAuditPage_ReturnsToInspection()
+    {
+        var (sidebar, session, _) = CreateWithSession();
+        session.SignIn(UserRole.Admin);
+
+        var auditItem = sidebar.BottomItems.Single(i => i.Route == NavigationService.AuditRoute);
+        sidebar.NavigateCommand.Execute(auditItem);
+        Assert.Equal(NavigationService.AuditRoute, sidebar.ActivePage);
+
+        session.Logout();
+
+        Assert.Equal(NavigationService.InspectionRoute, sidebar.ActivePage);
+        Assert.False(HasAuditItem(sidebar));
     }
 }

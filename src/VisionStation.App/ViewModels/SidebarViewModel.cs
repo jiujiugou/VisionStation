@@ -4,6 +4,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Services.Navigation;
+using VisionStation.Core.Users;
+using VisionStation.Service.Security;
 
 namespace VisionStation.App.ViewModels;
 
@@ -26,7 +28,11 @@ namespace VisionStation.App.ViewModels;
 public partial class SidebarViewModel : ObservableObject
 {
     private readonly INavigationService _navigation;
+    private readonly ISessionService _session;
     private readonly IReadOnlyList<NavItem> _allItems;
+
+    /// <summary>当前是否工程师模式（由顶栏广播驱动）</summary>
+    private bool _isEngineerMode;
 
     /// <summary>是否暗化（自动运行时 true，手动/停止时 false）</summary>
     [ObservableProperty]
@@ -50,9 +56,10 @@ public partial class SidebarViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<NavItem> VisibleBottomItems { get; } = new();
 
-    public SidebarViewModel(INavigationService navigation)
+    public SidebarViewModel(INavigationService navigation, ISessionService session)
     {
         _navigation = navigation;
+        _session = session;
 
         // 只放真有页面的项。参数/配方/历史/PLC/日志/系统都还没有实现，
         // 摆上去就是"点了没反应"的假按钮 —— 宁可侧边栏空着，也不给操作员
@@ -72,6 +79,13 @@ public partial class SidebarViewModel : ObservableObject
                 label: "相机",
                 geometry: "M9 2L7.2 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.2L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z M12 8.8a3.2 3.2 0 100 6.4 3.2 3.2 0 000-6.4z",
                 engineerOnly: true),
+            new NavItem(
+                route: NavigationService.AuditRoute,
+                label: "审计",
+                geometry: "M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-1 15l-4-4 1.4-1.4L11 13.2l4.6-4.6L17 10l-6 6z",
+                // 只给管理员：工程师能改参数，但不该能查审计 ——
+                // 否则等于让他确认自己的脚印有没有被记下来
+                requiredPermission: Permission.ViewAudit),
         };
 
         _allItems = TopItems.Concat(BottomItems).ToArray();
@@ -84,6 +98,11 @@ public partial class SidebarViewModel : ObservableObject
 
         WeakReferenceMessenger.Default.Register<SidebarViewModel, TriggerStateMessage>(this,
             (vm, msg) => vm.IsDimmed = msg.Value);
+
+        // 会话变化：登录成管理员时"审计"才出现，登出时又消失。
+        // 不刷新的话，登出后侧栏还挂着审计入口 —— 点进去导航到已隐藏的页。
+        WeakReferenceMessenger.Default.Register<SidebarViewModel, SessionChangedMessage>(this,
+            static (vm, _) => vm.RefreshVisibility());
 
         // 导航状态是唯一真相源：谁改了路由（侧边栏、快捷键、将来的外部触发），
         // 高亮都跟着走，不需要在每个入口各写一份同步代码。
@@ -127,23 +146,53 @@ public partial class SidebarViewModel : ObservableObject
     /// </summary>
     public void ApplyEngineerMode(bool isEngineerMode)
     {
-        VisibleBottomItems.Clear();
-        foreach (var item in BottomItems)
-        {
-            if (isEngineerMode || !item.EngineerOnly)
-                VisibleBottomItems.Add(item);
-        }
+        _isEngineerMode = isEngineerMode;
+        RebuildVisible();
 
-        if (isEngineerMode) return;
-
+        // 当前停在的页若已不可见，必须退回检测页：
+        // 退出工程师模式时人可能停在相机页；登出时人可能停在审计页。
+        // 不退的话侧栏没有任何高亮项，内容区却还显示着那一页。
         var current = _navigation.CurrentRoute;
-        var standingOnHidden = BottomItems.Any(item =>
-            item.EngineerOnly && string.Equals(item.Route, current, StringComparison.Ordinal));
+        var currentItem = _allItems.FirstOrDefault(i =>
+            string.Equals(i.Route, current, StringComparison.Ordinal));
 
-        if (standingOnHidden)
+        if (currentItem is not null && !IsVisible(currentItem))
             _navigation.Navigate(NavigationService.InspectionRoute);
 
         SyncActiveState();
+    }
+
+    /// <summary>
+    /// 会话变化后重新算可见项。
+    /// 登录/登出会改变"审计"这一项是否出现 —— 它跟模式无关，只跟权限有关。
+    /// </summary>
+    public void RefreshVisibility() => ApplyEngineerMode(_isEngineerMode);
+
+    private void RebuildVisible()
+    {
+        VisibleBottomItems.Clear();
+        foreach (var item in BottomItems)
+        {
+            if (IsVisible(item))
+                VisibleBottomItems.Add(item);
+        }
+    }
+
+    /// <summary>
+    /// 两个维度一起判：工程师模式（相机页）、权限位（审计页）。
+    /// 分开写两个过滤器只会让"到底哪一条规则挡住的"变得难查。
+    /// </summary>
+    private bool IsVisible(NavItem item)
+    {
+        if (item.EngineerOnly && !_isEngineerMode) return false;
+
+        if (item.RequiredPermission != Permission.None
+            && !_session.HasPermission(item.RequiredPermission))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private void SyncActiveState()
@@ -165,12 +214,18 @@ public partial class SidebarViewModel : ObservableObject
 /// </summary>
 public partial class NavItem : ObservableObject
 {
-    public NavItem(string route, string label, string geometry, bool engineerOnly = false)
+    public NavItem(
+        string route,
+        string label,
+        string geometry,
+        bool engineerOnly = false,
+        Permission requiredPermission = Permission.None)
     {
         Route = route;
         Label = label;
         Geometry = geometry;
         EngineerOnly = engineerOnly;
+        RequiredPermission = requiredPermission;
     }
 
     /// <summary>路由名，交给 <see cref="INavigationService"/></summary>
@@ -189,6 +244,14 @@ public partial class NavItem : ObservableObject
     /// 看到一堆看不懂的按钮。运行模式和工程师模式的区别，主要就体现在这个标志上。
     /// </summary>
     public bool EngineerOnly { get; }
+
+    /// <summary>
+    /// 需要哪个权限位才显示。<see cref="Permission.None"/> = 不需要。
+    ///
+    /// 与 <see cref="EngineerOnly"/> 是两个维度：相机页看"在不在工程师模式"，
+    /// 审计页看"是不是管理员"。后者与模式无关 —— 管理员在运行模式下也该能查审计。
+    /// </summary>
+    public Permission RequiredPermission { get; }
 
     /// <summary>当前页是不是我。由 <see cref="SidebarViewModel"/> 单向写入。</summary>
     [ObservableProperty]

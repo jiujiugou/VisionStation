@@ -11,6 +11,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
 {
     public const string InspectionRoute = "检测";
     public const string CameraRoute = "相机";
+    public const string AuditRoute = "审计";
 
     private readonly Dictionary<string, object> _pages;
     private readonly ILogger<NavigationService> _logger;
@@ -21,6 +22,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
     public NavigationService(
         InspectionPageViewModel inspectionPage,
         CameraPageViewModel cameraPage,
+        AuditPageViewModel auditPage,
         ILogger<NavigationService> logger)
     {
         _logger = logger;
@@ -29,6 +31,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
         {
             [InspectionRoute] = inspectionPage,
             [CameraRoute] = cameraPage,
+            [AuditRoute] = auditPage,
         };
 
         // 启动即停在检测页：和改造前一致（窗口打开看到的就是检测页）。

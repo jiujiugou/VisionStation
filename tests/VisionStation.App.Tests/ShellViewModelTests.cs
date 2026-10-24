@@ -38,11 +38,14 @@ public class ShellViewModelTests
 
         // 顶栏 2026-10-24 加入外壳。它只读配方 + 设备状态，不参与导航，
         // 所以这里给一份最小配方即可 —— 断言仍然是"切页必须通知两处"。
+        // 顶栏与侧栏共用同一个会话：真实运行时它们读的就是同一个 ISessionService，
+        // 各给一个替身会让"登录后两处状态不一致"这种问题在测试里看不见。
+        var session = new FakeSessionService();
         var topBar = new TopBarViewModel(new RecipeConfig(), new FakeTriggerSource(),
-            new FakeAuditService(), new FakeSessionService(), new FakeLoginPrompt());
+            new FakeAuditService(), session, new FakeLoginPrompt());
 
         var shell = new ShellViewModel(
-            new SidebarViewModel(navigation),
+            new SidebarViewModel(navigation, session),
             new StatusBarViewModel(),
             topBar,
             navigation);

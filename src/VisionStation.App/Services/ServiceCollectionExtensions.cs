@@ -267,6 +267,10 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<CameraPageViewModel>();
 
+        // 审计页：只有管理员能从侧栏进入（NavItem.RequiredPermission = ViewAudit）。
+        // 注册为单例是为了让导航服务能直接拿到它，翻页时保留上次的过滤条件与结果。
+        services.AddSingleton<AuditPageViewModel>();
+
         // 导航：路由表在 NavigationService 里写死两页，不查容器、不建工厂。
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<ShellViewModel>();

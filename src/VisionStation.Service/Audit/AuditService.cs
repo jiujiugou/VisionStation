@@ -51,6 +51,16 @@ public interface IAuditService
     Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200);
 
     /// <summary>
+    /// 按条件查询：动作 / 用户 / 起始时间，三者都可空。
+    /// 审计页用它 —— 复盘时最常问的是"昨天下午谁动过参数"，不是"最近两百条"。
+    /// </summary>
+    Task<IReadOnlyList<AuditEntry>> QueryAsync(
+        AuditAction? action = null,
+        string? userName = null,
+        DateTime? since = null,
+        int count = 200);
+
+    /// <summary>
     /// 关闭时把队列里剩下的写完，最多等指定时长。
     ///
     /// 不做成 IDisposable/IAsyncDisposable 是有意的：DI 容器在同步 Dispose 路径上
@@ -176,6 +186,13 @@ public sealed class AuditService : IAuditService
 
     public Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200)
         => _repo.QueryRecentAsync(count);
+
+    public Task<IReadOnlyList<AuditEntry>> QueryAsync(
+        AuditAction? action = null,
+        string? userName = null,
+        DateTime? since = null,
+        int count = 200)
+        => _repo.QueryAsync(action, userName, since, count);
 
     /// <summary>
     /// 后台消费循环。单条失败不影响后续 —— 审计是流，不能因为一条写不进去就整条流停摆。

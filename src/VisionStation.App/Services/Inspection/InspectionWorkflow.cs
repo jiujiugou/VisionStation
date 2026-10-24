@@ -197,13 +197,31 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         BitmapSource? annotated = null;
         var imageAvailable = false;
 
+        // 没图时必须说清是哪一种"没图"：四种情况在界面上都只是黑屏，
+        // 但处理方式完全不同 —— 等、去 VM 里配、查路径、查权限。
+        string? imageReason = null;
+
         var path = report.ImagePath;
-        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            imageReason = "本帧结果没有带图像路径（VM 侧未发 imagePath）";
+        }
+        else if (!File.Exists(path))
+        {
+            imageReason = $"VM 给的图像路径不存在：{path}";
+            _logger.LogWarning("[VM] VM 报告里的图像路径不存在：{Path}", path);
+        }
+        else
         {
             try
             {
                 using var mat = Cv2.ImRead(path, ImreadModes.Color);
-                if (!mat.Empty())
+                if (mat.Empty())
+                {
+                    imageReason = $"图像无法解码（空文件或格式不支持）：{path}";
+                    _logger.LogWarning("[VM] 图像无法解码：{Path}", path);
+                }
+                else
                 {
                     original = MatBitmap.ToBitmapSource(mat);
 
@@ -217,12 +235,9 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
             catch (Exception ex) when (ex is IOException or OpenCVException or UnauthorizedAccessException)
             {
                 // 图画不出来不该影响判定入库 —— 结论已经定了，少一张图是次要问题
+                imageReason = $"读取图像失败：{ex.Message}";
                 _logger.LogWarning(ex, "[VM] 读取 VM 图像失败：{Path}", path);
             }
-        }
-        else if (!string.IsNullOrWhiteSpace(path))
-        {
-            _logger.LogWarning("[VM] VM 报告里的图像路径不存在：{Path}", path);
         }
 
         ct.ThrowIfCancellationRequested();
@@ -247,7 +262,8 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
             imageAvailable,
             null,
             0,
-            true);
+            true,
+            imageReason);
     }
 
     /// <summary>

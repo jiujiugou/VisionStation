@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Services.Inspection;
+using VisionStation.Core.Engines;
 
 namespace VisionStation.App.ViewModels;
 
@@ -16,6 +18,15 @@ namespace VisionStation.App.ViewModels;
 /// </summary>
 public partial class ImagePanelViewModel : ObservableObject
 {
+    /// <summary>
+    /// 图像是否由外部引擎推来（VM）。决定等待态怎么说话：
+    /// VM 模式下"还没图"是正常态，自采模式下"还没图"意味着没点开始。
+    /// </summary>
+    private readonly bool _isPushDriven;
+
+    /// <summary>最近一次真正拿到图像的时间；null = 从启动到现在一张都没成功过</summary>
+    private DateTime? _lastImageTime;
+
     /// <summary>原始采集图像（已 Freeze，可跨线程）</summary>
     [ObservableProperty]
     private BitmapSource? _originalImage;
@@ -23,6 +34,29 @@ public partial class ImagePanelViewModel : ObservableObject
     /// <summary>叠加了 ROI 框、圆、缺陷轮廓、判定水印的图像（已 Freeze）</summary>
     [ObservableProperty]
     private BitmapSource? _annotatedImage;
+
+    /// <summary>空态主文案：一句话说清现在是什么状态</summary>
+    [ObservableProperty]
+    private string _emptyTitle = "";
+
+    /// <summary>
+    /// 空态说明：为什么没有图。
+    ///
+    /// 这四种情况在屏幕上都只是一块黑，但处理方式完全不同：
+    /// 还没收到结果（等）、VM 没给路径（去 VM 配）、路径不存在（查盘符）、
+    /// 读图失败（查权限）。不说原因，技术员只能猜，而且最容易猜成
+    /// "这软件本来就不显示图"—— 然后谁也不去修。
+    /// </summary>
+    [ObservableProperty]
+    private string _emptyDetail = "";
+
+    /// <summary>空态指引：现在该去做什么。没有可做的事时为空（不占位）</summary>
+    [ObservableProperty]
+    private string _emptyAction = "";
+
+    /// <summary>是否有指引行（空字符串时那一行不占位）</summary>
+    [ObservableProperty]
+    private bool _hasEmptyAction;
 
     /// <summary>
     /// 图像区域顶部 Tab 页签（原图 / 检测）。
@@ -47,30 +81,41 @@ public partial class ImagePanelViewModel : ObservableObject
     /// </summary>
     public BitmapSource? CurrentImage => SelectedTab?.Key == "Detection" ? AnnotatedImage : OriginalImage;
 
-    /// <summary>
-    /// 没有图像时显示的说明。按引擎区分：
-    /// 推驱动的引擎（VM）本来就不采图，黑屏是正常状态，必须写出来，
-    /// 否则操作员只会认为程序坏了。
-    /// </summary>
-    public string EmptyHint { get; private set; } =
-        "等待 VisionMaster 推送结果\nVM 模式下图像与标注在平台侧，本程序只接收结果";
-
     public ImagePanelViewModel()
         : this(null)
     {
     }
 
-    public ImagePanelViewModel(VisionStation.Core.Engines.IInspectionEngine? engine)
+    public ImagePanelViewModel(IInspectionEngine? engine)
     {
-        if (engine is not null && engine is not VisionStation.Core.Engines.IPushDrivenEngine)
-        {
-            EmptyHint = "尚未收到检测结果";
-        }
+        _isPushDriven = engine is IPushDrivenEngine;
 
         _selectedTab = Tabs[0]; // 默认显示原图
+        ShowWaitingState();
 
         WeakReferenceMessenger.Default.Register<ImagePanelViewModel, InspectionResultMessage>(this,
             static (vm, msg) => vm.Apply(msg.Value));
+    }
+
+    /// <summary>
+    /// 还没收到任何结果时的空态。两种引擎说不同的话：
+    /// VM 模式是"等它推"，自采模式是"你还没让它跑"。
+    /// </summary>
+    private void ShowWaitingState()
+    {
+        if (_isPushDriven)
+        {
+            EmptyTitle = "等待 VisionMaster 推送结果";
+            EmptyDetail = "尚未收到任何结果";
+        }
+        else
+        {
+            EmptyTitle = "尚未开始检测";
+            EmptyDetail = "点「开始」或等待触发";
+        }
+
+        EmptyAction = "";
+        HasEmptyAction = false;
     }
 
     /// <summary>
@@ -78,12 +123,52 @@ public partial class ImagePanelViewModel : ObservableObject
     /// </summary>
     private void Apply(InspectionRunResult result)
     {
-        OriginalImage = result.OriginalImage;
-        AnnotatedImage = result.AnnotatedImage;
+        if (result.OriginalImage is not null)
+        {
+            OriginalImage = result.OriginalImage;
+            AnnotatedImage = result.AnnotatedImage;
+            _lastImageTime = result.Report.Timestamp;
 
-        // 每帧自动切到"检测"页签：操作员看的是标注结果，不是原图。
-        // 保留原行为（S4 只改线程归属，不改交互）。
-        SelectedTab = Tabs[1];
+            EmptyTitle = "";
+            EmptyDetail = "";
+            EmptyAction = "";
+            HasEmptyAction = false;
+
+            // 每帧自动切到"检测"页签：操作员看的是标注结果，不是原图。
+            // 保留原行为（S4 只改线程归属，不改交互）。
+            SelectedTab = Tabs[1];
+            return;
+        }
+
+        // 无图：必须清空。
+        //
+        // 这里绝不"保留上一帧"—— 留着就是把上一件的图当成本件显示，
+        // 照错的图判断比看黑屏危险得多。黑屏只是难看，错图会误导。
+        // 清空之后，把"为什么没有"写在屏幕中间，这是黑屏唯一该有的内容。
+        OriginalImage = null;
+        AnnotatedImage = null;
+
+        EmptyTitle = "本帧没有图像";
+        EmptyDetail = result.ImageUnavailableReason ?? "未收到图像，也未给出原因";
+
+        if (_lastImageTime is { } last)
+        {
+            // 有历史图：告诉他上一条能看到的是哪一件，便于分清"刚开始坏"还是"从来没通"
+            EmptyAction = $"上一张有图像的是 {last.ToString("HH:mm:ss", CultureInfo.InvariantCulture)}";
+            HasEmptyAction = true;
+        }
+        else if (_isPushDriven)
+        {
+            // 一张都没成功过：这是链路没接通，不是偶发失败，直接给配置动作
+            EmptyAction = "VM 侧在流程末尾加「存图」模块并开启渲染图输出，"
+                        + "再把文件路径放进发送数据的 imagePath 字段";
+            HasEmptyAction = true;
+        }
+        else
+        {
+            EmptyAction = "";
+            HasEmptyAction = false;
+        }
     }
 
     // ── 属性变化通知 —— 确保 Tab 切换或图像更新时 UI 刷新 ──

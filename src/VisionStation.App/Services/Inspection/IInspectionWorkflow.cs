@@ -51,6 +51,13 @@ public interface IInspectionWorkflow
 /// <param name="ImageError">存图失败原因；成功或跳过时为 null</param>
 /// <param name="ConsecutiveImageFailures">连续存图失败次数（成功即归零）</param>
 /// <param name="CameraOnline">本帧结束后相机的可用状态</param>
+/// <param name="ImageUnavailableReason">
+/// 本帧没有可用图像的原因；有图时为 null。
+///
+/// 界面靠它区分四种"屏幕上都是黑的"情况：还没收到结果、VM 没给路径、
+/// 路径不存在、读图失败。这四种在图像区长得一模一样，不说清原因，
+/// 技术员只能一个猜——而且最容易猜成"这软件本来就没图"。
+/// </param>
 public sealed record InspectionRunResult(
     InspectionReport Report,
     BitmapSource? OriginalImage,
@@ -59,4 +66,5 @@ public sealed record InspectionRunResult(
     bool ImageSaved,
     string? ImageError,
     int ConsecutiveImageFailures,
-    bool CameraOnline);
+    bool CameraOnline,
+    string? ImageUnavailableReason = null);

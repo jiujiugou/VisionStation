@@ -100,16 +100,20 @@
                     </Image.RenderTransform>
                 </Image>
 
-                <!-- 空态说明：没有图像时这里原本是一块黑，谁都以为程序坏了。
-                     VM 模式下本来就不采图，必须写清楚"图在平台那边"。 -->
-                <TextBlock Text="{Binding EmptyHint}"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                           TextAlignment="Center" TextWrapping="Wrap"
-                           FontSize="13" Foreground="#8A8A8A"
-                           IsHitTestVisible="False"
-                           Panel.ZIndex="98">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock">
+                <!-- 空态：没有图像时这里原本就是一块纯黑，谁看都以为程序坏了。
+                     现在分三层说清 —— 什么状态 / 为什么没图 / 该去做什么。
+
+                     三层缺一不可：只写"没有图像"等于什么都没说，因为
+                     "VM 没给路径""路径不存在""读图失败"在屏幕上长得一模一样，
+                     处理方式却完全不同（去 VM 配 / 查盘符 / 查权限）。
+
+                     这里坚决不显示上一帧的图：留旧图会让人拿上一件的图当这一件，
+                     照错图判断比看黑屏危险得多。 -->
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
+                            MaxWidth="520" IsHitTestVisible="False"
+                            Panel.ZIndex="98">
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding CurrentImage}" Value="{x:Null}">
@@ -117,8 +121,23 @@
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
-                    </TextBlock.Style>
-                </TextBlock>
+                    </StackPanel.Style>
+
+                    <TextBlock Text="{Binding EmptyTitle}"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               FontSize="14" Foreground="#9A9A9A" />
+
+                    <TextBlock Text="{Binding EmptyDetail}"
+                               Margin="0,10,0,0"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               FontSize="12" Foreground="#757575" />
+
+                    <TextBlock Text="{Binding EmptyAction}"
+                               Margin="0,16,0,0"
+                               TextAlignment="Center" TextWrapping="Wrap"
+                               FontSize="12" Foreground="#5DCAA5"
+                               Visibility="{Binding HasEmptyAction, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
 
                 <!-- 鼠标坐标 + 缩放级别（左下角浮层） -->
                 <Border Background="{StaticResource ScrimBg}" CornerRadius="3" Padding="8,3"

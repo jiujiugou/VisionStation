@@ -33,6 +33,18 @@ public sealed class VmResultListener : IDisposable
     private Task? _acceptTask;
     private volatile bool _disposed;
 
+    /// <summary>
+    /// 最后收到一行结果的时刻（UTC ticks）。0 = 本次启动以来从未收到。
+    /// 用 ticks 而不是 DateTime 是为了 Interlocked —— 接收线程写、监控线程读，中间不能撕裂。
+    /// </summary>
+    private long _lastLineUtcTicks;
+
+    /// <summary>当前连接建立时刻（UTC ticks），0 = 没有连接。多客户端时取第一个连上的。</summary>
+    private long _connectedAtUtcTicks;
+
+    /// <summary>当前连着的客户端数（VM 断线重连时可能短暂并存）</summary>
+    private int _clientCount;
+
     /// <param name="bindAddress">绑定地址，如 127.0.0.1 或 0.0.0.0</param>
     /// <param name="port">监听端口</param>
     /// <param name="onLine">每收到一行调用一次。回调抛异常不会中断监听</param>
@@ -58,6 +70,39 @@ public sealed class VmResultListener : IDisposable
 
     /// <summary>是否已开始监听</summary>
     public bool IsListening => _listener is not null;
+
+    /// <summary>
+    /// 最后收到一行结果的时刻（UTC）。null = 本次启动以来从未收到。
+    ///
+    /// 为什么要有这个：产线上"VM 崩了"和"产线停机没料"在界面上本是同一个黑屏。
+    /// 有了这个时间，才能说出"已 N 秒没有结果"，也才能区分"从没通过"和"刚断"。
+    /// </summary>
+    public DateTime? LastLineUtc
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _lastLineUtcTicks);
+            return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
+
+    /// <summary>
+    /// 当前这轮连接建立于何时（UTC）。null = 现在没有客户端连着。
+    ///
+    /// 断流判定要它兜底：刚连上还没推第一件时，基准是"连上多久了"，
+    /// 不能拿"上一次的结果时间"算 —— 那会把正常的第一件等待误判成断流。
+    /// </summary>
+    public DateTime? ConnectedAtUtc
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _connectedAtUtcTicks);
+            return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
+
+    /// <summary>当前是否有 VisionMaster 连着</summary>
+    public bool IsClientConnected => Volatile.Read(ref _clientCount) > 0;
 
     /// <summary>
     /// 开始监听。端口被占用等错误**直接抛出** ——
@@ -129,6 +174,12 @@ public sealed class VmResultListener : IDisposable
     private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
     {
         var remote = "未知";
+
+        // 连接计数与建立时刻：进方法就记，finally 里退。第一个连上的才开始计时，
+        // 这样"连着但一直没结果"与"根本没连上"在监控侧是两件事。
+        if (Interlocked.Increment(ref _clientCount) == 1)
+            Interlocked.Exchange(ref _connectedAtUtcTicks, DateTime.UtcNow.Ticks);
+
         try
         {
             remote = client.Client.RemoteEndPoint?.ToString() ?? "未知";
@@ -150,6 +201,9 @@ public sealed class VmResultListener : IDisposable
                         continue;
                     }
 
+                    // 时间戳必须在 Dispatch 之前记：Dispatch 里的异常被吞掉了，
+                    // 但那确实是一条到达的结果 —— 链路是通的，只是处理失败。
+                    Interlocked.Exchange(ref _lastLineUtcTicks, DateTime.UtcNow.Ticks);
                     Dispatch(line);
                 }
             }
@@ -165,6 +219,9 @@ public sealed class VmResultListener : IDisposable
         }
         finally
         {
+            if (Interlocked.Decrement(ref _clientCount) == 0)
+                Interlocked.Exchange(ref _connectedAtUtcTicks, 0);
+
             _logger?.LogInformation("[VM链路] 连接已结束：{Remote}", remote);
         }
     }

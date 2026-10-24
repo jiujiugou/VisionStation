@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.Messaging.Messages;
 using VisionStation.App.Services.Inspection;
 using VisionStation.Core.Users;
+using VisionStation.Devices.Vm;
 using VisionStation.Service.Security;
 
 namespace VisionStation.App;
@@ -97,6 +98,37 @@ public sealed record SessionChangedMessage(
     UserRole EffectiveRole,
     SessionChangeKind Kind,
     string? Reason);
+
+/// <summary>
+/// VM 链路状态 —— 界面显示用的一份快照。
+///
+/// 为什么带宽窄的原始数据（State/时刻/阈值）而不是让界面自己算：
+/// 界面拿不到"监听器最后收到结果的时间"，那是设备层的字段；
+/// 而且"多久算断流"是配置，必须在驱动层统一，不能在几个界面各取一套。
+/// </summary>
+/// <param name="State">四态：未监听 / VM 没连上 / 正常 / 断流</param>
+/// <param name="Endpoint">监听地址，断线时操作员要照着它去核对 VM 里的 IP 端口</param>
+/// <param name="LastLineLocal">最后一条结果的本机时间；null = 本次启动以来从未收到</param>
+/// <param name="SinceLast">距最后一条结果多久；从未收到时为 null</param>
+/// <param name="StallTimeout">断流阈值（文案里要说清"多少秒算断"，否则 N 秒是个没依据的数）</param>
+/// <param name="IsRunning">工位是否在运行中。停机时没结果不升级为告警，否则告警会变背景噪音</param>
+public sealed record VmLinkStatus(
+    VmLinkState State,
+    string Endpoint,
+    DateTime? LastLineLocal,
+    TimeSpan? SinceLast,
+    TimeSpan StallTimeout,
+    bool IsRunning);
+
+/// <summary>
+/// VM 链路状态变化消息
+/// 发送者：VmInspectionDriver（每秒检查，**只在状态翻面时发**，不随秒刷）
+/// 订阅者：ImagePanelVM（断流态文案）
+/// </summary>
+public sealed class VmLinkStatusMessage : ValueChangedMessage<VmLinkStatus>
+{
+    public VmLinkStatusMessage(VmLinkStatus status) : base(status) { }
+}
 
 /// <summary>
 /// 日志级别（全局共用）

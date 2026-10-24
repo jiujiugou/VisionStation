@@ -2,7 +2,7 @@
   "name": "金属垫圈检测",
   "schemaVersion": 2,
   "sensor": { "width": 1280, "height": 1024 },
-  "engine": "Onnx",
+  "engine": "Vm",
   "vm": {
     "solutionPath": "Config\\solutions\\washer.sol",
     "password": "",

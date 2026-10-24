@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Services.Inspection;
 using VisionStation.Core.Engines;
+using VisionStation.Devices.Vm;
 
 namespace VisionStation.App.ViewModels;
 
@@ -95,17 +96,23 @@ public partial class ImagePanelViewModel : ObservableObject
 
         WeakReferenceMessenger.Default.Register<ImagePanelViewModel, InspectionResultMessage>(this,
             static (vm, msg) => vm.Apply(msg.Value));
+
+        WeakReferenceMessenger.Default.Register<ImagePanelViewModel, VmLinkStatusMessage>(this,
+            static (vm, msg) => vm.ApplyLinkStatus(msg.Value));
     }
 
     /// <summary>
     /// 还没收到任何结果时的空态。两种引擎说不同的话：
     /// VM 模式是"等它推"，自采模式是"你还没让它跑"。
+    ///
+    /// 措辞上刻意不提 "VisionMaster"：产线操作员不认识这个词，
+    /// 他只认"等结果""没连上""断了"这三种状态。
     /// </summary>
     private void ShowWaitingState()
     {
         if (_isPushDriven)
         {
-            EmptyTitle = "等待 VisionMaster 推送结果";
+            EmptyTitle = "等待检测结果";
             EmptyDetail = "尚未收到任何结果";
         }
         else
@@ -116,6 +123,53 @@ public partial class ImagePanelViewModel : ObservableObject
 
         EmptyAction = "";
         HasEmptyAction = false;
+    }
+
+    /// <summary>
+    /// 链路状态变化 —— **只在没有图的时候改空态**。
+    ///
+    /// 有图时不覆盖：那张图是最新一件的判定，比"链路断了"更该占着屏幕；
+    /// 断流本身已经有日志告警兜着，把图换成一句警告等于把证据也擦掉了。
+    ///
+    /// 调用方保证在 UI 线程上（VmInspectionDriver 已切回 UI 线程再发消息）。
+    /// </summary>
+    private void ApplyLinkStatus(VmLinkStatus status)
+    {
+        // 自采模式没有"平台连没连"这回事，链路状态与它无关
+        if (!_isPushDriven) return;
+
+        if (OriginalImage is not null) return;
+
+        switch (status.State)
+        {
+            case VmLinkState.NoClient:
+                EmptyTitle = "平台未连接";
+                EmptyDetail = $"已监听 {status.Endpoint}，等待平台连上来";
+                EmptyAction = "检查检测平台是否已启动，通信管理里的 IP 与端口是否和上面一致";
+                HasEmptyAction = true;
+                break;
+
+            case VmLinkState.Stalled:
+                var since = status.SinceLast is { } s
+                    ? $"已 {s.TotalSeconds:0.#} 秒"
+                    : "长时间";
+                EmptyTitle = "已断流";
+                EmptyDetail = $"{since}没有收到检测结果（阈值 {status.StallTimeout.TotalSeconds:0} 秒）";
+                EmptyAction = "检查平台流程是否在连续运行、触发信号是否到位、推数据模块是否被执行";
+                HasEmptyAction = true;
+                break;
+
+            case VmLinkState.Healthy:
+                // 恢复后回到"等第一件"的正常说法，别把人留在断流的画面里
+                if (_lastImageTime is null)
+                {
+                    EmptyTitle = "等待第一件检测";
+                    EmptyDetail = "平台已连接，尚未收到结果";
+                    EmptyAction = "";
+                    HasEmptyAction = false;
+                }
+                break;
+        }
     }
 
     /// <summary>

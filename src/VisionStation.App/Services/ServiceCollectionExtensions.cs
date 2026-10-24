@@ -60,6 +60,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IInspectionWorkflow>(),
             sp.GetRequiredService<RecipeConfig>().Vm.Outputs,
             sp.GetRequiredService<ILogger<VmInspectionDriver>>(),
+            TimeSpan.FromSeconds(options.VmLink.StallTimeoutSeconds),
             sp.GetService<ILoggerFactory>()));
 
         return services;

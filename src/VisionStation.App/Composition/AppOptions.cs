@@ -36,7 +36,11 @@ public sealed record LoggingOptions(string LogFolder);
 /// <param name="Enabled">是否启动监听。配方引擎不是 Vm 时保持 false，避免白起一个端口。</param>
 /// <param name="Port">监听端口，VisionMaster 里「发送数据」模块配成 TCP 客户端连这里</param>
 /// <param name="BindAddress">绑定地址。默认只监听本机，VM 与上位机同机部署时够用</param>
-public sealed record VmLinkOptions(bool Enabled, int Port, string BindAddress);
+/// <param name="StallTimeoutSeconds">
+/// 多久没收到结果算断流。**这是业务参数，没有通用值** —— 它由产线节拍和单件处理时间决定，
+/// 只能在现场定（经验取节拍的 3~5 倍）。所以放配置，代码里不写死。
+/// </param>
+public sealed record VmLinkOptions(bool Enabled, int Port, string BindAddress, int StallTimeoutSeconds);
 
 /// <summary>
 /// 全部应用选项的聚合。绑定入口是 <see cref="AppOptionsBinder.Bind"/>。
@@ -55,7 +59,7 @@ public sealed record AppOptions
     /// 端口属于"这台机器"，不属于"这个产品"，所以放 appsettings 而不是配方 ——
     /// 换产品只换配方，改端口才动配置。
     /// </summary>
-    public VmLinkOptions VmLink { get; init; } = new(false, 9100, "127.0.0.1");
+    public VmLinkOptions VmLink { get; init; } = new(false, 9100, "127.0.0.1", 10);
 
     /// <summary>Service 层的管家阈值 record，自带构造校验（阈值填错启动即失败），这里直接复用。</summary>
     public HousekeepingOptions Housekeeping { get; init; } = HousekeepingOptions.Default;
@@ -148,13 +152,18 @@ public static class AppOptionsBinder
     {
         var enabled = ReadBool(config, "VmLink:Enabled", false, errors);
         if (!enabled)
-            return new VmLinkOptions(false, 9100, "127.0.0.1");
+            return new VmLinkOptions(false, 9100, "127.0.0.1", 10);
 
         var port = ReadInt(config, "VmLink:Port", 9100, errors);
         if (port is <= 0 or > 65535)
             errors.Add("VmLink:Port 必须在 1~65535 之间");
 
-        return new VmLinkOptions(true, port, Read(config, "VmLink:BindAddress", "127.0.0.1"));
+        // 断流阈值同样要在启动期校验：填 0 会让链路每秒报一次断流，填太大等于没有告警
+        var stallSeconds = ReadInt(config, "VmLink:StallTimeoutSeconds", 10, errors);
+        if (stallSeconds is < 1 or > 3600)
+            errors.Add("VmLink:StallTimeoutSeconds 必须在 1~3600 秒之间");
+
+        return new VmLinkOptions(true, port, Read(config, "VmLink:BindAddress", "127.0.0.1"), stallSeconds);
     }
 
     /// <summary>

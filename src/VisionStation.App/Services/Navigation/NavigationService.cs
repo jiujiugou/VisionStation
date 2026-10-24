@@ -5,12 +5,13 @@ using VisionStation.App.ViewModels;
 namespace VisionStation.App.Services.Navigation;
 
 /// <summary>
-/// 路由表 + 当前页。两个页面用字典写死，没有工厂、没有反射、没有容器查询。
+/// 路由表 + 当前页。每个页面一个实例，用字典写死，没有工厂、没有反射、没有容器查询。
 /// </summary>
 public sealed class NavigationService : INavigationService, INotifyPropertyChanged
 {
     public const string InspectionRoute = "检测";
     public const string CameraRoute = "相机";
+    public const string HistoryRoute = "历史";
     public const string AuditRoute = "审计";
 
     private readonly Dictionary<string, object> _pages;
@@ -22,6 +23,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
     public NavigationService(
         InspectionPageViewModel inspectionPage,
         CameraPageViewModel cameraPage,
+        HistoryPageViewModel historyPage,
         AuditPageViewModel auditPage,
         ILogger<NavigationService> logger)
     {
@@ -31,6 +33,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
         {
             [InspectionRoute] = inspectionPage,
             [CameraRoute] = cameraPage,
+            [HistoryRoute] = historyPage,
             [AuditRoute] = auditPage,
         };
 

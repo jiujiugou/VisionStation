@@ -55,22 +55,26 @@ public partial class ResultPanelViewModel : ObservableObject
     private bool _isOk;
 
     // ═══════════════════════════════════════════════════════════
-    //  运行指标（2026-10-24 加入）
+    //  运行指标（2026-10-24 加入，同日改为"今日"口径）
     //
-    //  归本面板自己记账，不去问 StatusBarViewModel 要 ——
-    //  状态栏那三个数是"整机吞吐"，这里是"这一屏看过的判定"，
-    //  两者口径不同，共用一个来源迟早对不上。
+    //  口径是 **今天 0 点到现在**，不是"本次运行"。
+    //  以前纯内存计数，班中重启一次就归零，产线上没人能解释良率为什么从 99% 掉到 98%，
+    //  也最容易把这种假象当成"换配方后质量变差了"。
+    //  现在启动时用 <see cref="Seed"/> 从库里补基数，之后每帧继续内存累加。
+    //
+    //  为什么不每帧查库：一次检测到上屏要 4~12ms，再叠一次 SQLite 聚合查询，
+    //  高节拍下会把 UI 线程拖成瓶颈。基数查一次 + 内存累加，重启语义正确、开销可忽略。
     // ═══════════════════════════════════════════════════════════
 
-    /// <summary>本次运行累计判定数</summary>
+    /// <summary>今日累计判定数（启动时从库补基数）</summary>
     [ObservableProperty]
     private int _totalCount;
 
-    /// <summary>本次运行累计 NG 数</summary>
+    /// <summary>今日累计 NG 数</summary>
     [ObservableProperty]
     private int _ngCount;
 
-    /// <summary>良率（百分比字符串；无判定时为 "--"）</summary>
+    /// <summary>今日良率（百分比字符串；无判定时为 "--"）</summary>
     [ObservableProperty]
     private string _okRateText = "--";
 
@@ -140,14 +144,11 @@ public partial class ResultPanelViewModel : ObservableObject
         IsOk = report.IsOk;
         HasVerdict = true;
 
-        // 指标：谁显示谁记账。只统计"这一屏真的收到过的判定"，
-        // 不冒充"今日产量" —— 那个数在数据库里，得按班次查，不能靠内存计数凑。
+        // 指标：今日口径。启动时 Seed 补过基数，这里只做增量累加。
         TotalCount++;
         if (!report.IsOk) NgCount++;
 
-        OkRateText = TotalCount > 0
-            ? $"{100.0 * (TotalCount - NgCount) / TotalCount:0.0}%"
-            : "--";
+        UpdateOkRate();
 
         // 判 NG 时把"为什么"写在判定下面：操作员看到大字是 NG，
         // 紧接着要知道是哪一项出的问题，不该再低头到表格里逐行找红标。
@@ -155,6 +156,29 @@ public partial class ResultPanelViewModel : ObservableObject
             ? "全部检测项合格"
             : Rows.FirstOrDefault(row => !row.IsOk)?.Item ?? "存在不合格项";
     }
+
+    /// <summary>
+    /// 用库里今日已有的统计补基数。**必须在 UI 线程调用**（会触发属性通知）。
+    ///
+    /// 为什么需要它：良率以前是纯内存计数，班中重启一次就归零。
+    /// 产线上这个数字是要给班长看的，归零比不准更糟 —— 它会让人误判成"换配方之后质量掉了"。
+    ///
+    /// 口径说明：**今天 0 点到现在**（自然日）。三班倒的现场若跨 0 点，
+    /// 这里要改成按班次起点算，属于业务参数，不能由代码替现场决定。
+    /// </summary>
+    public void Seed(int okCount, int ngCount)
+    {
+        if (okCount < 0 || ngCount < 0) return;
+
+        TotalCount = okCount + ngCount;
+        NgCount = ngCount;
+        UpdateOkRate();
+    }
+
+    private void UpdateOkRate() =>
+        OkRateText = TotalCount > 0
+            ? $"{100.0 * (TotalCount - NgCount) / TotalCount:0.0}%"
+            : "--";
 }
 
 /// <summary>

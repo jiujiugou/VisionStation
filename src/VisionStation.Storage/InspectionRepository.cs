@@ -8,6 +8,26 @@ using VisionStation.Storage.Entities;
 namespace VisionStation.Storage;
 
 /// <summary>
+/// 历史查询条件。**全部可选**，空对象等于"最近 200 条"。
+///
+/// 为什么不直接暴露 IQueryable 给界面：那样 EF 的查询构造就会长到 ViewModel 里，
+/// 换一种存储就得改界面。这里只有六个字段，够用且能单测。
+/// </summary>
+/// <param name="Since">起始时刻（含）。null = 不限</param>
+/// <param name="Until">结束时刻（不含）。null = 到现在</param>
+/// <param name="IsOk">true=只要 OK，false=只要 NG，null=全部</param>
+/// <param name="EngineName">引擎名精确匹配。null/空 = 全部</param>
+/// <param name="Take">最多返回多少条。上限由调用方控制（界面翻页/缩范围）</param>
+/// <param name="Skip">跳过多少条（本轮不做翻页 UI，留给以后）</param>
+public sealed record InspectionQuery(
+    DateTime? Since = null,
+    DateTime? Until = null,
+    bool? IsOk = null,
+    string? EngineName = null,
+    int Take = 200,
+    int Skip = 0);
+
+/// <summary>
 /// 检测记录数据访问契约。
 /// 管家服务（清理线程）与检测管线（保存线程）会并发使用它，
 /// 所以调用方只依赖接口：实现可以做到「每次操作一个 DbContext」。
@@ -19,6 +39,18 @@ public interface IInspectionRepository
     Task<List<InspectionRecord>> GetRecentAsync(int count = 100);
     Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null);
     Task<int> DeleteOlderThanAsync(DateTime cutoff);
+
+    /// <summary>按条件查历史（时间倒序）。界面历史页用。</summary>
+    Task<List<InspectionRecord>> QueryAsync(InspectionQuery query);
+
+    /// <summary>符合条件的总条数（用于"共 N 条"与"还有更多"判断）。</summary>
+    Task<int> CountAsync(InspectionQuery query);
+
+    /// <summary>
+    /// 库里出现过的引擎名（去重）。给历史页的引擎下拉用 ——
+    /// 写死 Onnx/Vm 会在换引擎那天变成错的下拉。
+    /// </summary>
+    Task<List<string>> ListEngineNamesAsync();
 }
 
 /// <summary>
@@ -190,6 +222,68 @@ public class InspectionRepository : IInspectionRepository
         int ngCount = groups.FirstOrDefault(g => g.Verdict == "NG")?.Count ?? 0;
         return (okCount, ngCount);
     });
+
+    /// <summary>按条件筛选（时间 / 判定 / 引擎），按检测时刻倒序。</summary>
+    public Task<List<InspectionRecord>> QueryAsync(InspectionQuery query) => RunAsync(async db =>
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var filtered = ApplyFilter(db.InspectionRecords.AsQueryable(), query);
+        return await filtered
+            .OrderByDescending(r => r.Timestamp)
+            .Skip(query.Skip)
+            .Take(query.Take)
+            .ToListAsync().ConfigureAwait(false);
+    });
+
+    /// <summary>符合条件的总条数。</summary>
+    public Task<int> CountAsync(InspectionQuery query) => RunAsync(async db =>
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        return await ApplyFilter(db.InspectionRecords.AsQueryable(), query)
+            .CountAsync().ConfigureAwait(false);
+    });
+
+    /// <summary>库里出现过的引擎名（去重、字典序）。</summary>
+    public Task<List<string>> ListEngineNamesAsync() => RunAsync(async db =>
+        await db.InspectionRecords
+            .Where(r => r.EngineName != "")
+            .Select(r => r.EngineName)
+            .Distinct()
+            .OrderBy(n => n)
+            .ToListAsync().ConfigureAwait(false));
+
+    /// <summary>
+    /// 把条件套到 IQueryable 上。
+    ///
+    /// 抽出来是**必需**的，不是整洁癖：Query 和 Count 必须用完全相同的筛选，
+    /// 各写一份迟早出现"列表 12 条、底部写共 15 条"这种没法解释的界面。
+    /// </summary>
+    private static IQueryable<InspectionRecord> ApplyFilter(
+        IQueryable<InspectionRecord> source, InspectionQuery query)
+    {
+        if (query.Since is { } since)
+            source = source.Where(r => r.Timestamp >= since);
+
+        if (query.Until is { } until)
+            source = source.Where(r => r.Timestamp < until);
+
+        if (query.IsOk is { } isOk)
+        {
+            // 比 OverallVerdict 字符串，而不是再加一个布尔列：
+            // 那列会是第二份真相，早晚和 OverallVerdict 不同步。
+            var verdict = isOk ? "OK" : "NG";
+            source = source.Where(r => r.OverallVerdict == verdict);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.EngineName))
+        {
+            var engine = query.EngineName.Trim();
+            source = source.Where(r => r.EngineName == engine);
+        }
+
+        return source;
+    }
 
     /// <summary>批量删除过期记录，返回删除条数（管家服务调用）</summary>
     /// <param name="cutoff">此时间之前的记录全部删除</param>

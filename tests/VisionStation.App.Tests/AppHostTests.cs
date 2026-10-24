@@ -336,6 +336,13 @@ public class AppHostTests
             Task.FromResult((0, 0));
 
         public Task<int> DeleteOlderThanAsync(DateTime cutoff) => Task.FromResult(0);
+
+        public Task<List<InspectionRecord>> QueryAsync(InspectionQuery query) =>
+            Task.FromResult(new List<InspectionRecord>());
+
+        public Task<int> CountAsync(InspectionQuery query) => Task.FromResult(0);
+
+        public Task<List<string>> ListEngineNamesAsync() => Task.FromResult(new List<string>());
     }
 
     private sealed class FakeHealthChecker : IHealthChecker

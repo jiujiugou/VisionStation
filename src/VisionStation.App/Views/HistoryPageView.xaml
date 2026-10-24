@@ -1,0 +1,293 @@
+<UserControl x:Class="VisionStation.App.Views.HistoryPageView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:HistoryPageViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        检测历史页：只读。
+        左边是记录列表，右边是选中那条的图与结论 —— 操作员发现 NG 后要回答的是
+        "这一件长什么样、当时数值是多少"，不是"给我一张表"。
+    -->
+    <Grid Margin="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ═══ 过滤条 ═══ -->
+        <Border Style="{StaticResource PanelCard}" Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="检测记录" Style="{StaticResource PanelTitle}" VerticalAlignment="Center" />
+
+                <ComboBox Grid.Column="1" Width="100" Height="26" Margin="16,0,0,0"
+                          VerticalContentAlignment="Center" FontSize="11.5"
+                          ItemsSource="{Binding Ranges}"
+                          SelectedItem="{Binding SelectedRange}"
+                          ToolTip="时间范围（按自然日算，不是过去 24 小时）" />
+
+                <ComboBox Grid.Column="2" Width="96" Height="26" Margin="8,0,0,0"
+                          VerticalContentAlignment="Center" FontSize="11.5"
+                          ItemsSource="{Binding Verdicts}"
+                          SelectedItem="{Binding SelectedVerdict}"
+                          ToolTip="按总判定过滤" />
+
+                <ComboBox Grid.Column="3" Width="118" Height="26" Margin="8,0,0,0"
+                          VerticalContentAlignment="Center" FontSize="11.5"
+                          ItemsSource="{Binding Engines}"
+                          SelectedItem="{Binding SelectedEngine}"
+                          ToolTip="按产出该记录的引擎过滤（换引擎前后对比用）" />
+
+                <Button Grid.Column="4" Content="查询" Width="62" Height="26"
+                        Margin="8,0,0,0" FontSize="11.5"
+                        Style="{StaticResource MinorButton}"
+                        Command="{Binding RefreshCommand}" />
+
+                <TextBlock Grid.Column="6" VerticalAlignment="Center"
+                           FontSize="11" Foreground="{StaticResource TextMuted}"
+                           Text="选中一条可看当时的图" />
+            </Grid>
+        </Border>
+
+        <!-- ═══ 列表 + 详情 ═══ -->
+        <Grid Grid.Row="1" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="430" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource PanelCard}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 表头 -->
+                    <Border Background="{StaticResource SubtleBg}" Padding="10,6"
+                            BorderBrush="{StaticResource CardBorder}" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="52" />
+                                <ColumnDefinition Width="96" />
+                                <ColumnDefinition Width="62" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="44" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0" Text="时间" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="1" Text="判定" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="2" Text="引擎" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="3" Text="触发" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="4" Text="尺寸偏差" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="5" Text="图" FontSize="11" Foreground="{StaticResource TextMuted}"
+                                       HorizontalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <ListBox Grid.Row="1" ItemsSource="{Binding Rows}"
+                             SelectedItem="{Binding SelectedRow}"
+                             Background="Transparent" BorderThickness="0"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Root" Background="Transparent" Padding="10,4"
+                                                    BorderBrush="{StaticResource CardBorder}"
+                                                    BorderThickness="0,0,0,1">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Root" Property="Background"
+                                                            Value="{StaticResource SubtleBg}" />
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Root" Property="Background"
+                                                            Value="{StaticResource AccentSoft}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="104" />
+                                        <ColumnDefinition Width="52" />
+                                        <ColumnDefinition Width="96" />
+                                        <ColumnDefinition Width="62" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="44" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0" Text="{Binding TimeText}"
+                                               FontFamily="Consolas" FontSize="11.5"
+                                               Foreground="{StaticResource TextSecondary}"
+                                               VerticalAlignment="Center" />
+
+                                    <!-- 判定列：NG 必须跳出来，这是全表第一眼要找的东西 -->
+                                    <TextBlock Grid.Column="1" Text="{Binding Verdict}"
+                                               FontSize="11.5" FontWeight="Medium"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{StaticResource Ok}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsOk}" Value="False">
+                                                        <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+
+                                    <TextBlock Grid.Column="2" Text="{Binding EngineName}"
+                                               FontSize="11" TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource TextSecondary}"
+                                               VerticalAlignment="Center"
+                                               ToolTip="{Binding EngineName}" />
+
+                                    <TextBlock Grid.Column="3" Text="{Binding TriggerSource}"
+                                               FontSize="11"
+                                               Foreground="{StaticResource TextMuted}"
+                                               VerticalAlignment="Center" />
+
+                                    <TextBlock Grid.Column="4" Text="{Binding DimensionDetail}"
+                                               FontSize="11" TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource TextSecondary}"
+                                               VerticalAlignment="Center"
+                                               ToolTip="{Binding DetailText}" />
+
+                                    <!-- 有没有图：点开才发现图被清掉是常见坑，先标出来 -->
+                                    <TextBlock Grid.Column="5" Text="有"
+                                               FontSize="10.5" HorizontalAlignment="Center"
+                                               Foreground="{StaticResource TextMuted}"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasImageHint}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- 空态：列表空着时说明是"没查到"还是"还没查" -->
+                    <TextBlock Grid.Row="1" Text="{Binding StatusText}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="12" Foreground="{StaticResource TextMuted}"
+                               IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Rows.Count}" Value="0">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <Border Grid.Row="2" Background="{StaticResource SubtleBg}" Padding="10,5"
+                            BorderBrush="{StaticResource CardBorder}" BorderThickness="0,1,0,0">
+                        <TextBlock Text="{Binding StatusText}" FontSize="11"
+                                   Foreground="{StaticResource TextSecondary}" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- ═══ 详情 ═══ -->
+            <Border Grid.Column="2" Style="{StaticResource PanelCard}" Padding="10">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="当时那一件" Style="{StaticResource PanelTitle}" />
+                        <TextBlock Text="{Binding SelectedRow.TimeText}" Margin="10,0,0,0"
+                                   FontSize="11.5" FontFamily="Consolas"
+                                   Foreground="{StaticResource TextMuted}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedRow.Verdict}" Margin="8,0,0,0"
+                                   FontSize="11.5" FontWeight="Medium"
+                                   VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource Neutral}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SelectedRow.Verdict}" Value="OK">
+                                            <Setter Property="Foreground" Value="{StaticResource Ok}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding SelectedRow.Verdict}" Value="NG">
+                                            <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <!-- 图像区：Image 与提示文字叠在一起。
+                         Source 为 null 时 Image 不画东西，提示就露出来，不需要换转换器。 -->
+                    <Border Grid.Row="1" Background="{StaticResource ImageCanvasBg}" CornerRadius="4"
+                            ClipToBounds="True">
+                        <Grid>
+                            <Image Source="{Binding PreviewImage}" Stretch="Uniform" />
+
+                            <TextBlock Text="{Binding PreviewHint}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       TextAlignment="Center" TextWrapping="Wrap"
+                                       Margin="16" FontSize="11.5"
+                                       Foreground="#9A9A9A" />
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Row="2" Background="{StaticResource SubtleBg}" Padding="8,6"
+                            Margin="0,8,0,0" CornerRadius="4">
+                        <TextBlock Text="{Binding SelectedRow.DetailText}"
+                                   FontSize="11.5" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   LineHeight="18" />
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

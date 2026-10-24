@@ -104,6 +104,13 @@ internal sealed class FakeInspectionRepository : IInspectionRepository
         Task.FromResult((0, 0));
 
     public Task<int> DeleteOlderThanAsync(DateTime cutoff) => Task.FromResult(0);
+
+    public Task<List<InspectionRecord>> QueryAsync(InspectionQuery query) =>
+        Task.FromResult(new List<InspectionRecord>());
+
+    public Task<int> CountAsync(InspectionQuery query) => Task.FromResult(0);
+
+    public Task<List<string>> ListEngineNamesAsync() => Task.FromResult(new List<string>());
 }
 
 /// <summary>可观察的 IDisposable：记录是否被释放、在哪条线程上释放。</summary>
@@ -352,6 +359,10 @@ internal static class TestPages
             inFlight ?? new InFlightWorkMonitor(),
             logger ?? NullLogger<InspectionPageViewModel>.Instance);
     }
+
+    /// <summary>历史页：只需要一个仓储替身（不查真库）。</summary>
+    public static HistoryPageViewModel History(IInspectionRepository? repo = null)
+        => new(repo ?? new FakeInspectionRepository());
 
     public static CameraPageViewModel Camera()
     {

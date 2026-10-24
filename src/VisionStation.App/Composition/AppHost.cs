@@ -179,6 +179,23 @@ public sealed class AppHost : IAsyncDisposable
 
         await services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync();
 
+        // 良率与产量从库里补基数 —— 重启后不该归零。
+        //
+        // 口径是"今天 0 点到现在"（自然日）。三班倒跨 0 点的现场要改这里，
+        // 那属于业务参数，不在代码里替现场拍板。
+        // 失败只记日志：最坏结果是这一屏从本次运行重新计数（数字偏小），
+        // 而不是产线起不来 —— 宁可少一个数，也不要看不见界面。
+        try
+        {
+            var (okToday, ngToday) = await services.GetRequiredService<IInspectionRepository>()
+                .GetStatisticsAsync(DateTime.Today);
+            services.GetRequiredService<ResultPanelViewModel>().Seed(okToday, ngToday);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "[统计] 读取今日良率失败，良率将从本次运行重新计数");
+        }
+
         // 账号表为空时建出厂管理员（首次登录强制改密）。
         //
         // 失败只记日志、不中断启动：账号初始化失败的正确后果是"没人能登录、只能看状态"，

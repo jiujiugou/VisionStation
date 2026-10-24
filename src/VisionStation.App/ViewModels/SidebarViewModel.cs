@@ -61,7 +61,7 @@ public partial class SidebarViewModel : ObservableObject
         _navigation = navigation;
         _session = session;
 
-        // 只放真有页面的项。参数/配方/历史/PLC/日志/系统都还没有实现，
+        // 只放真有页面的项。参数/配方/PLC/日志/系统还没有实现，
         // 摆上去就是"点了没反应"的假按钮 —— 宁可侧边栏空着，也不给操作员
         // 一个骗人的入口。等页面真做出来再往这两个列表里加。
         TopItems = new[]
@@ -79,6 +79,13 @@ public partial class SidebarViewModel : ObservableObject
                 label: "相机",
                 geometry: "M9 2L7.2 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.2L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z M12 8.8a3.2 3.2 0 100 6.4 3.2 3.2 0 000-6.4z",
                 engineerOnly: true),
+            new NavItem(
+                route: NavigationService.HistoryRoute,
+                label: "历史",
+                geometry: "M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z",
+                // 操作员也有 ViewHistory：发现 NG 之后回看那一件，是他的活也不是他的错。
+                // 与"审计"的区别：历史看的是产品，审计看的是人。
+                requiredPermission: Permission.ViewHistory),
             new NavItem(
                 route: NavigationService.AuditRoute,
                 label: "审计",

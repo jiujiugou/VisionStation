@@ -100,14 +100,14 @@
                 <UniformGrid Columns="2" Margin="0,8,0,0">
                     <Border Background="{StaticResource MetricBg}" CornerRadius="3" Padding="8,6" Margin="0,0,4,4">
                         <StackPanel>
-                            <TextBlock Text="本次判定" FontSize="10" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Text="今日判定" FontSize="10" Foreground="{StaticResource TextMuted}" />
                             <TextBlock Text="{Binding TotalCount}" FontSize="17" FontWeight="SemiBold"
                                        Foreground="{StaticResource TextPrimary}" />
                         </StackPanel>
                     </Border>
                     <Border Background="{StaticResource MetricBg}" CornerRadius="3" Padding="8,6" Margin="4,0,0,4">
                         <StackPanel>
-                            <TextBlock Text="良率" FontSize="10" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Text="今日良率" FontSize="10" Foreground="{StaticResource TextMuted}" />
                             <TextBlock Text="{Binding OkRateText}" FontSize="17" FontWeight="SemiBold"
                                        Foreground="{StaticResource TextPrimary}" />
                         </StackPanel>

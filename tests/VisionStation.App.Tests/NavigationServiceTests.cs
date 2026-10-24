@@ -74,7 +74,7 @@ public class NavigationServiceTests
     {
         var inspection = TestPages.Inspection();
         var camera = TestPages.Camera();
-        var service = new NavigationService(inspection, camera,
+        var service = new NavigationService(inspection, camera, TestPages.History(),
             new AuditPageViewModel(new FakeAuditService()), NullLogger<NavigationService>.Instance);
         return (service, inspection, camera);
     }

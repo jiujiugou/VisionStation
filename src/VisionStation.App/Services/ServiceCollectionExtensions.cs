@@ -272,6 +272,10 @@ public static class ServiceCollectionExtensions
         // 注册为单例是为了让导航服务能直接拿到它，翻页时保留上次的过滤条件与结果。
         services.AddSingleton<AuditPageViewModel>();
 
+        // 历史页：操作员也能进（Permission.ViewHistory）。
+        // 它不是"工程师后台"，是操作员发现 NG 后自己回看那一件的地方。
+        services.AddSingleton<HistoryPageViewModel>();
+
         // 导航：路由表在 NavigationService 里写死两页，不查容器、不建工厂。
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<ShellViewModel>();

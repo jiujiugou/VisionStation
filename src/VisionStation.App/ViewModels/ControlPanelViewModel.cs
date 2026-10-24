@@ -68,6 +68,16 @@ public partial class ControlPanelViewModel : ObservableObject
     [ObservableProperty]
     private int _frameCount;
 
+    /// <summary>
+    /// 是否工程师模式。
+    ///
+    /// 它决定维护区里"重新连接 / 重载流程 / 扫描输出"这三项可不可见 ——
+    /// 这三件事都在改设备行为（换相机、换判定逻辑、读方案里的模块名），
+    /// 不该让操作员碰到。进入工程师模式本身已经过权限校验，所以这里只看模式。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isEngineerMode;
+
     /// <summary>IsAutoMode 变化 → 自动更新按钮文字</summary>
     partial void OnIsAutoModeChanged(bool value)
     {
@@ -94,6 +104,11 @@ public partial class ControlPanelViewModel : ObservableObject
         _recipe = recipe;
         _audit = audit;
         CameraOnline = _camera.IsAvailable; // 初始化：检查相机是否可用
+
+        // 维护区的可见性跟着模式走。顶栏切模式时广播，这里被动接收 ——
+        // 控制面板不主动问"现在什么模式"，避免和顶栏形成双向依赖。
+        WeakReferenceMessenger.Default.Register<ControlPanelViewModel, EngineerModeMessage>(this,
+            static (vm, msg) => vm.IsEngineerMode = msg.Value);
     }
 
     // ═══════════════════════════════════════════════════════════

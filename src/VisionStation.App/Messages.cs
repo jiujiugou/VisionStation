@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.Messaging.Messages;
 using VisionStation.App.Services.Inspection;
+using VisionStation.Core.Users;
+using VisionStation.Service.Security;
 
 namespace VisionStation.App;
 
@@ -78,6 +80,23 @@ public sealed class EngineerModeMessage : ValueChangedMessage<bool>
 {
     public EngineerModeMessage(bool isEngineerMode) : base(isEngineerMode) { }
 }
+
+/// <summary>
+/// 会话变化消息 —— 登录 / 登出 / 权限降级。
+///
+/// 发送者：SessionBridge（App 层）
+/// 订阅者：TopBarVM、SidebarVM、以及任何要按角色放开/收紧控件的地方
+///
+/// 为什么要经过一个桥：会话服务可能在定时器线程上触发变化（5 分钟无操作降级、
+/// 8 小时班次登出），ViewModel 直接订阅那个事件就是跨线程改绑定属性 ——
+/// 轻则界面不刷新，重则抛"该对象归另一个线程所有"。
+/// SessionBridge 负责切回 UI 线程，再同步投递这条消息，订阅方就不必自己关心线程。
+/// </summary>
+public sealed record SessionChangedMessage(
+    UserAccount? User,
+    UserRole EffectiveRole,
+    SessionChangeKind Kind,
+    string? Reason);
 
 /// <summary>
 /// 日志级别（全局共用）

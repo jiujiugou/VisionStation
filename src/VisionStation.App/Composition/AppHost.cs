@@ -18,6 +18,7 @@ using VisionStation.Service;
 using VisionStation.Service.Audit;
 using VisionStation.Service.Housekeeping;
 using VisionStation.Service.Recipes;
+using VisionStation.Service.Security;
 using VisionStation.Storage;
 
 namespace VisionStation.App.Composition;
@@ -177,6 +178,31 @@ public sealed class AppHost : IAsyncDisposable
         services.GetRequiredService<InspectionPageViewModel>();
 
         await services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync();
+
+        // 账号表为空时建出厂管理员（首次登录强制改密）。
+        //
+        // 失败只记日志、不中断启动：账号初始化失败的正确后果是"没人能登录、只能看状态"，
+        // 而不是"程序起不来、产线连状态都看不见"。前者可降级，后者不可。
+        try
+        {
+            await services.GetRequiredService<IUserService>().EnsureDefaultAdminAsync();
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "[用户] 初始化账号失败：本次启动将无法登录，只能查看状态");
+        }
+
+        // 会话桥必须在这里解析一次：它靠订阅会话事件工作，不解析就没人订阅，
+        // 5 分钟无操作降级、8 小时班次登出都不会通知到界面。
+        // 同样不阻断启动 —— 最坏结果是"权限过期了界面没提示"。
+        try
+        {
+            services.GetRequiredService<SessionBridge>();
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "[会话] 初始化会话桥失败：权限自动回收不会通知界面");
+        }
 
         // VM 模式（TCP 中转）：VisionMaster 主动把结果推过来，这里起监听。
         // 顺序放在数据库建表之后 —— 第一帧结果就要写库，表还没建就收结果只会报错。

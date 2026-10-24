@@ -30,6 +30,23 @@ public interface IAuditService
         AuditResult result = AuditResult.Success,
         string? detail = null);
 
+    /// <summary>
+    /// 用指定身份记一条审计，不取当前会话。
+    ///
+    /// 专给登录流程用：登录成功的那一刻会话还没建立，登录失败更是根本没有会话，
+    /// 但这两件事都必须记在"被尝试的那个账号"名下 ——
+    /// 记成 Windows 账户等于把"谁在试密码"这条最重要的线索丢掉。
+    /// </summary>
+    void RecordAs(
+        string userName,
+        string userRole,
+        AuditAction action,
+        string target = "",
+        string? before = null,
+        string? after = null,
+        AuditResult result = AuditResult.Success,
+        string? detail = null);
+
     /// <summary>查询最近 N 条（供界面/排障）</summary>
     Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200);
 
@@ -123,11 +140,24 @@ public sealed class AuditService : IAuditService
             userRole = "unknown";
         }
 
+        RecordAs(userName, userRole, action, target, before, after, result, detail);
+    }
+
+    public void RecordAs(
+        string userName,
+        string userRole,
+        AuditAction action,
+        string target = "",
+        string? before = null,
+        string? after = null,
+        AuditResult result = AuditResult.Success,
+        string? detail = null)
+    {
         var entry = new AuditEntry
         {
             Timestamp = DateTime.Now,
-            UserName = userName,
-            UserRole = userRole,
+            UserName = string.IsNullOrWhiteSpace(userName) ? "unknown" : userName,
+            UserRole = string.IsNullOrWhiteSpace(userRole) ? "unknown" : userRole,
             Action = action,
             Target = target,
             Before = before,

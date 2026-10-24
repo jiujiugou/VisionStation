@@ -2,6 +2,7 @@ using System.IO;
 using System.ComponentModel;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VisionStation.App.Abstractions;
@@ -13,7 +14,9 @@ using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Models;
 using VisionStation.Core.Engines;
+using VisionStation.Core.Users;
 using VisionStation.Devices;
+using VisionStation.Service.Security;
 using VisionStation.Storage;
 using VisionStation.Service.Audit;
 using VisionStation.Service.Recipes;
@@ -438,9 +441,20 @@ internal sealed class FakeAuditService : IAuditService
     public List<(AuditAction Action, string Target, string? Before, string? After, AuditResult Result, string? Detail)>
         Entries { get; } = new();
 
+    /// <summary>指定身份那一路的记录（登录/登出用的是它）</summary>
+    public List<(string User, string Role, AuditAction Action, AuditResult Result)> RecordedAs { get; } = new();
+
     public void Record(AuditAction action, string target = "", string? before = null, string? after = null,
         AuditResult result = AuditResult.Success, string? detail = null)
         => Entries.Add((action, target, before, after, result, detail));
+
+    public void RecordAs(string userName, string userRole, AuditAction action, string target = "",
+        string? before = null, string? after = null,
+        AuditResult result = AuditResult.Success, string? detail = null)
+    {
+        RecordedAs.Add((userName, userRole, action, result));
+        Entries.Add((action, target, before, after, result, detail));
+    }
 
     public Task<IReadOnlyList<AuditEntry>> QueryRecentAsync(int count = 200)
         => Task.FromResult<IReadOnlyList<AuditEntry>>(Array.Empty<AuditEntry>());
@@ -448,5 +462,129 @@ internal sealed class FakeAuditService : IAuditService
     public void Flush(TimeSpan timeout)
     {
         // 没有队列，无需收尾
+    }
+}
+
+/// <summary>
+/// 会话替身。
+///
+/// 直接给定角色而不是走一遍真实认证 —— 这些测试要验的是"没权限时界面怎么反应"，
+/// 不是"密码对不对"（那是 UnitTests 里 SecurityTests 的事）。
+/// </summary>
+internal sealed class FakeSessionService : ISessionService
+{
+    private UserAccount? _user;
+    private UserRole _effectiveRole = UserRole.Operator;
+
+    public UserAccount? CurrentUser => _user;
+
+    public UserRole EffectiveRole => _user is null ? UserRole.Operator : _effectiveRole;
+
+    public bool IsAuthenticated => _user is not null;
+
+    public event EventHandler<SessionChangedEventArgs>? Changed;
+
+    /// <summary>模拟"已登录某人"，并像真实会话一样广播一次变化</summary>
+    public void SignIn(UserRole role, string userName = "tester")
+    {
+        _user = new UserAccount
+        {
+            UserName = userName,
+            DisplayName = userName,
+            Role = role,
+            IsEnabled = true,
+        };
+        _effectiveRole = role;
+
+        Raise(SessionChangeKind.Login, "测试登录");
+    }
+
+    public void Start(UserAccount user)
+    {
+        _user = user;
+        _effectiveRole = user.Role;
+        Raise(SessionChangeKind.Login, null);
+    }
+
+    public void Logout(string reason = "主动退出")
+    {
+        var previous = _user;
+        _user = null;
+        _effectiveRole = UserRole.Operator;
+
+        Changed?.Invoke(this, new SessionChangedEventArgs
+        {
+            Kind = SessionChangeKind.Logout,
+            User = null,
+            PreviousUser = previous,
+            EffectiveRole = UserRole.Operator,
+            Reason = reason,
+        });
+
+        // 真实链路里这一步由 SessionBridge 完成（把事件搬成消息）。
+        // 替身直连消息，省掉桥本身 —— 测试要验的是"界面收到变化后的反应"。
+        WeakReferenceMessenger.Default.Send(new SessionChangedMessage(
+            null, UserRole.Operator, SessionChangeKind.Logout, reason));
+    }
+
+    public void Touch()
+    {
+        // 替身不做计时
+    }
+
+    public bool HasPermission(Permission permission)
+        => _user is null
+            ? permission == Permission.None
+            : RolePermissions.Has(_effectiveRole, permission);
+
+    /// <summary>模拟"权限被降级"，用于验界面是否跟着退出工程师模式</summary>
+    public void Downgrade()
+    {
+        if (_user is null) return;
+        _effectiveRole = UserRole.Operator;
+        Raise(SessionChangeKind.Downgraded, "测试降级", isAutomatic: true);
+    }
+
+    private void Raise(SessionChangeKind kind, string? reason, bool isAutomatic = false)
+    {
+        var args = new SessionChangedEventArgs
+        {
+            Kind = kind,
+            User = _user,
+            EffectiveRole = _effectiveRole,
+            IsAutomatic = isAutomatic,
+            Reason = reason,
+        };
+
+        Changed?.Invoke(this, args);
+        WeakReferenceMessenger.Default.Send(new SessionChangedMessage(
+            _user, _effectiveRole, kind, reason));
+    }
+}
+
+/// <summary>
+/// 登录窗替身：不创建窗口，只记录"被要求登录过几次"，并让测试决定结果。
+/// </summary>
+internal sealed class FakeLoginPrompt : ILoginPrompt
+{
+    /// <summary>下一次弹窗的结果</summary>
+    public bool NextResult { get; set; }
+
+    /// <summary>弹窗被调用时执行（通常用来模拟"登录后会话生效"）</summary>
+    public Action? OnShown { get; set; }
+
+    public int ShowCount { get; private set; }
+
+    public List<string?> Reasons { get; } = new();
+
+    public bool ShowLogin(string? reason = null)
+    {
+        ShowCount++;
+        Reasons.Add(reason);
+
+        if (!NextResult) return false;
+
+        OnShown?.Invoke();
+        return true;
     }
 }

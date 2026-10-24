@@ -51,6 +51,15 @@ public enum AuditAction
     /// <summary>登录被锁（连续失败达阈值）</summary>
     LoginLocked = 33,
 
+    /// <summary>
+    /// 会话因超时被降级或强制登出。
+    ///
+    /// 与 <see cref="Logout"/> 分开：主动退出是人的决定，
+    /// 超时是系统替你做的决定 —— 后者在追责时更需要被看见
+    /// （"操作员离开工位 5 分钟，权限已自动收回"）。
+    /// </summary>
+    SessionExpired = 34,
+
     /// <summary>新建用户</summary>
     UserCreate = 40,
 

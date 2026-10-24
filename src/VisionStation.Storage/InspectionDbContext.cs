@@ -16,6 +16,12 @@ public class InspectionDbContext : DbContext
     /// </summary>
     public DbSet<AuditLogRecord> AuditLogs => Set<AuditLogRecord>();
 
+    /// <summary>
+    /// 用户账号。单机工控机的账号表通常只有个位数行 —— 但必须入库而不是放配置文件：
+    /// 密码哈希、停用状态、最后登录时间都要留痕，写进 JSON 等于谁都能改。
+    /// </summary>
+    public DbSet<UserRecord> Users => Set<UserRecord>();
+
     private readonly string _dbPath = string.Empty;
 
     public InspectionDbContext(string dbPath = "visionstation.db")

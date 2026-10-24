@@ -1,0 +1,83 @@
+<Window x:Class="VisionStation.App.Views.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance vm:LoginViewModel, IsDesignTimeCreatable=False}"
+        Title="登录 — VisionStation"
+        Width="430" SizeToContent="Height"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False"
+        Background="{StaticResource Bg}"
+        FontFamily="Microsoft YaHei UI">
+
+    <Border Style="{StaticResource PanelCard}" Margin="18" Padding="22">
+        <StackPanel>
+            <TextBlock Text="VisionStation" FontSize="19" FontWeight="Medium"
+                       Foreground="{StaticResource TextPrimary}" />
+            <TextBlock Text="{Binding StationName}" FontSize="11.5" Margin="0,4,0,0"
+                       Foreground="{StaticResource TextSecondary}" />
+
+            <!-- ── 登录模式 ── -->
+            <StackPanel x:Name="LoginPanel" Margin="0,20,0,0">
+                <TextBlock Text="用户名" FontSize="11.5" Foreground="{StaticResource TextSecondary}" />
+                <TextBox x:Name="UserNameBox" Height="30" Margin="0,5,0,0" Padding="7,0"
+                         VerticalContentAlignment="Center"
+                         FontSize="13"
+                         Text="{Binding UserName, UpdateSourceTrigger=PropertyChanged}"
+                         BorderBrush="{StaticResource InputBorder}" />
+
+                <TextBlock Text="密码" FontSize="11.5" Margin="0,14,0,0"
+                           Foreground="{StaticResource TextSecondary}" />
+                <PasswordBox x:Name="PasswordInput" Height="30" Margin="0,5,0,0" Padding="7,0"
+                             VerticalContentAlignment="Center"
+                             FontSize="13"
+                             BorderBrush="{StaticResource InputBorder}" />
+            </StackPanel>
+
+            <!-- ── 改密模式 ── -->
+            <StackPanel x:Name="ChangePanel" Margin="0,20,0,0" Visibility="Collapsed">
+                <Border Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}"
+                        BorderThickness="1" CornerRadius="4" Padding="9,7">
+                    <TextBlock Text="{Binding ChangePasswordHint}" TextWrapping="Wrap"
+                               FontSize="11.5" Foreground="{StaticResource Warn}" />
+                </Border>
+
+                <TextBlock Text="新密码" FontSize="11.5" Margin="0,14,0,0"
+                           Foreground="{StaticResource TextSecondary}" />
+                <PasswordBox x:Name="NewPasswordInput" Height="30" Margin="0,5,0,0" Padding="7,0"
+                             VerticalContentAlignment="Center"
+                             FontSize="13"
+                             BorderBrush="{StaticResource InputBorder}" />
+
+                <TextBlock Text="确认新密码" FontSize="11.5" Margin="0,14,0,0"
+                           Foreground="{StaticResource TextSecondary}" />
+                <PasswordBox x:Name="ConfirmPasswordInput" Height="30" Margin="0,5,0,0" Padding="7,0"
+                             VerticalContentAlignment="Center"
+                             FontSize="13"
+                             BorderBrush="{StaticResource InputBorder}" />
+            </StackPanel>
+
+            <!-- 错误提示：没有错误时这一行不占位（用 MinHeight 顶住，避免窗口跳动） -->
+            <TextBlock Text="{Binding ErrorText}" MinHeight="18" Margin="0,12,0,0"
+                       TextWrapping="Wrap" FontSize="11.5"
+                       Foreground="{StaticResource Ng}" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                <Button Content="取消" Width="76"
+                        Style="{StaticResource MinorButton}"
+                        Height="30" FontSize="12"
+                        Click="OnCancelClick" />
+                <Button x:Name="SubmitButton" Width="118" Margin="10,0,0,0"
+                        Content="{Binding SubmitButtonText}"
+                        Style="{StaticResource PrimaryButton}"
+                        Height="30" FontSize="12.5"
+                        IsDefault="True"
+                        Click="OnSubmitClick" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>

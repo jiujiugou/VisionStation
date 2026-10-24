@@ -16,6 +16,7 @@ using VisionStation.Service;
 using VisionStation.Service.Audit;
 using VisionStation.Service.Housekeeping;
 using VisionStation.Service.Recipes;
+using VisionStation.Service.Security;
 using VisionStation.Storage;
 
 namespace VisionStation.App;
@@ -139,6 +140,11 @@ public static class ServiceCollectionExtensions
         // 库文件是同一个（备份一个文件就是完整证据），但表的生命周期各管各的。
         services.AddSingleton<IAuditRepository>(sp =>
             new AuditRepository(appPaths.DbPath, sp.GetService<ILogger<AuditRepository>>()));
+
+        // 账号表与检测/审计同库。它是全库唯一会被 UPDATE 的表（改密、停用、记最后登录），
+        // 另外两张是纯追加。
+        services.AddSingleton<IUserRepository>(sp =>
+            new UserRepository(appPaths.DbPath, sp.GetService<ILogger<UserRepository>>()));
         services.AddSingleton(sp =>
         {
             var s = new ImageStoreService(appPaths.StorageFolder);
@@ -177,15 +183,45 @@ public static class ServiceCollectionExtensions
             options.Housekeeping,
             sp.GetService<ILogger<HousekeepingService>>()));
 
+        // 会话：当前账号、有效角色、5 分钟无操作降级、8 小时班次登出。
+        //
+        // 它不依赖审计 —— 会话变化走事件通知，由 App 层决定记什么。
+        // 反过来依赖会成环（审计要读会话才知道"这条审计算谁的"）。
+        services.AddSingleton<ISessionService>(_ => new SessionService());
+
+        // 账号服务：认证（含失败锁定）、改密、出厂管理员种子。
+        services.AddSingleton<IUserService>(sp => new UserService(
+            sp.GetRequiredService<IUserRepository>(),
+            sp.GetRequiredService<IAuditService>(),
+            sp.GetService<ILogger<UserService>>()));
+
         // 审计服务：Record 只做一次 TryWrite（微秒级），落库在后台线程 ——
         // 调用点全在按钮命令里，不能被 SQLite 的 5 秒锁超时卡住。
         //
-        // identity 传 null：阶段 1 还没有登录模块，AuditService 内部回落到 Windows 账户
-        // 并把角色记作「未登录」。阶段 2 接入会话后只改这一行委托，所有埋点不用动。
-        services.AddSingleton<IAuditService>(sp => new AuditService(
-            sp.GetRequiredService<IAuditRepository>(),
-            identity: null,
-            sp.GetService<ILogger<AuditService>>()));
+        // 身份改为读会话：登录之后每条审计都带真实操作人；
+        // 未登录时回落到 Windows 账户并把角色记作「未登录」——
+        // 启动阶段（AppStart）正是这个状态，它本身也是有效信息。
+        services.AddSingleton<IAuditService>(sp =>
+        {
+            var session = sp.GetRequiredService<ISessionService>();
+            return new AuditService(
+                sp.GetRequiredService<IAuditRepository>(),
+                identity: () => session.CurrentUser is { } user
+                    ? (user.UserName, user.RoleText)
+                    : (Environment.UserName, "未登录"),
+                sp.GetService<ILogger<AuditService>>());
+        });
+
+        // 会话桥：把服务层的会话事件搬到 UI 线程，并补记超时类审计。
+        // 注册只是让人能拿到它 —— 真正让它工作的是 AppHost 启动时解析一次（订阅事件）。
+        services.AddSingleton<SessionBridge>();
+
+        // 登录窗 VM 用 Transient：每次登录要一份干净的，上一次的错误提示不该带过来
+        services.AddTransient<LoginViewModel>();
+
+        // 弹登录窗的抽象。ViewModel 只认接口，所以"没权限该弹登录"能用替身测，
+        // 不必在测试里创建 WPF 窗口。
+        services.AddSingleton<ILoginPrompt>(sp => new WpfLoginPrompt(sp));
 
         // 检测链路（采图→检测→标注→存图→存库）从 VM 移到 App 服务层（S4a）。
         // 它不引用任何界面类型，只有位图转换会产出 WPF 的 BitmapSource —— 那属于呈现适配。

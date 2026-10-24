@@ -78,32 +78,41 @@
                         BorderThickness="2" />
             </Grid>
 
-            <!-- ═══ 维护区（默认收起）═══ -->
+            <!-- ═══ 维护区（默认收起）═══
+                 前三项只给工程师：重新连接会重开相机、重载流程会换掉判定逻辑、
+                 扫描输出会读 .sol 里的模块名 —— 都是"改设备行为"的动作。
+                 运行模式下直接不显示，比"点了再弹登录"更干净：
+                 操作员看不到就不会去点，也不会被一个突然出现的登录框打断。
+                 「清空」保留给操作员：它只清屏，不动任何配置。 -->
             <Expander Grid.Row="1" Header="维护" IsExpanded="False" Margin="0,6,0,0"
                       FontSize="10" Foreground="{StaticResource TextMuted}"
                       AutomationProperties.Name="展开维护操作">
                 <Grid Margin="0,4,0,0">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
 
                     <Button Grid.Column="0" Content="重新连接" Command="{Binding ReconnectCommand}"
                             Style="{StaticResource MinorButton}" Margin="0,0,3,0"
+                            Visibility="{Binding IsEngineerMode, Converter={StaticResource BoolToVis}}"
                             AutomationProperties.Name="重新连接相机"
                             ToolTip="重新打开相机（HikCamera 会重新枚举设备）" />
                     <Button Grid.Column="1" Content="重载流程" Command="{Binding ReloadEngineCommand}"
                             Style="{StaticResource MinorButton}" Margin="0,0,3,0"
+                            Visibility="{Binding IsEngineerMode, Converter={StaticResource BoolToVis}}"
                             AutomationProperties.Name="重载检测流程"
                             ToolTip="在 VM 客户端改完 .sol 存盘后点这个，不必重启程序" />
                     <Button Grid.Column="2" Content="扫描输出" Command="{Binding ScanOutputsCommand}"
                             Style="{StaticResource MinorButton}" Margin="0,0,3,0"
+                            Visibility="{Binding IsEngineerMode, Converter={StaticResource BoolToVis}}"
                             AutomationProperties.Name="扫描流程输出"
                             ToolTip="列出 .sol 里实际存在的模块与输出，生成可粘进配方的 json" />
                     <Button Grid.Column="3" Content="清空" Command="{Binding ClearAllCommand}"
                             Style="{StaticResource MinorButton}"
+                            HorizontalAlignment="Left"
                             AutomationProperties.Name="清空显示" />
                 </Grid>
             </Expander>

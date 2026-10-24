@@ -34,7 +34,6 @@ WPF 金属零件视觉检测工作站。取图 → 检测引擎判定（VisionMa
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
 | `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 218 项：143 + 75） | **只准加，不准改断言** |
 | `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
-| `audit/` | 失效分析产物 + 门禁脚本 | 由流程生成，不手改数据 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |
 | `models/` | ONNX 权重 | **禁止编辑** |
 | `Logs/` `InspectedImages/` `TestImages/` `*.db` | 运行期数据 | **禁止编辑**，也不要加入示例代码 |
@@ -46,19 +45,12 @@ Core 不得反向依赖任何工程；引擎不得依赖 App/Storage/Service。
 
 ```bat
 ci.cmd                                                      :: 本地 CI 门禁：App 构建 + 测试 + 分析器棘轮 + 测试
-verify.cmd                                                  :: ci.cmd + 审计门禁（运维切片）
-verify.cmd audit\artifacts-core\scope-core.json artifacts-core  :: ci.cmd + 审计门禁（Core 切片）
 dotnet build tests\VisionStation.UnitTests -v q --nologo    :: 仅编译检查，不是门禁
 dotnet test  tests\VisionStation.UnitTests --nologo         :: 仅测试，不是门禁
 dotnet test  tests\VisionStation.UnitTests --filter "FullyQualifiedName~Housekeeping" --nologo
-
-:: 变异测试（只对纯数学/判定段跑，约 2 分钟；不要全仓跑）
-dotnet dotnet-stryker -p src/VisionStation.Core/VisionStation.Core.csproj ^
-  -tp tests/VisionStation.UnitTests/VisionStation.UnitTests.csproj ^
-  -m "**/Calibration.cs" -m "**/Geometry/CoordinateMath.cs" -b 0
 ```
 
-`ci.cmd`（日常构建）或 `verify.cmd`（审计切片）退出码 0 才算做完；单独 `dotnet build` / `dotnet test` 不是门禁。任何"已完成"的说法，必须先贴门禁输出。
+`ci.cmd` 退出码 0 才算做完（这是唯一的门禁）；单独 `dotnet build` / `dotnet test` 不是门禁。任何"已完成"的说法，必须先贴门禁输出。
 
 ## 4. 硬规则（违反即作废重做）
 

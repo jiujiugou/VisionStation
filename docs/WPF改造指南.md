@@ -393,7 +393,7 @@ Pipeline 抛异常 → 被捕获并上报；取消令牌 → `OperationCanceledE
 - 去掉 View 里的硬编码颜色（如 `SidebarView.xaml:4`、`CameraPageView.xaml:4-5`），改用命名资源；
 - Converter 只注册一次：`App.xaml:20` 与 `StatusBarView.xaml:7` 的重复注册合并（W-16）；
 - `ICamera.open/close` → `Open/Close`（`ICamera.cs:32,35`）单独切片，涉及 Devices 与测试，不和 S3 混；
-- 业务代码里的 `修复（F-...）`/事故编号移到 `docs/` 或 `audit/`，代码只留"为什么"（W-19）；
+- 业务代码里的 `修复（F-...）`/事故编号移到 `docs/`，代码只留"为什么"（W-19）；
 - 每个页面补设计时数据，保证 XAML 设计器不是空白。
 
 验收：View 中无新增硬编码色值；资源键无重复；`ci.cmd` 0；实际启动走查主题/日志面板。

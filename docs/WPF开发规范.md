@@ -376,7 +376,7 @@ App 内按职责分 `Views` / `ViewModels` / `Composition` / `Navigation` / `Res
 
 ### WPF-S1.3 注释写“为什么”
 注释只写：不变量、失败模式、取舍原因、外部约束。**不得**把 `F-xxx` 事故编号、修复历史、
-大段排查过程写进业务代码——这些属于 `docs/` 与 `audit/`。
+大段排查过程写进业务代码——这些属于 `docs/`。
 
 ### WPF-S1.4 null 约定
 启用 nullable；`null!` 只允许在框架必然赋值的场景（如 `InitializeComponent` 后字段），
@@ -391,7 +391,7 @@ App 内按职责分 `Views` / `ViewModels` / `Composition` / `Navigation` / `Res
 
 一个 WPF 切片只有同时满足以下条件才算完成：
 
-1. `ci.cmd` 退出码 0（审计切片另跑 `verify.cmd`），且输出贴进交付说明；
+1. `ci.cmd` 退出码 0，且输出贴进交付说明；
 2. `VisionStation.App.Tests`（P1 起）与现有测试全绿；
 3. 实际 `dotnet run --project src/VisionStation.App` 启动并走查；
 4. 无 UI 线程阻塞：连续操作/自动运行 5 分钟，界面可响应，无卡死；

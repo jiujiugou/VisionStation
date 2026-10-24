@@ -3,7 +3,6 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
 using VisionStation.Storage.Entities;
 
 namespace VisionStation.Storage;
@@ -116,10 +115,12 @@ public class InspectionRepository : IInspectionRepository
     /// <summary>保存一次检测报告到数据库</summary>
     public Task SaveAsync(InspectionReport report) => RunAsync(async db =>
     {
-        // 从 ToolResult 提取各工具结果（兼容老表结构）
-        var p = report.PresenceResult;
-        var d = report.DimensionResult;
-        var f = report.DefectResult;
+        // 旧列投影：按 ToolResult.Role 聚合（Locate / Measure / Defect）。
+        // 报告里的键是业务名（"外径"、"表面缺陷"），由配方决定；
+        // 角色是受约束的枚举，所以业务名怎么改都不会让这三列变成 0。
+        var p = report.AggregateByRole(ResultKeys.Locate);
+        var d = report.AggregateByRole(ResultKeys.Measure);
+        var f = report.AggregateByRole(ResultKeys.Defect);
 
         var record = new InspectionRecord
         {
@@ -127,13 +128,14 @@ public class InspectionRepository : IInspectionRepository
             Timestamp = report.Timestamp,
             TriggerSource = report.TriggerSource,
             ImagePath = report.ImagePath,
+            EngineName = report.Engine,
 
-            // ── 有无检测 ──
+            // ── 定位 / 有无 ──
             PresenceOk = p.IsOk,
             PresenceDetail = p.Summary,
             PresenceScore = p.Metrics.GetValueOrDefault("MatchScore", 0),
 
-            // ── 尺寸检测 ──
+            // ── 测量 ──
             DimensionOk = d.IsOk,
             DimensionDetail = d.Summary,
             DesignDiameter = d.Metrics.GetValueOrDefault("DesignedDiameter_mm", 0),

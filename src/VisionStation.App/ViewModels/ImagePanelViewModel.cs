@@ -24,13 +24,17 @@ public partial class ImagePanelViewModel : ObservableObject
     [ObservableProperty]
     private BitmapSource? _annotatedImage;
 
-    /// <summary>图像区域顶部 Tab 页签（原图 / 检测 / ROI / 边缘）</summary>
+    /// <summary>
+    /// 图像区域顶部 Tab 页签（原图 / 检测）。
+    ///
+    /// 2026-10-23 删掉了「ROI」「边缘」两个页签：它们从来没有独立的图像源，
+    /// 点开显示的还是原图 —— 摆了 4 个页签，实际只有 2 种内容。
+    /// 这种"看着有功能、点了没变化"的入口比少一个功能更伤信任（同导航栏那 6 个死图标）。
+    /// </summary>
     public ObservableCollection<ImageTab> Tabs { get; } = new()
     {
         new("原图", "Original"),
         new("检测", "Detection"),
-        new("ROI", "Roi"),
-        new("边缘", "Edge"),
     };
 
     /// <summary>当前选中的 Tab</summary>
@@ -43,8 +47,26 @@ public partial class ImagePanelViewModel : ObservableObject
     /// </summary>
     public BitmapSource? CurrentImage => SelectedTab?.Key == "Detection" ? AnnotatedImage : OriginalImage;
 
+    /// <summary>
+    /// 没有图像时显示的说明。按引擎区分：
+    /// 推驱动的引擎（VM）本来就不采图，黑屏是正常状态，必须写出来，
+    /// 否则操作员只会认为程序坏了。
+    /// </summary>
+    public string EmptyHint { get; private set; } =
+        "等待 VisionMaster 推送结果\nVM 模式下图像与标注在平台侧，本程序只接收结果";
+
     public ImagePanelViewModel()
+        : this(null)
     {
+    }
+
+    public ImagePanelViewModel(VisionStation.Core.Engines.IInspectionEngine? engine)
+    {
+        if (engine is not null && engine is not VisionStation.Core.Engines.IPushDrivenEngine)
+        {
+            EmptyHint = "尚未收到检测结果";
+        }
+
         _selectedTab = Tabs[0]; // 默认显示原图
 
         WeakReferenceMessenger.Default.Register<ImagePanelViewModel, InspectionResultMessage>(this,

@@ -5,6 +5,8 @@
     <ProjectReference Include="..\VisionStation.Devices\VisionStation.Devices.csproj" />
     <ProjectReference Include="..\VisionStation.Storage\VisionStation.Storage.csproj" />
     <ProjectReference Include="..\VisionStation.Service\VisionStation.Service.csproj" />
+    <ProjectReference Include="..\VisionStation.Engines.Onnx\VisionStation.Engines.Onnx.csproj" />
+    <ProjectReference Include="..\VisionStation.Engines.Vm\VisionStation.Engines.Vm.csproj" />
     <ProjectReference Include="..\VisionStation.Watchdog\VisionStation.Watchdog.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
@@ -22,6 +24,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Config\recipes\**\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- VM 流程文件随程序部署：配方里写的是相对路径（Config\solutions\xxx.sol），
+         不复制的话运行时按 exe 目录解析必然找不到 -->
+    <None Update="Config\solutions\**\*.sol" Condition="Exists('Config\solutions')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <!-- 配方激活指针（S7）：内容就是"当前用哪份配方"。

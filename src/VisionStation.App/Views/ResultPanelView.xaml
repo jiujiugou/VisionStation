@@ -6,107 +6,220 @@
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:ResultPanelViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        结果面板（2026-10-24 改造）：判定大字 → 指标 → 告警 → 明细表。
+
+        顺序不是审美问题，是视线优先级：
+        操作员站着扫一眼屏幕，第一个落点是判定（OK/NG），
+        第二个是"这一段时间做得怎么样"，第三个才是"有没有事要处理"。
+        原来判定条压在最底下，要看完三行表格才知道合不合格 ——
+        对熟练工是浪费，对新人是误判风险。
+
+        整块装进 ScrollViewer：右侧栏在不同窗口高度下会变窄，
+        内容多时应该出滚动条，而不是把下面的面板挤没。
+    -->
     <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
-            CornerRadius="4" Padding="10,10">
-        <StackPanel>
-            <!-- 标题 -->
-            <TextBlock Text="检测结果" FontSize="12" FontWeight="SemiBold"
-                       Foreground="{StaticResource TextPrimary}" Margin="0,0,0,6" />
+            CornerRadius="4" Padding="10">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
 
-            <!-- 元数据行 -->
-            <TextBlock FontSize="10" Foreground="#888" Margin="0,0,0,6">
-                <Run Text="{Binding TimestampText, Mode=OneWay}" />
-                <Run Text="  |  " Foreground="#CCC" />
-                <Run Text="{Binding TriggerInfoText, Mode=OneWay}" />
-            </TextBlock>
+                <!-- 标题 + 时间 -->
+                <Grid Margin="0,0,0,8">
+                    <TextBlock Text="检测结果" FontSize="12" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimary}" />
+                    <TextBlock Text="{Binding TimestampText}" FontSize="10"
+                               Foreground="{StaticResource TextMuted}"
+                               HorizontalAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
 
-            <!-- 表格头 -->
-            <Grid Margin="0,0,0,4">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="5*" />
-                    <ColumnDefinition Width="2*" />
-                    <ColumnDefinition Width="3*" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="检测项" FontSize="10" FontWeight="Medium"
-                           Foreground="#888" Margin="6,0" />
-                <TextBlock Grid.Column="1" Text="结果" FontSize="10" FontWeight="Medium"
-                           Foreground="#888" />
-                <TextBlock Grid.Column="2" Text="数值" FontSize="10" FontWeight="Medium"
-                           Foreground="#888" TextAlignment="Right" Margin="6,0" />
-            </Grid>
+                <!-- ═══ 判定大字 ═══ -->
+                <Border Height="92" CornerRadius="4">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <!-- 未判定：中性灰。绝不能是红的 —— "还没检测"不是"不合格" -->
+                            <Setter Property="Background" Value="{StaticResource SubtleBg}" />
+                            <Setter Property="BorderBrush" Value="{StaticResource CardBorder}" />
+                            <Setter Property="BorderThickness" Value="1" />
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding HasVerdict}" Value="True" />
+                                        <Condition Binding="{Binding IsOk}" Value="True" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Background" Value="{StaticResource OkBg}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource Ok}" />
+                                </MultiDataTrigger>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding HasVerdict}" Value="True" />
+                                        <Condition Binding="{Binding IsOk}" Value="False" />
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Background" Value="{StaticResource NgBg}" />
+                                    <Setter Property="BorderBrush" Value="{StaticResource Ng}" />
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
 
-            <!-- 表格行 -->
-            <Border Background="{StaticResource RowAltBg}" CornerRadius="2" Padding="2">
-                <ItemsControl ItemsSource="{Binding Rows}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="5*" />
-                                    <ColumnDefinition Width="2*" />
-                                    <ColumnDefinition Width="3*" />
-                                </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding VerdictText}" FontSize="34" FontWeight="Bold"
+                                   HorizontalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{StaticResource Neutral}" />
+                                    <Style.Triggers>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding HasVerdict}" Value="True" />
+                                                <Condition Binding="{Binding IsOk}" Value="True" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Foreground" Value="{StaticResource Ok}" />
+                                        </MultiDataTrigger>
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding HasVerdict}" Value="True" />
+                                                <Condition Binding="{Binding IsOk}" Value="False" />
+                                            </MultiDataTrigger.Conditions>
+                                            <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                        </MultiDataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
 
-                                <TextBlock Grid.Column="0" Text="{Binding Item}"
-                                           FontSize="11" FontWeight="Medium"
-                                           Foreground="{StaticResource TextPrimary}" Margin="6,5" />
+                        <!-- 判定下面的"为什么"：NG 时是哪一项，OK 时明说全部合格 -->
+                        <TextBlock Text="{Binding VerdictSubText}" FontSize="11"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   HorizontalAlignment="Center" Margin="8,4,8,0"
+                                   TextAlignment="Center" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
 
-                                <!-- OK/NG 标签 -->
-                                <Border Grid.Column="1" CornerRadius="2" Padding="5,2"
-                                        HorizontalAlignment="Left" VerticalAlignment="Center">
-                                    <Border.Style>
-                                        <Style TargetType="Border">
-                                            <Setter Property="Background" Value="{StaticResource OkBg}" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsOk}" Value="False">
-                                                    <Setter Property="Background" Value="{StaticResource NgBg}" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Border.Style>
-                                    <!-- 颜色由状态决定，不在 VM 里写十六进制：换主题只改这里 -->
-                                    <TextBlock Text="{Binding StatusText}" FontSize="10"
-                                               FontWeight="SemiBold">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="{StaticResource Ok}" />
+                <!-- ═══ 运行指标 ═══ -->
+                <UniformGrid Columns="2" Margin="0,8,0,0">
+                    <Border Background="{StaticResource MetricBg}" CornerRadius="3" Padding="8,6" Margin="0,0,4,4">
+                        <StackPanel>
+                            <TextBlock Text="本次判定" FontSize="10" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Text="{Binding TotalCount}" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource MetricBg}" CornerRadius="3" Padding="8,6" Margin="4,0,0,4">
+                        <StackPanel>
+                            <TextBlock Text="良率" FontSize="10" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Text="{Binding OkRateText}" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource MetricBg}" CornerRadius="3" Padding="8,6" Margin="0,4,4,0">
+                        <StackPanel>
+                            <TextBlock Text="NG" FontSize="10" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Text="{Binding NgCount}" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Ng}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Background="{StaticResource MetricBg}" CornerRadius="3" Padding="8,6" Margin="4,4,0,0">
+                        <StackPanel>
+                            <TextBlock Text="单帧耗时" FontSize="10" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Text="{Binding LastCycleText}" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextPrimary}" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <!-- ═══ 告警（只在有 Warning / Error 时出现）═══
+                     Info 与 Success 不上这里：流水账堆在判定旁边，
+                     真正要处理的那条会被淹掉。 -->
+                <Border Background="{StaticResource WarnBg}" BorderBrush="{StaticResource WarnBorder}"
+                        BorderThickness="1" CornerRadius="3" Padding="8,6" Margin="0,8,0,0"
+                        Visibility="{Binding HasIssue, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <TextBlock Text="需要处理" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="{StaticResource Warn}" />
+                        <TextBlock Text="{Binding RecentIssueText}" FontSize="10"
+                                   Foreground="{StaticResource Warn}"
+                                   TextWrapping="Wrap" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ 明细表 ═══ -->
+                <Grid Margin="0,10,0,4">
+                    <TextBlock Text="检测明细" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextSecondary}" />
+                    <TextBlock Text="{Binding TriggerInfoText}" FontSize="10"
+                               Foreground="{StaticResource TextMuted}"
+                               HorizontalAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+
+                <Grid Margin="0,0,0,4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5*" />
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="3*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="检测项" FontSize="10" FontWeight="Medium"
+                               Foreground="{StaticResource TextMuted}" Margin="6,0" />
+                    <TextBlock Grid.Column="1" Text="结果" FontSize="10" FontWeight="Medium"
+                               Foreground="{StaticResource TextMuted}" />
+                    <TextBlock Grid.Column="2" Text="数值" FontSize="10" FontWeight="Medium"
+                               Foreground="{StaticResource TextMuted}" TextAlignment="Right" Margin="6,0" />
+                </Grid>
+
+                <Border Background="{StaticResource RowAltBg}" CornerRadius="2" Padding="2">
+                    <ItemsControl ItemsSource="{Binding Rows}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="5*" />
+                                        <ColumnDefinition Width="2*" />
+                                        <ColumnDefinition Width="3*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0" Text="{Binding Item}"
+                                               FontSize="11" FontWeight="Medium"
+                                               Foreground="{StaticResource TextPrimary}" Margin="6,5" />
+
+                                    <!-- OK/NG 标签 -->
+                                    <Border Grid.Column="1" CornerRadius="2" Padding="5,2"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{StaticResource OkBg}" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding IsOk}" Value="False">
-                                                        <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                                        <Setter Property="Background" Value="{StaticResource NgBg}" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                </Border>
+                                        </Border.Style>
+                                        <!-- 颜色由状态决定，不在 VM 里写十六进制：换主题只改这里 -->
+                                        <TextBlock Text="{Binding StatusText}" FontSize="10"
+                                                   FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{StaticResource Ok}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsOk}" Value="False">
+                                                            <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
 
-                                <TextBlock Grid.Column="2" Text="{Binding Value}" FontSize="11"
-                                           Foreground="#555" TextAlignment="Right"
-                                           Margin="6,5" />
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </Border>
+                                    <TextBlock Grid.Column="2" Text="{Binding Value}" FontSize="11"
+                                               Foreground="{StaticResource TextSecondary}" TextAlignment="Right"
+                                               Margin="6,5" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Border>
 
-            <!-- 总判定条 -->
-            <Border CornerRadius="4" Padding="10,8" Margin="0,8,0,0">
-                <Border.Style>
-                    <Style TargetType="Border">
-                        <Setter Property="Background" Value="{StaticResource Neutral}" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsOk}" Value="True">
-                                <Setter Property="Background" Value="{StaticResource Ok}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding IsOk}" Value="False">
-                                <Setter Property="Background" Value="{StaticResource Ng}" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Border.Style>
-                <TextBlock Text="{Binding VerdictText}" FontSize="15" FontWeight="Bold"
-                           Foreground="White" HorizontalAlignment="Center" />
-            </Border>
-        </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
     </Border>
 </UserControl>

@@ -7,30 +7,53 @@
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:InspectionPageViewModel, IsDesignTimeCreatable=False}">
 
-    <!-- 版面从 MainWindow 搬过来，像素尺寸不变：左 7 右 3，右侧三块自上而下（结果 / 日志 / 操作）。
-         Content 绑的是子 VM，具体显示哪个 View 由 App.xaml 的 DataTemplate 决定。 -->
+    <!--
+        检测页版面（2026-10-24 重排）：左图像 + 底部控制条 / 右结果栏。
+
+        为什么把结果栏钉成固定 300 而不是百分比：
+        判定大字和指标卡是**定宽内容**（一个 34px 的 "NG" 加四个两位数字），
+        给它比例宽度只会让它在宽屏上留一大片空白，而图像区本该拿走所有多余空间。
+        图更值钱 —— 缺陷细节看不看得清，取决于图有多大。
+
+        日志为什么收进折叠条：
+        它是流水账，操作员每帧扫一次没有意义；但它不能删 —— 出问题时要能立刻翻。
+        折中成默认收起的 Expander：不占视线，一点就开。
+
+        Content 绑的是子 VM，具体显示哪个 View 由 App.xaml 的 DataTemplate 决定。
+        2026-10-23：ROI 编辑覆盖层已移除 —— ROI 归 .sol（VM）所有，
+        在自己的界面里再画一遍等于制造第二份真相。
+    -->
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="7*" />
-            <ColumnDefinition Width="3*" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="300" />
         </Grid.ColumnDefinitions>
 
+        <!-- 左：图像 + 控制条 -->
         <Grid Grid.Column="0" Margin="0,0,4,0">
-            <ContentControl Content="{Binding ImagePanel}"
-                            Visibility="{Binding IsImagePanelVisible, Converter={StaticResource BoolToVis}}" />
-            <ContentControl Content="{Binding RoiEditor}"
-                            Visibility="{Binding IsRoiEditorOpen, Converter={StaticResource BoolToVis}}" />
-        </Grid>
-
-        <Grid Grid.Column="1" Margin="4,0,0,0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <ContentControl Grid.Row="0" Margin="0,0,0,4" Content="{Binding ResultPanel}" />
-            <ContentControl Grid.Row="1" Margin="0,0,0,4" Content="{Binding LogPanel}" />
-            <ContentControl Grid.Row="2" Content="{Binding ControlPanel}" />
+
+            <ContentControl Grid.Row="0" Content="{Binding ImagePanel}" />
+            <ContentControl Grid.Row="1" Margin="0,4,0,0" Content="{Binding ControlPanel}" />
+        </Grid>
+
+        <!-- 右：结果 + 折叠日志 -->
+        <Grid Grid.Column="1" Margin="4,0,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <ContentControl Grid.Row="0" Content="{Binding ResultPanel}" />
+
+            <Expander Grid.Row="1" Header="运行日志" IsExpanded="False" Margin="0,4,0,0"
+                      FontSize="11" Foreground="{StaticResource TextSecondary}"
+                      AutomationProperties.Name="展开运行日志">
+                <ContentControl Content="{Binding LogPanel}" MaxHeight="150" Margin="0,4,0,0" />
+            </Expander>
         </Grid>
     </Grid>
 </UserControl>

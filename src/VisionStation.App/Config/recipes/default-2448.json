@@ -1,50 +1,37 @@
 {
   "name": "金属垫圈检测（2448）",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sensor": { "width": 2448, "height": 2048 },
-  "calibration": {
-    "pixelPerMillimeter": 28.6875,
-    "designedDiameterMm": 12.7,
-    "dimensionToleranceMm": 1.0
-  },
-  "rois": [
-    { "name": "Presence",  "x": 939, "y": 726, "width": 574, "height": 600 },
-    { "name": "Dimension", "x": 939, "y": 726, "width": 574, "height": 600 },
-    { "name": "Defect",    "x": 746, "y": 350, "width": 1128, "height": 260 },
-    { "name": "Yolo",      "x": 939, "y": 726, "width": 574, "height": 600 }
-  ],
-  "tools": [
-    {
-      "type": "Presence",
-      "enabled": true,
-      "roi": "Presence",
-      "template": "D:\\Code\\VisionStation\\TestImages\\hole_template_2448.png",
-      "params": { "threshold": 0.70 }
-    },
-    {
-      "type": "Dimension",
-      "enabled": true,
-      "roi": "Dimension",
-      "params": { "tolerance": 1.0 }
-    },
-    {
-      "type": "Defect",
-      "enabled": true,
-      "roi": "Defect",
-      "params": {
-        "areaMin": 50,
-        "thresholdValue": 128,
-        "excludeX": 1228.0,
-        "excludeY": 1027.0,
-        "excludeRadius": 225.0
+  "engine": "Vm",
+  "vm": {
+    "solutionPath": "Config\\solutions\\washer-2448.sol",
+    "password": "",
+    "procedure": "流程1",
+    "imageSourceModule": "图像源1",
+    "outputs": [
+      {
+        "module": "圆查找1",
+        "label": "外径",
+        "role": "Measure",
+        "io": "Radius",
+        "ioKind": "Circle",
+        "metric": "Radius_px",
+        "unit": "px"
       }
-    },
-    {
-      "type": "Yolo",
-      "enabled": false,
-      "roi": "Yolo",
-      "model": "models/neu-det.onnx",
-      "params": { "conf": 0.25, "nms": 0.45 }
-    }
-  ]
+    ]
+  },
+  "onnx": {
+    "modelPath": "models\\neu-det.onnx",
+    "confidence": 0.25,
+    "nms": 0.45,
+    "maxDetections": 100,
+    "classes": [
+      "crazing",
+      "inclusion",
+      "patches",
+      "pitted_surface",
+      "rolled-in_scale",
+      "scratches"
+    ]
+  }
 }

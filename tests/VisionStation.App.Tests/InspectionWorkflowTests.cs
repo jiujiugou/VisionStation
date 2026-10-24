@@ -2,9 +2,8 @@ using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpenCvSharp;
 using VisionStation.App.Services.Inspection;
-using VisionStation.Core;
+using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
 using VisionStation.Storage;
 
 namespace VisionStation.App.Tests;
@@ -109,6 +108,23 @@ public class InspectionWorkflowTests
 
         public FakeInspectionRepository Repository { get; } = new();
 
+        /// <summary>
+        /// 假引擎：返回一份"一项 OK"的报告。
+        /// 用 FakeEngine 而不是真 ONNX 引擎，是因为这里测的是工作流的职责
+        /// （尺寸校验、存图计数、帧释放、入库），不是推理质量。
+        /// </summary>
+        public FakeEngine Engine { get; } = new()
+        {
+            Report = BuildReport()
+        };
+
+        private static InspectionReport BuildReport()
+        {
+            var report = new InspectionReport { Engine = "FakeEngine" };
+            report.SetToolResult("缺陷", ToolResult.Ok("未检出缺陷"));
+            return report;
+        }
+
         public CameraFrame? LastFrame { get; private set; }
 
         private CameraFrame? NextFrame()
@@ -136,10 +152,9 @@ public class InspectionWorkflowTests
 
             return new InspectionWorkflow(
                 Camera,
-                new Pipeline(Array.Empty<IVisionTool>()),
+                Engine,
                 Repository,
                 store,
-                new CalibrationConfig(),
                 new RecipeConfig(),
                 NullLogger<InspectionWorkflow>.Instance);
         }

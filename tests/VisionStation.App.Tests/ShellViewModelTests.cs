@@ -1,53 +1,18 @@
 using VisionStation.App.ViewModels;
+using VisionStation.Core.Models;
 
 namespace VisionStation.App.Tests;
 
 /// <summary>
-/// 外壳契约：F2 路由到当前页、切页时给离开的页面收尾。
+/// 外壳契约：切页时通知界面。
 ///
-/// F2 从 MainWindow 的 KeyDown 搬到窗口 InputBindings 之后，命令挂在 Shell 上 ——
-/// 快捷键要跟窗口走，否则焦点落在侧边栏时页面收不到按键（改造前就是这个问题）。
+/// 2026-10-23：随着 ROI 编辑器移除，F2 路由与"离开页面时收尾编辑态"这两条契约一起消失，
+/// 对应用例已删（`ToggleRoiEditor_*`、`NavigatingAway_ClosesEditorOnLeavingPage`）。
+/// 留下的这条仍然有价值：CurrentPage 变化必须同时通知 CurrentPage 与 CurrentRoute，
+/// 少一个都会让侧边栏高亮和内容区不同步。
 /// </summary>
 public class ShellViewModelTests
 {
-    [Fact]
-    public void ToggleRoiEditor_OnInspectionPage_OpensEditor()
-    {
-        var (shell, _, inspection, _) = Create();
-
-        shell.ToggleRoiEditorCommand.Execute(null);
-
-        Assert.True(inspection.IsRoiEditorOpen);
-    }
-
-    [Fact]
-    public void ToggleRoiEditor_OnOtherPage_DoesNothing()
-    {
-        var (shell, navigation, inspection, camera) = Create();
-        navigation.Navigate("相机");
-
-        shell.ToggleRoiEditorCommand.Execute(null);
-
-        // 相机页没有 ROI 编辑器，按 F2 不能把检测页的编辑态打开
-        Assert.Same(camera, shell.CurrentPage);
-        Assert.False(inspection.IsRoiEditorOpen);
-    }
-
-    [Fact]
-    public void NavigatingAway_ClosesEditorOnLeavingPage()
-    {
-        var (shell, navigation, inspection, _) = Create();
-        shell.ToggleRoiEditorCommand.Execute(null);
-        Assert.True(inspection.IsRoiEditorOpen);
-
-        navigation.Navigate("相机");
-
-        // 覆盖层不能跟着用户漂到相机页上
-        Assert.False(inspection.IsRoiEditorOpen);
-        Assert.Equal("相机", shell.CurrentRoute);
-        Assert.Same(shell.CurrentPage, navigation.CurrentPage);
-    }
-
     [Fact]
     public void CurrentPageChange_RaisesPropertyChanged()
     {
@@ -71,7 +36,16 @@ public class ShellViewModelTests
             .With("检测", inspection)
             .With("相机", camera);
 
-        var shell = new ShellViewModel(new SidebarViewModel(navigation), new StatusBarViewModel(), navigation);
+        // 顶栏 2026-10-24 加入外壳。它只读配方 + 设备状态，不参与导航，
+        // 所以这里给一份最小配方即可 —— 断言仍然是"切页必须通知两处"。
+        var topBar = new TopBarViewModel(new RecipeConfig(), new FakeTriggerSource());
+
+        var shell = new ShellViewModel(
+            new SidebarViewModel(navigation),
+            new StatusBarViewModel(),
+            topBar,
+            navigation);
+
         return (shell, navigation, inspection, camera);
     }
 }

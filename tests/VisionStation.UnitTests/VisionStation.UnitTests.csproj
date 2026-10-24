@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- net8.0-windows：Engines.Vm 只有 windows 目标（VM SDK 是 win64 的），测试要直接引用 -->
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -27,6 +28,9 @@
     <ProjectReference Include="..\..\src\VisionStation.Core\VisionStation.Core.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Storage\VisionStation.Storage.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Service\VisionStation.Service.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Engines.Onnx\VisionStation.Engines.Onnx.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Engines.Vm\VisionStation.Engines.Vm.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Devices\VisionStation.Devices.csproj" />
     <ProjectReference Include="..\..\tools\GoldenSetRunner\GoldenSetRunner.csproj" />
   </ItemGroup>
 

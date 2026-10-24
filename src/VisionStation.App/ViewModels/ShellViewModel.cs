@@ -24,14 +24,25 @@ public partial class ShellViewModel : ObservableObject
     public SidebarViewModel Sidebar { get; }
     public StatusBarViewModel StatusBar { get; }
 
+    /// <summary>
+    /// 顶栏（2026-10-24 加入）。跨整个窗口宽度常驻，不随页面切换消失 ——
+    /// 它显示的是"这台设备当前是什么状态"，与"正在看哪一页"无关。
+    /// </summary>
+    public TopBarViewModel TopBar { get; }
+
     public object? CurrentPage => _navigation.CurrentPage;
 
     public string CurrentRoute => _navigation.CurrentRoute;
 
-    public ShellViewModel(SidebarViewModel sidebar, StatusBarViewModel statusBar, INavigationService navigation)
+    public ShellViewModel(
+        SidebarViewModel sidebar,
+        StatusBarViewModel statusBar,
+        TopBarViewModel topBar,
+        INavigationService navigation)
     {
         Sidebar = sidebar;
         StatusBar = statusBar;
+        TopBar = topBar;
         _navigation = navigation;
 
         _shownPage = navigation.CurrentPage;
@@ -48,24 +59,9 @@ public partial class ShellViewModel : ObservableObject
 
         if (e.PropertyName != nameof(INavigationService.CurrentPage)) return;
 
-        // 离开的页面在这里收尾。当前只有检测页有"编辑态"这种页面级状态，
-        // 两个页面时直接判断类型最直白；页面多起来再抽成页面接口。
-        if (_shownPage is InspectionPageViewModel leaving)
-            leaving.ExitEditMode();
-
+        // 离开的页面在这里收尾。ROI 编辑器移除后，页面级"编辑态"已不存在；
+        // 将来若再加（如参数页签），仍在这里统一处理。
         _shownPage = CurrentPage;
         OnPropertyChanged(nameof(CurrentPage));
-    }
-
-    /// <summary>
-    /// F2：编辑当前页的 ROI。只有检测页有 ROI 编辑器，其余页面按了不做事。
-    /// 放在外壳而不是页面里，是因为快捷键要跟窗口而不是跟焦点元素走 ——
-    /// 焦点在侧边栏时，页面上的 InputBinding 收不到按键。
-    /// </summary>
-    [RelayCommand]
-    private void ToggleRoiEditor()
-    {
-        if (CurrentPage is InspectionPageViewModel page)
-            page.ToggleRoiEditorCommand.Execute(null);
     }
 }

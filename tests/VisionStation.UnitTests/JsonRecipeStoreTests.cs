@@ -20,14 +20,13 @@ public class JsonRecipeStoreTests
     public async Task SaveAsync_WritesCamelCaseJsonAndReturnsPath()
     {
         using var dir = new TempDir();
-        var recipe = new RecipeConfig { Name = "测试配方" };
-        recipe.Rois.Add(new RoiData
+        var recipe = new RecipeConfig { Name = "测试配方", Engine = EngineNames.Vm };
+        recipe.Vm.SolutionPath = @"Config\solutions\a.sol";
+        recipe.Vm.Outputs.Add(new VmOutputMapping
         {
-            Name = "Presence",
-            X = 1,
-            Y = 2,
-            Width = 3,
-            Height = 4
+            Module = "圆查找1",
+            Label = "外径",
+            Role = ResultKeys.Measure
         });
 
         var savedPath = await new JsonRecipeStore(dir.Path).SaveAsync(recipe);
@@ -35,9 +34,10 @@ public class JsonRecipeStoreTests
         // 目录里没有 .active 时保存落到 default.json
         Assert.Equal(Path.Combine(dir.Path, "default.json"), savedPath);
         using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(savedPath));
-        Assert.True(doc.RootElement.TryGetProperty("rois", out var rois));
-        Assert.False(doc.RootElement.TryGetProperty("Rois", out _));
-        Assert.Equal("Presence", rois[0].GetProperty("name").GetString());
+        Assert.True(doc.RootElement.TryGetProperty("vm", out var vm));
+        Assert.False(doc.RootElement.TryGetProperty("Vm", out _));
+        Assert.Equal("圆查找1", vm.GetProperty("outputs")[0].GetProperty("module").GetString());
+        Assert.Equal("Vm", doc.RootElement.GetProperty("engine").GetString());
     }
 
     /// <summary>
@@ -217,7 +217,6 @@ public class JsonRecipeStoreTests
             Name = name,
             Sensor = new SensorSpec { Width = w, Height = h }
         };
-        recipe.Tools.Add(new ToolConfigData { Type = "Presence", Enabled = true });
 
         var json = JsonSerializer.Serialize(recipe, CamelCaseOptions);
         await File.WriteAllTextAsync(Path.Combine(folder, fileName), json);

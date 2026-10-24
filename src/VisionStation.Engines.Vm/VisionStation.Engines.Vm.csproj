@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VisionMaster 引擎工程（2026-10-23 第二次改版）。
+
+    **它不再引用 VM 的 SDK。** 这是有意为之，理由有实证：
+
+      VisionMaster 4.2 的 SDK（VM.Core.dll）目标是 .NET Framework 4.6.1，内部依赖
+      .NET Remoting 与 AppDomain，在 .NET 8 进程里连静态构造都过不去
+      （实测错误码 E0000603 + 进程直接崩溃 0xC000000D）；而且要管理员权限去
+      OpenSCManager，否则报 E0000602/E0000600。为了绕开这些去造一个 net48 宿主进程，
+      复杂度远超收益。
+
+      真实产线的做法是：**VM 客户端独立运行、跑流程，用「发送数据」模块把判定经 TCP
+      发给上位机**。上位机不碰 SDK，只收结果、入库、回 PLC。
+      海康 V 社区给的方案排序里，这条路就是第一推荐（解耦、稳定、符合现场规范）。
+
+    所以本工程现在的职责只有一个：**把 VM 发来的那行结果翻译成 InspectionReport。**
+    纯托管、无原生依赖、任何机器上都能编译和单测 —— 这正是把"判定权归平台、
+    解释权归上位机"这条边界落成代码。
+
+    通信端点（TCP 监听）不在这里，它在 Devices/Vm/VmResultListener：
+    那是 IO，跟 PLC、相机同类。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VisionStation.Core\VisionStation.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+</Project>

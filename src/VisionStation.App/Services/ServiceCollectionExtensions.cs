@@ -8,10 +8,8 @@ using VisionStation.App.Services;
 using VisionStation.App.Services.Inspection;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
-using VisionStation.App.Services.Coordinates;
-using VisionStation.Core;
+using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
 using VisionStation.Devices;
 using VisionStation.Devices.Plc;
 using VisionStation.Service;
@@ -26,29 +24,41 @@ namespace VisionStation.App;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>注册 Core 层：标定、Pipeline、Tools</summary>
-    public static IServiceCollection AddCore(this IServiceCollection services,
+    /// <summary>
+    /// 注册检测引擎（配方 + 引擎）。全系统只有这一处决定"用哪套检测"。
+    ///
+    /// 改造前这里造的是 Calibration + ToolFactory + Pipeline；
+    /// 现在只造一个 <see cref="IInspectionEngine"/> —— 判定逻辑要么在 VM 流程里，
+    /// 要么在 ONNX 引擎里，组合根不再持有任何算法参数。
+    /// </summary>
+    public static IServiceCollection AddDetection(this IServiceCollection services,
         RecipeConfig recipe, AppPaths appPaths)
     {
-        var calib = new CalibrationConfig
-        {
-            PixelPerMillimeter = recipe.Calibration.PixelPerMillimeter,
-            DesignedDiameterMm = recipe.Calibration.DesignedDiameterMm,
-            DimensionToleranceMm = recipe.Calibration.DimensionToleranceMm
-        };
-        services.AddSingleton(calib);
         services.AddSingleton(recipe);
 
-        var calibration = new Calibration();
-        calibration.SetConfig(calib);
-        services.AddSingleton(calibration);
+        services.AddSingleton<IInspectionEngine>(sp => InspectionEngineFactory.Create(
+            recipe,
+            appPaths.AssetRoot,
+            sp.GetService<ILoggerFactory>()));
 
-        var toolFactory = new ToolFactory(calibration, recipe,
-            appPaths.TemplatePath);
-        var tools = toolFactory.CreateAll();
+        return services;
+    }
 
-        services.AddSingleton<Pipeline>(sp => new Pipeline(tools,
-            sp.GetService<ILogger<Pipeline>>()));
+    /// <summary>
+    /// 注册 VM 结果链路（TCP 中转）。
+    ///
+    /// 只在配方引擎是 Vm、且 appsettings 里 VmLink:Enabled=true 时才真正 Start() ——
+    /// 见 <see cref="Composition.AppHost.InitializeAsync"/>。注册本身无副作用（不占端口）。
+    /// </summary>
+    public static IServiceCollection AddVmLink(this IServiceCollection services, AppOptions options)
+    {
+        services.AddSingleton(sp => new VmInspectionDriver(
+            options.VmLink.BindAddress,
+            options.VmLink.Port,
+            sp.GetRequiredService<IInspectionWorkflow>(),
+            sp.GetRequiredService<RecipeConfig>().Vm.Outputs,
+            sp.GetRequiredService<ILogger<VmInspectionDriver>>(),
+            sp.GetService<ILoggerFactory>()));
 
         return services;
     }
@@ -148,8 +158,8 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<DeviceManager>(),
                 appPaths.DbPath,
                 appPaths.StorageFolder,
-                appPaths.TemplatePath,
-                recipe);
+                recipe,
+                appPaths.AssetRoot);
         });
 
         // 管家服务 2026-10-19 迁入 Service 层（VisionStation.Service.Housekeeping）——
@@ -190,8 +200,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<LogPanelViewModel>();
         services.AddSingleton<ControlPanelViewModel>();
         services.AddSingleton<StatusBarViewModel>();
-        services.AddSingleton<CoordinateMapper>();
-        services.AddSingleton<RoiEditorViewModel>();
+        services.AddSingleton<TopBarViewModel>();
 
         // UI 线程的同步上下文 —— 整条检测链路只有这一个"回到 UI 线程"的接缝。
         // 由组合根在 UI 线程上捕获：页面 VM 的工作是把触发排进这个上下文，

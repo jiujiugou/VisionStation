@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Messaging;
@@ -53,10 +54,66 @@ public partial class ResultPanelViewModel : ObservableObject
     [ObservableProperty]
     private bool _isOk;
 
+    // ═══════════════════════════════════════════════════════════
+    //  运行指标（2026-10-24 加入）
+    //
+    //  归本面板自己记账，不去问 StatusBarViewModel 要 ——
+    //  状态栏那三个数是"整机吞吐"，这里是"这一屏看过的判定"，
+    //  两者口径不同，共用一个来源迟早对不上。
+    // ═══════════════════════════════════════════════════════════
+
+    /// <summary>本次运行累计判定数</summary>
+    [ObservableProperty]
+    private int _totalCount;
+
+    /// <summary>本次运行累计 NG 数</summary>
+    [ObservableProperty]
+    private int _ngCount;
+
+    /// <summary>良率（百分比字符串；无判定时为 "--"）</summary>
+    [ObservableProperty]
+    private string _okRateText = "--";
+
+    /// <summary>判定不合格时的原因摘要（取第一个不合格项的名字）</summary>
+    [ObservableProperty]
+    private string _verdictSubText = "";
+
+    /// <summary>最近一条需要人处理的告警（来自 LogMessage 的 Warning / Error）</summary>
+    [ObservableProperty]
+    private string _recentIssueText = "";
+
+    /// <summary>是否有未处理的告警（控制告警卡的显隐）</summary>
+    [ObservableProperty]
+    private bool _hasIssue;
+
+    /// <summary>最近一帧的单帧耗时（含采集、检测、存图）</summary>
+    [ObservableProperty]
+    private string _lastCycleText = "--";
+
+    /// <summary>
+    /// 是否已经收到过至少一帧判定。
+    ///
+    /// 没有它的话，界面刚启动时 <see cref="IsOk"/> 是 false，会显示成一个大红 NG ——
+    /// "还没检测"被画成"检测不合格"，是产线上最不能接受的一类误导。
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasVerdict;
+
     public ResultPanelViewModel()
     {
         WeakReferenceMessenger.Default.Register<ResultPanelViewModel, InspectionResultMessage>(this,
             static (vm, msg) => vm.Apply(msg.Value));
+
+        // 告警卡只收 Warning / Error —— Info 和 Success 是流水账，堆在判定旁边会淹没真问题。
+        // 这是"报警分级"里最粗的一刀：需要人处理的才上图。
+        WeakReferenceMessenger.Default.Register<ResultPanelViewModel, LogMessage>(this,
+            static (vm, msg) =>
+            {
+                if (msg.Value.Level is not (LogMsgLevel.Warning or LogMsgLevel.Error)) return;
+
+                vm.RecentIssueText = $"{DateTime.Now:HH:mm}  {msg.Value.Text}";
+                vm.HasIssue = true;
+            });
     }
 
     /// <summary>把一帧报告摊平成表格行。调用方保证在 UI 线程上（消息由页面 VM 在 UI 线程发出）。</summary>
@@ -64,8 +121,9 @@ public partial class ResultPanelViewModel : ObservableObject
     {
         var report = result.Report;
 
-        TimestampText = report.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        TimestampText = report.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
         TriggerInfoText = $"触发: {report.TriggerSource}";
+        LastCycleText = $"{result.CycleMs} ms";
 
         Rows.Clear();
         foreach (var (toolName, tool) in report.Results)
@@ -80,6 +138,22 @@ public partial class ResultPanelViewModel : ObservableObject
 
         VerdictText = report.OverallVerdict;
         IsOk = report.IsOk;
+        HasVerdict = true;
+
+        // 指标：谁显示谁记账。只统计"这一屏真的收到过的判定"，
+        // 不冒充"今日产量" —— 那个数在数据库里，得按班次查，不能靠内存计数凑。
+        TotalCount++;
+        if (!report.IsOk) NgCount++;
+
+        OkRateText = TotalCount > 0
+            ? $"{100.0 * (TotalCount - NgCount) / TotalCount:0.0}%"
+            : "--";
+
+        // 判 NG 时把"为什么"写在判定下面：操作员看到大字是 NG，
+        // 紧接着要知道是哪一项出的问题，不该再低头到表格里逐行找红标。
+        VerdictSubText = report.IsOk
+            ? "全部检测项合格"
+            : Rows.FirstOrDefault(row => !row.IsOk)?.Item ?? "存在不合格项";
     }
 }
 

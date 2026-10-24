@@ -20,7 +20,22 @@ public class InspectionRecord
     [MaxLength(500)]
     public string ImagePath { get; set; } = string.Empty;
 
-    // 有无检测
+    /// <summary>
+    /// 产出这条记录的引擎（"VisionMaster" / "OnnxYolo"）。
+    ///
+    /// 为什么单独存一列：换引擎之后最常被问的一句话是
+    /// "这批料的判定是哪个引擎出的、换引擎前后有没有漂"。
+    /// 只写日志答不了这个问题，日志会被管家清掉，而记录要留 30 天。
+    /// </summary>
+    [MaxLength(40)]
+    public string EngineName { get; set; } = string.Empty;
+
+    // ── 以下三组是「定位 / 测量 / 缺陷」的投影列，沿用旧列名 ──
+    // 旧列名（Presence/Dimension/Defect）来自自研工具链时代，改名要重建表，
+    // 而完整结论本来就在 ToolResultsJson 里 —— 不值得为改名做一次迁移。
+    // 现在按 ToolResult.Role 投影：Presence* ← Locate，Dimension* ← Measure，Defect* ← Defect。
+
+    // 定位 / 有无
     public bool PresenceOk { get; set; }
     public string PresenceDetail { get; set; } = string.Empty;
     public double PresenceScore { get; set; }

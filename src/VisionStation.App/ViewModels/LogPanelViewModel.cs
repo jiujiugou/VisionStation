@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -78,7 +79,7 @@ public partial class LogPanelViewModel : ObservableObject
     {
         _pending.Enqueue(new LogEntry
         {
-            Timestamp = DateTime.Now.ToString("HH:mm:ss"),
+            Timestamp = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
             Message = text,
             Level = level
         });

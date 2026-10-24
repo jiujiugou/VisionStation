@@ -1,12 +1,12 @@
 using System.Diagnostics;
+using System.Windows.Media.Imaging;
 using System.IO;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.Logging;
 using OpenCvSharp;
 using VisionStation.App.Services.Imaging;
-using VisionStation.Core;
+using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
 using VisionStation.Devices;
 using VisionStation.Storage;
 
@@ -14,23 +14,19 @@ namespace VisionStation.App.Services.Inspection;
 
 /// <summary>
 /// 检测链路本体：采图 → 检测 → 标注 → 存图 → 存库。
-/// 从 <c>MainViewModel</c> 搬出来（S4a），除了日志不碰任何界面对象。
+///
+/// 与改造前的区别只有一处，但很关键：**它不再知道检测是怎么做的**。
+/// 采图归 ICamera，判定归 <see cref="IInspectionEngine"/>（VM 流程或 ONNX），
+/// 本类只负责把三者串起来，并保证"每一帧的失败都能被看见"。
 /// </summary>
 public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 {
     private readonly ICamera _camera;
-    private readonly Pipeline _pipeline;
+    private readonly IInspectionEngine _engine;
     private readonly IInspectionRepository _repo;
     private readonly ImageStoreService _imageStore;
-    private readonly CalibrationConfig _calib;
     private readonly RecipeConfig _recipe;
     private readonly ILogger<InspectionWorkflow> _logger;
-
-    /// <summary>
-    /// 当前 ROI 列表。整体替换而不是原地改：后台线程在跑帧时读的是自己那份快照，
-    /// 编辑器保存时只换引用，两边不会同时写同一个 List。
-    /// </summary>
-    private List<RoiRegion> _rois;
 
     /// <summary>
     /// 连续存图失败次数。成功一次即清零。
@@ -50,43 +46,35 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
     public InspectionWorkflow(
         ICamera camera,
-        Pipeline pipeline,
+        IInspectionEngine engine,
         IInspectionRepository repo,
         ImageStoreService imageStore,
-        CalibrationConfig calib,
         RecipeConfig recipe,
         ILogger<InspectionWorkflow> logger)
     {
         _camera = camera;
-        _pipeline = pipeline;
+        _engine = engine;
         _repo = repo;
         _imageStore = imageStore;
-        _calib = calib;
         _recipe = recipe;
         _logger = logger;
-        _rois = ReadRoisFromRecipe();
-
-        // ROI 编辑器保存后重新读配方
-        WeakReferenceMessenger.Default.Register<InspectionWorkflow, RoisUpdatedMessage>(this,
-            (wf, _) =>
-            {
-                wf._rois = wf.ReadRoisFromRecipe();
-                wf._logger.LogInformation("ROIs 已重新加载，当前 {Count} 个区域", wf._rois.Count);
-            });
     }
 
-    private List<RoiRegion> ReadRoisFromRecipe() => _recipe.Rois.Select(d => new RoiRegion
-    {
-        Name = d.Name,
-        X = d.X,
-        Y = d.Y,
-        Width = d.Width,
-        Height = d.Height
-    }).ToList();
+    /// <summary>当前使用的引擎名（状态栏/日志用）</summary>
+    public string EngineName => _engine.Name;
 
     public Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct)
     {
-        // 整段丢到线程池：采图（SDK 阻塞）、Pipeline（CPU 密集）、存图（文件 IO）、
+        // 推驱动引擎（VM 模式）不响应主动检测。自动循环照旧会按节拍调到这里，
+        // 必须**当场返回 null 且不入库** —— 否则每 2 秒一条"VM 模式不支持主动检测"的假 NG，
+        // 良率统计会被直接污染。
+        if (_engine is IPushDrivenEngine)
+        {
+            _logger.LogDebug("[引擎] {Engine} 由外部推送驱动，跳过本次主动检测", _engine.Name);
+            return Task.FromResult<InspectionRunResult?>(null);
+        }
+
+        // 整段丢到线程池：采图（SDK 阻塞）、检测（CPU 密集）、存图（文件 IO）、
         // 存库（EF 同步段）都没有让出点，留在调用线程上 await 一样会卡死 UI。
         // 传 CancellationToken.None 给 Task.Run：取消由方法内部处理，
         // 避免"任务还没开始就被取消"和"跑到一半被取消"两种语义混在一起。
@@ -111,14 +99,11 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
             frame = frameImage;
 
-            // ROI 取一次快照：编辑器可能在下一行之后换掉引用
-            var rois = _rois;
-
             _logger.LogInformation("[采图尺寸] 原始图像: {W}x{H} px, 通道数:{C}, 文件:{F}",
                 frame.Image.Width, frame.Image.Height, frame.Image.Channels(),
                 Path.GetFileName(frame.FilePath));
 
-            // 配方与画面尺寸不匹配 = 这帧的所有结论都不可信（ROI 框在零件外、标定比例算错），
+            // 配方与画面尺寸不匹配 = 这帧的所有结论都不可信（流程里的 ROI 在零件外、标定比例算错），
             // 必须拒绝，不能"照跑不误然后报 NG"——那会让现场以为是产品不良而不是配置错了。
             var mismatch = _recipe.CheckSensor(frame.Image.Width, frame.Image.Height);
             if (mismatch is not null)
@@ -129,7 +114,19 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
             var original = MatBitmap.ToBitmapSource(frame.Image);
 
-            var report = _pipeline.Run(frame.Image, rois, _calib, "Manual", frame.FilePath);
+            var report = _engine.Inspect(new InspectionRequest
+            {
+                Image = frame.Image,
+                TriggerSource = "Manual",
+                ImagePath = frame.FilePath
+            });
+
+            // 引擎把失败也表达成 NG 报告（而不是抛异常），所以"报告里没有可判定的项"
+            // 就等于"这一件没检出来"。必须显式说出来，不能让它无声无息地进库。
+            if (report.Results.Count == 0)
+                _logger.LogError("[引擎] {Engine} 未给出任何结论，本帧按 NG 处理", _engine.Name);
+            else if (report.Results.TryGetValue(ResultKeys.Engine, out var engineFailure))
+                _logger.LogError("[引擎] {Engine}: {Reason}", _engine.Name, engineFailure.Summary);
 
             using var annotatedMat = frame.Image.Clone();
             DrawAnnotations(report, annotatedMat);
@@ -152,8 +149,9 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
             await _repo.SaveAsync(report).ConfigureAwait(false);
 
-            _logger.LogInformation("判定:{V} 文件:{F} 耗时:{Ms}ms",
-                report.OverallVerdict, Path.GetFileName(frame.FilePath), sw.ElapsedMilliseconds);
+            _logger.LogInformation("判定:{V} 引擎:{E} 文件:{F} 耗时:{Ms}ms",
+                report.OverallVerdict, report.Engine,
+                Path.GetFileName(frame.FilePath), sw.ElapsedMilliseconds);
 
             return new InspectionRunResult(
                 report,
@@ -174,7 +172,90 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         }
     }
 
-    /// <summary>在图上叠加 ROI 框、圆、缺陷轮廓、判定水印。</summary>
+    /// <summary>
+    /// VM 推来一帧结果：把图读出来做显示与标注，结论原样入库。
+    ///
+    /// 这里**不存图**：VM 已经把图存在自己的输出目录了，上位机再存一份就是两份真相，
+    /// 而且会白白吃掉磁盘。报告里的 <c>ImagePath</c> 直接指向 VM 那一边的文件。
+    ///
+    /// **不重新判定**：报告里的 OK/NG 全部来自 VM，本方法一个字都不改。
+    /// </summary>
+    public Task<InspectionRunResult?> AcceptExternalAsync(InspectionReport report, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        return Task.Run(() => AcceptExternalCoreAsync(report, ct), CancellationToken.None);
+    }
+
+    private async Task<InspectionRunResult?> AcceptExternalCoreAsync(InspectionReport report, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+
+        ct.ThrowIfCancellationRequested();
+
+        BitmapSource? original = null;
+        BitmapSource? annotated = null;
+        var imageAvailable = false;
+
+        var path = report.ImagePath;
+        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+        {
+            try
+            {
+                using var mat = Cv2.ImRead(path, ImreadModes.Color);
+                if (!mat.Empty())
+                {
+                    original = MatBitmap.ToBitmapSource(mat);
+
+                    using var overlay = mat.Clone();
+                    DrawAnnotations(report, overlay);
+                    annotated = MatBitmap.ToBitmapSource(overlay);
+
+                    imageAvailable = true;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or OpenCVException or UnauthorizedAccessException)
+            {
+                // 图画不出来不该影响判定入库 —— 结论已经定了，少一张图是次要问题
+                _logger.LogWarning(ex, "[VM] 读取 VM 图像失败：{Path}", path);
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(path))
+        {
+            _logger.LogWarning("[VM] VM 报告里的图像路径不存在：{Path}", path);
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        await _repo.SaveAsync(report).ConfigureAwait(false);
+
+        if (report.Results.Count == 0)
+            _logger.LogError("[VM] 未给出任何结论，本帧按 NG 处理");
+        else if (report.Results.TryGetValue(ResultKeys.Engine, out var engineFailure))
+            _logger.LogError("[VM] {Reason}", engineFailure.Summary);
+
+        _logger.LogInformation("判定:{V} 引擎:{E} 来源:VM推送 耗时:{Ms}ms",
+            report.OverallVerdict, report.Engine, sw.ElapsedMilliseconds);
+
+        // ConsecutiveImageFailures 恒为 0：VM 模式不存图，没有"连续存图失败"这回事。
+        // CameraOnline 表示 VM 链路是否在跑 —— 界面上的相机状态位复用它。
+        return new InspectionRunResult(
+            report,
+            original,
+            annotated,
+            sw.ElapsedMilliseconds,
+            imageAvailable,
+            null,
+            0,
+            true);
+    }
+
+    /// <summary>
+    /// 在图上叠加引擎给出的标注与判定水印。
+    ///
+    /// 引擎只声明"画什么"（DrawRect / DrawCircle / DrawContour），
+    /// 具体怎么画留在这里 —— 换引擎时标注不用重写。
+    /// </summary>
     private static void DrawAnnotations(InspectionReport report, Mat img)
     {
         foreach (var (_, result) in report.Results)

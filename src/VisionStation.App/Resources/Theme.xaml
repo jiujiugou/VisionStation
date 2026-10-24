@@ -42,6 +42,26 @@
     <SolidColorBrush x:Key="SidebarBg"     Color="#2C2C2C" />
     <SolidColorBrush x:Key="SidebarHover"  Color="#3A3A3A" />
 
+    <!-- 顶栏（2026-10-24 运行模式改造）-->
+    <SolidColorBrush x:Key="TopBarBg"     Color="#FFFFFF" />
+    <SolidColorBrush x:Key="TopBarBorder" Color="#E1E1E1" />
+
+    <!--
+        图像检视底 —— 故意用深色。
+        工业视觉惯例：暗底能压掉屏幕和车间的环境反光，缺陷与背景的对比度比浅底高一档。
+        这不是"暗色主题"，是检视区专用的画布色，界面其余部分仍是浅色。
+    -->
+    <SolidColorBrush x:Key="ImageCanvasBg" Color="#2C2C2A" />
+    <SolidColorBrush x:Key="ImageCanvasFg" Color="#D3D1C7" />
+
+    <!-- 告警色：需要人处理但不停机，故介于 OK 与 NG 之间 -->
+    <SolidColorBrush x:Key="Warn"       Color="#854F0B" />
+    <SolidColorBrush x:Key="WarnBg"     Color="#FFF4CE" />
+    <SolidColorBrush x:Key="WarnBorder" Color="#F0C36D" />
+
+    <!-- 指标卡底 -->
+    <SolidColorBrush x:Key="MetricBg" Color="#F6F7F8" />
+
     <!-- 覆盖层与标注 -->
     <SolidColorBrush x:Key="ScrimBg"          Color="#BB000000" />
     <SolidColorBrush x:Key="OverlayTextBg"    Color="#DDFFFFFF" />

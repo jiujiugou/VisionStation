@@ -646,3 +646,129 @@ L3（临时副本 + File 相机，带一次性的可视化树导出，验完已�
 
 - 下一步：WPF 改造 S1~S6 全部完成。后续候选（未排期）：设置窗口（`usersettings.json`，只放改完立即生效的项）、
   转换器配色样式化、日志双轨合并（W-13）。
+
+### S7（2026-10-22）：侧边栏导航（DONE）
+
+**缺陷（实测，不是推断）**
+
+两个 `ListBox`（上/下部导航）共享同一个 `SelectedItem` 双向绑定。用真 WPF 复现：把两块 ListBox
+绑到同一属性，点下半部『相机』后，上半部『检测』的 `SelectedItem` 仍是『检测』——
+两块列表各自记住自己的选中项、互不清除，于是**同时亮两个图标**，操作员判断不出当前页。
+这不是把绑定写错，是"选中"这个状态本就不该由控件拥有。
+
+配套的八个图标里只有两个有页面（`NavigationService` 只注册检测/相机），其余六个点了
+只走 `_revertingSelection` 撤回分支 —— 摆出来就是六个假按钮。
+
+**做法**
+
+- 导航项从"列表选中"改成"按钮 + `NavItem.IsActive`"。视图不再持有"当前选中谁"，
+  高亮单向来自 `INavigationService.CurrentRoute`（导航服务是唯一真相源，
+  将来快捷键/外部触发换页，侧边栏也自动跟随）。
+- `_revertingSelection` 防回环标志及其守护的整段退回逻辑删除，`SidebarViewModel.SelectedNavItem` 移除。
+- 未实现的六个页签（参数/配方/历史/PLC/日志/系统）从侧边栏删除，等页面做出来再加。
+- `NavItem.Route` 与 `NavItem.Label` 拆开：原先用中文 Label 当路由 key，改文案就会断导航。
+- 导航按钮补 `AutomationProperties.Name`（模板里只有一个 `Path`，默认算不出可读名）。
+
+**验证**
+
+- `ci.cmd` 退出码 0；UnitTests 237 + App.Tests 84 = **321**，0 失败；告警 92 与基线持平。
+- L3 走查（`dotnet` 直启 exe + UIA 真点击，非模拟）：启动时『检测』蓝、『相机』灰；
+  点『相机』后『检测』转灰、『相机』转蓝、页面切走；点回『检测』后还原。三个状态各截图核对，
+  **任一时刻只有一个图标高亮**。
+- 关窗用不带 `/F` 的 `taskkill`，进程正常退出、无残留。
+
+**测试改动（如实记录）**
+
+`SidebarViewModelTests` 随契约重写：`SelectingUnimplementedPage_RevertsSelectionAndKeepsActivePage`
+的前提（界面上有假页签）已被删除，改为 `EveryNavItem_NavigatesToAnImplementedRoute` ——
+它会拦住"再往侧边栏塞一个点不动的图标"，比原用例更严。另加 `Single(IsActive)` 断言锁住"只亮一个"。
+
+**已知残留**
+
+- 走查时自检报「设备连接」异常（海康 `-2147483133`，强杀进程后的锁死态），与本次改动无关；
+  相机页在设备打不开时是空白，没有"设备不可用"提示 —— 属独立问题，未处理。
+- 侧边栏仍是 52px 纯图标 + ToolTip，没有文字标签。是否加宽到带文字属版面决策，待定。
+- 自动运行时的整条侧边栏暗化（`design-mockup.html` 的 `.sidebar.dimmed`）仍只实现了中间那颗指示灯，
+  背景/图标变色未做。
+
+
+---
+
+## S8 · 2026-10-23 检测引擎改造（架构层，含界面清理）
+
+**改了什么**
+
+自研算法工具链下线，判定交给引擎：`IInspectionEngine` 两个实现（VisionMaster 流程 / ONNX）。
+新增两个工程 `VisionStation.Engines.Onnx`、`VisionStation.Engines.Vm`；删除 `Pipeline`/`IVisionTool`/
+三个工具/`Calibration`/`CoordinateMath`/`RoiRegion`/`CalibrationConfig`/`ToolFactory`/ROI 编辑器与坐标封装，
+共 11 个源文件；`tests/VisionStation.Test`（旧冒烟工程，测的是被删的 Pipeline）整体移除。
+
+界面侧的连带改动（属本规范管辖范围）：
+- 删除 ROI 编辑覆盖层（`InspectionPageView.xaml` 的双 ContentControl 互斥 + `IsImagePanelVisible`）。
+- 删除窗口级 F2 快捷键与 `ShellViewModel.ToggleRoiEditor`、`InspectionPageViewModel.ExitEditMode`。
+- 图像面板页签 4 → 2：`ROI` / `边缘` 两个页签从来没有独立图像源，点开显示的还是原图（与侧边栏那 6 个死图标同类问题）。
+- 删除 `Messages.RoisUpdatedMessage`。
+
+**验证**
+
+- `ci.cmd` 退出码 0；UnitTests 143 + App.Tests 75 = **218**，0 失败；告警 92 → **81**，棘轮基线下调。
+- 黄金样本库重跑：**判定完全一致，误报框数量无变化**（104/105 命中、错分 0、跨类误报 14），退出码 0。
+- L3 走查（PrintWindow 抓窗口自身内容 + UIA 真点击）：
+  1. 启动后自检五项全绿，其中 `检测引擎: Onnx · neu-det.onnx`、`配方文件: … · Onnx`；
+  2. 点『开始检测』→ 图像区出现 YOLO 框与 `NG` 水印，结果面板 `缺陷 NG / 检出缺陷 2 处`，日志面板两条 NG 记录，
+     状态栏 `FPS 0.4 / Cycle 662ms`（首帧含模型加载 2.9s）；
+  3. 侧边栏仍只有『检测』『相机』两个入口，切到相机页再切回，页面与高亮正常；
+  4. UIA 文本快照确认：`ROI` 页签不存在、`边缘` 页签不存在，`原图`/`检测` 存在。
+- 关窗用不带 `/F` 的 `taskkill`，日志显示 5 段关闭流程全部完成（stop/cancel/在途收尾/释放容器/刷日志，共 844ms）。
+
+**走查中临时改过的配置（已还原）**
+
+虚拟相机处于被独占状态（`0x80000203`，上次强杀进程所致），为出帧把 `Camera:Mode` 临时改为 `File`，
+并把激活配方 `default-2448.json` 的 `sensor` 临时改成 300×300（`TestImages` 是 300×300）。
+两处均已还原为 `Hikvision` / `2448×2048`。
+
+**已知残留（新）**
+
+- ONNX 引擎对垫圈图会误报（NEU-DET 是钢材表面数据，样本 01_good.jpg 被判 NG，两处 scratch）。
+  属模型与场景不匹配，链路本身正常；要上生产必须用本产品缺陷样本重训。
+- VM 引擎只完成"编译通过 + 失败路径可解释"，**运行未验证**：缺一份可用的 `.sol` 与覆盖 SDK 二次开发的 License。
+
+---
+
+## S9 · 2026-10-23 调试期两块手工活自动化（调流程不再重启、映射表不再手抄）
+
+**为什么要做**：调 `.sol` 是二次开发的日常 —— 改一个公差、存盘、回程序看效果。
+没有重载时每改一次要关程序重开（要跑完自检与设备初始化）；`vm.outputs` 要手抄模块名，
+抄错一个字符的后果是"找不到模块「圆查找1」"，而且要到第一帧才报。
+
+**改了什么**
+
+| 项 | 内容 |
+|---|---|
+| `IInspectionEngine.Reload()` | 新增契约。VM 实现 = 释放后立刻重载一次（不是"标记脏等下一帧"，调流程的人要当场知道能不能加载）；ONNX 实现 = 先建新推理器、成功才换旧 |
+| `IOutputScanner` | **可选**接口，只有 VM 引擎实现。按配方里已声明的模块名核对"这个名字对不对、这个模块有哪些输出" |
+| 控制面板按钮 | 底排 3 个 → 2×2 四个：重新连接 / **重载流程** / **扫描输出** / 清空 |
+| 删除 `SaveImage` | 它只发一条日志，什么都不做 —— 与侧边栏那 6 个死图标同一类问题 |
+
+**为什么扫描不做"列出全部模块"**：SDK 的 `GetAllModuleList` 返回 `ModuleInfoList`
+（`nNum` + `ModuInfo[]`），而 `ModuInfo` 只有 `nModuleID` / `nProcessID`，**没有模块名**。
+拿不到名字就没法写进配方。改为用配方里已有的模块名去核对，反而正是要解决的问题。
+可用的入口是 `VmModule.Outputs`（`VmIOCollection`，实现 `IList<VmIO>`，可直接枚举）。
+
+**验证**
+
+- `ci.cmd` 退出码 0；UnitTests 143 + App.Tests 80 = **223**，0 失败；告警 81 → **78**。
+- 新增 6 项用例：重载停触发并退出自动模式、重载失败不抛、不支持扫描的引擎不崩、
+  扫描把配方模块名传给引擎、扫描 json 的 ioKind 推断、ioKind 圆的输出不能被当成 Float。
+- L3 走查两个分支（截图：`rl-2-scan.png` / `rl-3-vm-reload-fail.png`）：
+  1. **ONNX 引擎**点“扫描输出” → 日志 Warning：`当前引擎（OnnxYolo）没有可扫描的模块输出，此功能只对 VM 流程有效`；
+  2. **VM 引擎 + .sol 缺失** → 启动自检即报 `检测引擎: VM 流程文件不存在`（状态栏“自检 1 项异常”），
+     点重载 → Error：`引擎重载失败：VM 流程文件不存在：…\Config\solutions\washer-2448.sol（在 VisionMaster 里搭好流程并另存为 .sol）`。
+     原因、绝对路径、下一步动作三样都在，不需要查代码。
+- 走查期间临时把激活配方 `default-2448.json` 的 `engine` 改成 `Vm`，**已还原为 `Onnx`**。
+- 关窗用不带 `/F` 的 `taskkill`；顺带确认虚拟相机锁已释放（`OpenDevice=0`），可直接启动。
+
+**已知残留**
+
+- `Scan` 的“模块存在且能枚举输出”这一条**仍未在真实 `.sol` 上验证**（当前没有 .sol）。
+  已验证的是它的失败路径（文件不存在、引擎不支持）与 6 项纯逻辑用例。

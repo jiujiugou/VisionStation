@@ -1,8 +1,10 @@
 namespace VisionStation.App.Views;
 
 /// <summary>
-/// 侧边栏视图。**没有 code-behind 逻辑**：导航就是"列表选中了谁"，
-/// 选中项 TwoWay 绑到 <c>SelectedNavItem</c>，点未实现的页面时 VM 会把选中项退回去。
+/// 侧边栏视图。**没有 code-behind 逻辑**。
+///
+/// 导航 = 按钮命令，高亮 = <c>NavItem.IsActive</c>（由 VM 从当前路由单向同步）。
+/// 视图不持有"当前选中谁"这个状态 —— 那是导航服务的职责。
 /// </summary>
 public partial class SidebarView
 {

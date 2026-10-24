@@ -5,30 +5,36 @@
         Height="760" Width="1320" MinHeight="550" MinWidth="1000"
         Background="{StaticResource Bg}" WindowStartupLocation="CenterScreen">
 
-    <Window.InputBindings>
-        <!-- F2 挂在窗口上而不是页面里：快捷键要跟窗口走。
-             焦点在侧边栏时，页面上的 InputBinding 收不到按键。 -->
-        <KeyBinding Key="F2" Command="{Binding ToggleRoiEditorCommand}" />
-    </Window.InputBindings>
-
+    <!-- 版面：顶栏横跨全宽，其下才是侧边栏 + 内容 + 状态栏。
+         顶栏之所以放在侧边栏外面，是因为侧边栏会随模式收起/展开，
+         而"配方、相机、PLC 在不在"这些信息不该跟着一起藏起来。 -->
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-        <ContentControl Grid.Column="0" Content="{Binding Sidebar}" />
+        <ContentControl Grid.Row="0" Content="{Binding TopBar}" />
 
-        <Grid Grid.Column="1" Margin="6">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
 
-            <!-- 工作区：内容由导航决定，窗口不认识任何页面 -->
-            <ContentControl Grid.Row="0" Content="{Binding CurrentPage}" />
+            <ContentControl Grid.Column="0" Content="{Binding Sidebar}" />
 
-            <ContentControl Grid.Row="1" Margin="0,4,0,0" Content="{Binding StatusBar}" />
+            <Grid Grid.Column="1" Margin="6">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 工作区：内容由导航决定，窗口不认识任何页面 -->
+                <ContentControl Grid.Row="0" Content="{Binding CurrentPage}" />
+
+                <ContentControl Grid.Row="1" Margin="0,4,0,0" Content="{Binding StatusBar}" />
+            </Grid>
         </Grid>
     </Grid>
 </Window>

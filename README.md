@@ -1,124 +1,142 @@
 # VisionStation — 金属零件视觉检测工作站
 
-WPF 桌面工业视觉检测软件。支持采图 → ROI 区域设定 → 多工具检测 Pipeline → 结果存储的完整链路。
+WPF 桌面工业视觉检测软件。采图 → 检测引擎判定 → 标注 → 存库/存图 的完整链路，**引擎可换**：
+生产用海康 VisionMaster 独立跑流程、经 TCP 把判定推给本程序；没有平台时用内置 ONNX 缺陷检测引擎。
+
+> 2026-10 架构调整：自研算法工具链（模板匹配 / 霍夫圆 / Blob）已下线，
+> 判定逻辑交给视觉平台（VM）或深度学习模型（ONNX），本项目专注"外壳 + 集成 + 追溯"。
+> 原因与取舍见 [docs/引擎集成-说明.md](docs/引擎集成-说明.md)；旧实现的回归数据见"黄金样本库"一节。
 
 ---
 
 ## 架构
 
 ```
-VisionStation.sln
+VisionStation.slnx
 │
-├── VisionStation.App/          WPF 桌面应用（MVVM + Messenger）
-│   ├── Views/                  界面（ImagePanel / ResultPanel / LogPanel / ControlPanel / StatusBar）
-│   ├── ViewModels/             9 个 ViewModel，Messenger 解耦
-│   ├── Services/
-│   │   ├── DeviceManager.cs    设备管理器（IDevice 集合）
-│   │   ├── HealthChecker.cs    启动自检（相机/数据库/存储/模板/配方）
-│   │   └── Coordinates/
-│   │       ├── CoordinateMapper.cs    屏幕 ↔ 图像双向换算
-│   │       ├── ScreenCoordinate.cs    屏幕坐标（dp）
-│   │       └── ImageCoordinate.cs     图像坐标（px）
-│   ├── Converters/             值转换器
-│   ├── Messages.cs             6 种 Messenger 消息类型
-│   └── Config/recipes/         配方文件
+├── VisionStation.Core/            契约与数据（无 IO、无 WPF、无算法实现）
+│   ├── Engines/
+│   │   ├── IInspectionEngine.cs   检测引擎唯一抽象
+│   │   └── InspectionRequest.cs   一次检测的输入（图 + 触发来源 + 图路径）
+│   └── Models/
+│       ├── InspectionReport.cs    一次检测的结论（可入库/可追溯，带 Engine 字段）
+│       ├── ToolResult.cs          单项结论 + DrawCommand 标注指令
+│       ├── ResultKeys.cs          Locate / Measure / Defect 三个结果角色
+│       └── RecipeConfig.cs        配方（sensor + engine + vm/onnx 参数）
 │
-├── VisionStation.Core/         纯算法，零 UI 依赖
-│   ├── Tools/
-│   │   ├── IVisionTool.cs      检测工具统一接口
-│   │   ├── ToolResult.cs       统一产出 + DrawCommand 标注指令
-│   │   ├── PresenceTool.cs     模板匹配
-│   │   ├── DimensionTool.cs    霍夫圆 + 尺寸测量
-│   │   └── DefectTool.cs       Blob 缺陷检测
-│   ├── Pipeline.cs             工具链编排器
-│   ├── Calibration.cs          px↔mm 换算
-│   └── Models/                 数据模型（RecipeConfig / InspectionReport / RoiRegion）
+├── VisionStation.Engines.Onnx/    ONNX YOLO 缺陷检测引擎
+│   ├── YoloDetector.cs            纯推理：图 → 框（letterbox / 按类 NMS）
+│   └── OnnxInspectionEngine.cs    框 → 报告（判定、摘要、标注）
 │
-├── VisionStation.Devices/      硬件抽象层
-│   ├── IDevice.cs              设备统一接口
-│   ├── ICamera.cs              相机接口
-│   ├── ITriggerSource.cs       触发源接口
-│   ├── CameraDevice / TriggerDevice   设备包装器
-│   └── Camera/                 实现（FileCamera / WebcamCamera / HikCamera）
+├── VisionStation.Engines.Vm/      VM 结果解析（TCP 中转，不引用 SDK）
+│   ├── VmInspectionEngine.cs      VmSolution → VmProcedure → 模块 IO 取结果
+│   └── VmResultMapper.cs          读数 → 报告（纯逻辑，可单测）
 │
-├── VisionStation.Storage/      数据持久化
-│   ├── InspectionDbContext.cs  EF Core + SQLite
-│   ├── InspectionRepository.cs 数据访问层
-│   └── ImageStoreService.cs    图片存储（全存/仅NG/抽样）
-│
-└── VisionStation.Test/         端到端测试（合成图生成 + 全链路验证）
+├── VisionStation.Devices/         硬件抽象：相机（Hik / File / Webcam）、PLC、触发源
+├── VisionStation.Storage/         EF Core + SQLite 记录、图片存储
+├── VisionStation.Service/         启动自检、管家（清理）、配方存储
+├── VisionStation.App/             WPF 组合根（MVVM + Messenger）
+│   ├── Services/Inspection/       InspectionWorkflow（采图→引擎→存图→存库）
+│   │                              InspectionEngineFactory（按配方选引擎，全系统唯一决策点）
+│   └── Config/recipes/            配方文件（含 .active 指针）
+└── VisionStation.Watchdog/        独立守护进程
 
-tools/GoldenSetRunner/          黄金样本库跑批器（回归验证，独立控制台程序）
-tests/GoldenSet/                数据集清单 + 基线快照
+tools/GoldenSetRunner/             黄金样本库跑批器（回归门禁）
+tests/GoldenSet/                   数据集清单 + 基线快照
 ```
 
-## 关键抽象（面试重点）
+**依赖方向单向**：`Core ← Engines.{Onnx,Vm} ← App`，`Core ← Devices ← Storage ← Service ← App`。
+Core 不知道任何具体引擎，引擎不知道界面与数据库。
+
+## 关键抽象
 
 ```
-ICamera                        3 个实现  File / Webcam / Hik
-ITriggerSource                 2 个实现  Manual / Timer
-IVisionTool                    3 个实现  Presence / Dimension / Defect
-IDevice                        2 个实现  Camera / Trigger
-CoordinateMapper               1 个单例  屏幕 ↔ 图像 ↔ 世界
+IInspectionEngine      2 个实现   VM 推送结果 / ONNX 缺陷检测   ← 真实替换点，由配方选择
+ICamera                3 个实现   File / Webcam / Hikvision
+ITriggerSource         2 个实现   Timer / PLC（Modbus TCP）
+IDevice                2 个实现   Camera / Trigger
+IInspectionRepository  1 个实现   SQLite（管家清理线程与检测线程共用，故按操作建 context）
 ```
 
-每个抽象遵循同一模式：**接口定义在 Core/Devices，实现在 App/Devices，DI 注入，互不依赖。**
+两个引擎共用一个契约，是因为**它们真的都会被用到**（有授权走 VM，没授权走 ONNX）；
+没有第二个实现的地方就不造接口 —— 为假设中的变化付真实成本，是这类项目最常见的浪费。
 
 ## 检测链路
 
 ```
-触发（手动/定时）
+触发（手动 / 定时 / PLC）
     ↓
-Camera.Capture() → Mat 原图
+ICamera.Capture() → Mat 原图（引擎不做采图：File 相机、素材跑批、双引擎对照都依赖这点）
     ↓
-Pipeline.Run(image, rois)
-    ├── Tool[0].Execute() → ToolResult { IsOk, Summary, DrawCommands }
-    ├── Tool[1].Execute() → ToolResult
-    └── Tool[2].Execute() → ToolResult
+IInspectionEngine.Inspect(new InspectionRequest { Image, TriggerSource, ImagePath })
+    ├── Vm  引擎：SetImagePath → procedure.Run() → 按配方映射表读模块 IO
+    └── Onnx 引擎：letterbox → ORT 推理 → 按类 NMS
     ↓
-DrawCommands → Cv2.Rectangle/Circle/DrawContours → 标注叠加图
+InspectionReport { Engine, Results[项] } → DrawCommand 叠加标注 → SQLite + 图片
     ↓
-InspectionReport → SQLite + 图片文件
+PLC 结果回写（OK=1 / NG=2）
 ```
 
-## 运行前置（干净机器）
+**失败语义（一条硬规则）**：引擎不把异常抛给调用方。平台无授权、`.sol` 缺失、模型损坏，
+一律返回 `IsOk=false` 且带原因的 NG 报告，并记 ERROR —— 产线要的是"这一件没判出来，且查得到原因"，
+而不是进程消失。空结果集同样判 NG：**没检 ≠ 合格**。
 
-从零开始跑通这个项目需要：
+## 运行前置
 
-- **环境**：Windows 10/11 x64，安装 .NET 8 SDK（`dotnet --version` 确认版本 ≥ 8.0）。
-- **无摄像头也能跑**：默认 `Camera:Mode=File`，直接从仓库内的 `TestImages/` 读取演示图，启动自检 5 项全过。
-- **开箱即用**：克隆后直接 `dotnet run --project src/VisionStation.App` 即可，无需先跑 Test 生成图片（`TestImages/` 已随仓库提交）。
-- **首次运行自动生成**：`visionstation.db`、`Logs/`、`InspectedImages/` 会在项目根目录自动创建（已加入 `.gitignore`，不影响仓库）。
+- **环境**：Windows 10/11 x64，.NET 8 SDK。
+- **零硬件可跑**：`Camera:Mode=File` 时从 `TestImages/` 取图，ONNX 引擎开箱即用（模型随输出目录部署）。
+- **VM 走 TCP 中转，不加载 SDK**：VisionMaster 独立跑流程，用「发送数据」模块把结果推到本程序
+  的监听端口（`VmLink:Port`，默认 9100）。所以**任何机器 clone 下来都能 build**，不需要装 VM、不需要授权。
+  联调时用 `tools/VmSimulator` 造几帧结果即可验证整条链。细节见 `docs/引擎集成-说明.md`。
 
 ## 运行
 
 ```bash
-# 1. 生成测试图像 + 跑全链路
-dotnet run --project tests/VisionStation.Test
-
-# 2. 启动 WPF 桌面应用
 dotnet run --project src/VisionStation.App
 
-# 3. 打包发布（自包含，不依赖 .NET 运行时）
+# 黄金样本回归（105 张，约 23 秒，有回归时退出码 1）
+dotnet run --project tools/GoldenSetRunner
+
+# 打包（自包含）
 dotnet publish src/VisionStation.App -c Release -r win-x64 --self-contained -o publish
 ```
 
 ## 配方文件
 
-换检测产品只需要修改配方 JSON，不改代码：
+换检测产品 = 换一份配方 JSON，代码不动。引擎也写在配方里 —— .sol 与模型都是跟产品绑定的，
+而 `appsettings.json` 描述的是这台机器（相机、PLC、存储）。
 
 ```json
-// Config/recipes/default.json
 {
   "name": "金属垫圈检测",
-  "calibration": { "pixelPerMillimeter": 15.0, "designedDiameterMm": 2.67 },
-  "rois": [
-    { "name": "Presence", "x": 120, "y": 120, "width": 80, "height": 80 }
-  ],
-  "tools": [
-    { "type": "Presence", "enabled": true, "params": { "threshold": 0.70 } }
-  ]
+  "schemaVersion": 2,
+  "sensor": { "width": 1280, "height": 1024 },
+  "engine": "Vm",
+  "vm": {
+    "solutionPath": "Config\\solutions\\washer.sol",
+    "procedure": "流程1",
+    "imageSourceModule": "图像源1",
+    "outputs": [
+      { "module": "圆查找1", "label": "外径", "role": "Measure",
+        "io": "Radius", "ioKind": "Circle", "metric": "Radius_px", "unit": "px" }
+    ]
+  },
+  "onnx": { "modelPath": "models\\neu-det.onnx", "confidence": 0.25, "nms": 0.45 }
 }
+```
+
+`sensor` 是防呆：分辨率对不上时拒绝检测并说明原因，而不是"照跑不误然后安静判错"。
+
+## 健康检查
+
+启动时执行 5 项，失败只写日志面板与状态栏，不弹模态框（无人值守时对话框会让看门狗失效）：
+
+```
+[✅] 设备连接: 2/2 在线
+[✅] 数据库: visionstation.db
+[✅] 存储路径: ...\InspectedImages
+[✅] 检测引擎: Onnx · neu-det.onnx          ← 原来这里是"模板文件"
+[✅] 配方文件: 金属垫圈检测 · Onnx           ← 校验引擎名/参数/输出映射
 ```
 
 ## 操作
@@ -126,35 +144,18 @@ dotnet publish src/VisionStation.App -c Release -r win-x64 --self-contained -o p
 | 操作 | 方式 |
 |------|------|
 | 手动检测 | 点 **开始检测** |
-| 自动检测 | 点 **自动模式**（定时器触发） |
+| 自动检测 | 点 **自动模式**（定时器或 PLC 触发） |
 | 急停 | 红色大按钮，有确认弹窗 |
-| ROI 编辑 | F2 进入 → 拖拽画框 → 拖拽移动 → 右下角缩放 |
-| 删除 ROI | 选中后按 Delete / 右键 |
 | 图像缩放 | 滚轮 / F 键复位 |
-| 保存 ROI | 点工具栏 **保存** → 写入配方文件 |
+| 切换产品 | 换配方文件（`.active` 指针决定用哪份）；ROI 与标定在 VM 客户端里调 |
 
-## 健康检查
-
-启动时自动执行 5 项检查：
-
-```
-[✅] 设备连接: 2/2 在线
-[✅] 数据库: visionstation.db
-[✅] 存储路径: D:\...\InspectedImages
-[✅] 模板文件: D:\...\hole_template.png
-[✅] 配方: 金属垫圈检测 · 3个工具
-```
+ROI 编辑已从本程序移除：ROI 归 `.sol` 所有，在自己的界面里再画一遍等于制造第二份真相。
 
 ## 黄金样本库（回归验证）
 
-改视觉算法之后，怎么知道是变好了还是变坏了？跑一遍固定样本，看漏检和误报的变化。
-
 ```bash
-# 校验数据集完整性（图片存在 + 哈希 + 尺寸，秒级）
-dotnet run --project tools/GoldenSetRunner -- verify
-
-# 跑批 105 张（约 18 秒）+ 自动与基线对比
-dotnet run --project tools/GoldenSetRunner
+dotnet run --project tools/GoldenSetRunner -- verify   # 校验数据集完整性
+dotnet run --project tools/GoldenSetRunner             # 跑批 + 与基线对比
 ```
 
 当前基线（`models/neu-det.onnx`，conf 0.25 / nms 0.45）：
@@ -162,43 +163,25 @@ dotnet run --project tools/GoldenSetRunner
 | 指标 | 数值 |
 | --- | --- |
 | 命中（真值类检出） | 104 / 105（99.0%） |
-| 漏检（一个框都没有） | 1（`crazing_294`） |
 | 错分（检出但认错类别） | 0 |
+| 漏检（一个框都没有） | 1（`crazing_294`） |
 | 跨类误报框 | 14 个 |
 
-判定分「命中 / 错分 / 漏检」三态，改动后输出「新漏检 N 个、修复 M 个、误报框增减」，有回归时退出码为 1，可直接接 CI 门禁。
-数据集只覆盖 6 类中的 4 类，且无 good 样本（过杀率暂不可测），边界见 [docs/黄金样本库-使用说明.md](docs/黄金样本库-使用说明.md)。
+**2026-10-23 引擎重构后重跑：判定完全一致，误报框数量无变化。** 这条是重构安全性的直接证据 ——
+同一份权重、同一套预处理，只是从"Pipeline + 工具"搬进"引擎"，结论一位没变。
 
 ## 技术栈
 
 | 项 | 选择 |
 |----|------|
-| 运行时 | .NET 8 |
-| UI | WPF + CommunityToolkit.Mvvm |
-| 视觉 | OpenCvSharp4 |
-| 数据库 | SQLite + EF Core |
-| 日志 | Serilog（文件 + 控制台 + UI 面板） |
-| DI | Microsoft.Extensions.DependencyInjection |
-| 通信 | WeakReferenceMessenger（ViewModel 间解耦） |
+| 运行时 / UI | .NET 8 · WPF · CommunityToolkit.Mvvm |
+| 视觉平台 | 海康 VisionMaster 4.2（独立运行 + TCP 结果通信，可选） |
+| 自研推理 | OpenCvSharp4 + ONNX Runtime（YOLOv8 导出模型） |
+| 相机 | 海康 MVS SDK（真机 + 虚拟相机） |
+| 存储 / 日志 / DI | SQLite + EF Core · Serilog · Microsoft.Extensions.DependencyInjection |
 
-## V1.5 完成清单
+## 工程约束
 
-- [x] 图像显示（Uniform 拉伸 + Zoom + 平移 + F键复位）
-- [x] 鼠标像素坐标实时显示
-- [x] 屏幕 ↔ 图像坐标双向换算（CoordinateMapper 独立）
-- [x] Rectangle ROI（创建/删除/选中/拖动/缩放/JSON 保存）
-- [x] IVisionTool 统一接口 + 3 个实现
-- [x] Pipeline 遍历工具列表执行
-- [x] DrawCommand 统一标注渲染
-- [x] IDevice 设备抽象 + DeviceManager
-- [x] 启动自检 5 项
-- [x] 配方文件（ROI + Tool + 标定合一）
-- [x] ITriggerSource + ICamera 设备抽象
-- [x] 触发模式切换（手动/定时/将来 PLC）
-- [x] MVVM + Messenger 解耦
-- [x] 全局异常捕获 + 崩溃日志
-- [x] Serilog 文件日志 + UI 告警面板
-- [x] 并发保护（_isProcessing 锁）
-- [x] 全链路端到端测试（合成图）
-- [x] 单元测试（22 个，全部通过）
-- [x] 部署打包验证（`dotnet publish -c Release -r win-x64 --self-contained`）
+- `ci.cmd`：构建 + 218 项测试 + 分析器棘轮（当前基线 81 条，不许增长）。
+- 测试不许为了让门禁变绿而放宽断言；改不动的测试只能删并说明原因。
+- UI 改动必须实际启动走查（`docs/WPF开发规范.md` §13），build 绿不算完成。

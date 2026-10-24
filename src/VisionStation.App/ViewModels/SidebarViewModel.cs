@@ -1,95 +1,196 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Services.Navigation;
 
 namespace VisionStation.App.ViewModels;
 
 /// <summary>
-/// 侧边导航栏 ViewModel
+/// 侧边导航栏 ViewModel。
 ///
 /// 职责：
-///   1. 管理导航项（上半部：检测/参数/配方/历史，下半部：相机/PLC/日志/系统）
-///   2. 订阅 TriggerStateMessage → 自动模式暗化、停止时恢复
-///   3. 绿色脉冲指示灯只在自动运行时显示（View 层绑定 IsDimmed）
+///   1. 持有导航项（上半部：检测；下半部：相机）
+///   2. 点图标 → 请求导航；高亮 = 当前路由的投影，不是控件自己的选中项
+///   3. 订阅 TriggerStateMessage → 自动模式暗化、停止时恢复
+///
+/// 为什么没有“选中项”这个概念了：
+///   改造前用两个 <c>ListBox</c> 共享一个 <c>SelectedItem</c>。实测（真 WPF，见
+///   docs/WPF规范落地记录.md）两个列表各自记住自己的选中项、互不清除，
+///   结果**同时有两个图标是高亮的** —— 点下半部的相机，上半部的检测还亮着，
+///   操作员没法判断"我现在在哪一页"。这不是绑定写错，是"选中"本身不该由控件拥有：
+///   导航状态归 <see cref="INavigationService"/>，图标只是把它画出来。
+///   所以这里改成按钮 + <see cref="NavItem.IsActive"/>，唯一真相源是 CurrentRoute。
 /// </summary>
 public partial class SidebarViewModel : ObservableObject
 {
     private readonly INavigationService _navigation;
-
-    /// <summary>防回环：把选中项"退回去"时不要再触发一次导航。</summary>
-    private bool _revertingSelection;
-
-    /// <summary>当前选中的导航页</summary>
-    [ObservableProperty]
-    private string _activePage = NavigationService.InspectionRoute;
-
-    /// <summary>
-    /// 列表里选中的那一项。
-    ///
-    /// 导航不再是"发消息 + 窗口切 Visibility"，而是"这里选中了谁"：
-    /// 视图只做 TwoWay 绑定，点了未实现的页面时把选中项退回去，
-    /// 高亮自动还原 —— 不需要 code-behind 里再写一遍。
-    /// </summary>
-    [ObservableProperty]
-    private NavItem? _selectedNavItem;
+    private readonly IReadOnlyList<NavItem> _allItems;
 
     /// <summary>是否暗化（自动运行时 true，手动/停止时 false）</summary>
     [ObservableProperty]
     private bool _isDimmed;
 
-    /// <summary>上部导航项</summary>
-    public List<NavItem> TopItems { get; } = new()
-    {
-        new("检测", "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.4-1.4 3.6 3.6 7.6-7.6L19 8l-9 9z"),
-        new("参数", "M19.14 12.94c.04-.3.06-.61.06-.94 0-.33-.02-.64-.06-.94l2.02-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96a7.04 7.04 0 00-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.02 1.58c-.04.3-.06.61-.06.94s.02.64.06.94l-2.02 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.37 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.57 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.02-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.61 3.61 0 0112 15.6z"),
-        new("配方", "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 2l5 5h-5V4zM8 14h8v2H8v-2zm0 4h5v2H8v-2z"),
-        new("历史", "M13 3a9 9 0 00-9 9H1l3.9 3.9L8.8 12H6c0-3.9 3.1-7 7-7s7 3.1 7 7-3.1 7-7 7c-1.9 0-3.7-.8-5-2l-1.4 1.4C8.3 20 10 21 12 21a9 9 0 000-18zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8H12z"),
-    };
+    /// <summary>当前页路由，供状态栏/走查断言用</summary>
+    public string ActivePage => _navigation.CurrentRoute;
 
-    /// <summary>下部导航项</summary>
-    public List<NavItem> BottomItems { get; } = new()
-    {
-        new("相机", "M9 2L7.2 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.2L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z M12 8.8a3.2 3.2 0 100 6.4 3.2 3.2 0 000-6.4z"),
-        new("PLC",   "M4 3h16a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2zm2 4a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm4 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm4 0a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm-8 6h4v3H6v-3zm8 0h4v3h-4v-3z"),
-        new("日志", "M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm-7 9h-2V5h2v6zm-2 4h2v-2h-2v2z"),
-        new("系统", "M12 15a3 3 0 100-6 3 3 0 000 6zm7.4-2.32a1.65 1.65 0 00.33 1.82l.06.06a1.998 1.998 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a1.998 1.998 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001.08-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.01.52.08.78.08h.21a2 2 0 010 4h-.21a1.65 1.65 0 00-1.51 1.08z"),
-    };
+    /// <summary>上部导航项</summary>
+    public IReadOnlyList<NavItem> TopItems { get; }
+
+    /// <summary>下部导航项（全量，含工程师专属）</summary>
+    public IReadOnlyList<NavItem> BottomItems { get; }
+
+    /// <summary>
+    /// 下部导航的可见子集 —— 视图绑这个，不绑 <see cref="BottomItems"/>。
+    ///
+    /// 为什么不用 CollectionViewSource 过滤：Filter 是个委托，模式一变要 Refresh，
+    /// 而 Refresh 会让按钮重建、打断 ToolTip 与键盘焦点。这里项数是个位数，
+    /// 直接换集合更简单也更可控。
+    /// </summary>
+    public ObservableCollection<NavItem> VisibleBottomItems { get; } = new();
 
     public SidebarViewModel(INavigationService navigation)
     {
         _navigation = navigation;
-        _activePage = navigation.CurrentRoute;
+
+        // 只放真有页面的项。参数/配方/历史/PLC/日志/系统都还没有实现，
+        // 摆上去就是"点了没反应"的假按钮 —— 宁可侧边栏空着，也不给操作员
+        // 一个骗人的入口。等页面真做出来再往这两个列表里加。
+        TopItems = new[]
+        {
+            new NavItem(
+                route: NavigationService.InspectionRoute,
+                label: "检测",
+                geometry: "M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-2 15l-5-5 1.4-1.4 3.6 3.6 7.6-7.6L19 8l-9 9z"),
+        };
+
+        BottomItems = new[]
+        {
+            new NavItem(
+                route: NavigationService.CameraRoute,
+                label: "相机",
+                geometry: "M9 2L7.2 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.2L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z M12 8.8a3.2 3.2 0 100 6.4 3.2 3.2 0 000-6.4z",
+                engineerOnly: true),
+        };
+
+        _allItems = TopItems.Concat(BottomItems).ToArray();
+
+        // 运行模式开局：只显示非工程师项。顶栏切模式时再重建。
+        ApplyEngineerMode(isEngineerMode: false);
+
+        WeakReferenceMessenger.Default.Register<SidebarViewModel, EngineerModeMessage>(this,
+            static (vm, msg) => vm.ApplyEngineerMode(msg.Value));
 
         WeakReferenceMessenger.Default.Register<SidebarViewModel, TriggerStateMessage>(this,
             (vm, msg) => vm.IsDimmed = msg.Value);
 
-        // 启动时高亮当前页（导航服务构造即定位在检测页）
-        _selectedNavItem = FindItem(navigation.CurrentRoute);
+        // 导航状态是唯一真相源：谁改了路由（侧边栏、快捷键、将来的外部触发），
+        // 高亮都跟着走，不需要在每个入口各写一份同步代码。
+        _navigation.PropertyChanged += OnNavigationChanged;
+        SyncActiveState();
     }
 
-    partial void OnSelectedNavItemChanged(NavItem? value)
+    /// <summary>
+    /// 点图标导航。
+    ///
+    /// 失败（路由没实现）就什么都不做：没有"选中项"要退回去，
+    /// 高亮压根没变过 —— 原来那个 <c>_revertingSelection</c> 防回环标志
+    /// 连同它守护的整段退回逻辑一起没了。
+    /// </summary>
+    [RelayCommand]
+    private void Navigate(NavItem? item)
     {
-        if (value is null || _revertingSelection) return;
+        if (item is null) return;
+        _navigation.Navigate(item.Route);
+    }
 
-        if (_navigation.Navigate(value.Label))
+    private void OnNavigationChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(INavigationService.CurrentRoute)
+            or nameof(INavigationService.CurrentPage))
         {
-            ActivePage = _navigation.CurrentRoute;
-            return;
+            SyncActiveState();
+        }
+    }
+
+    /// <summary>
+    /// 按模式重建可见导航项。
+    ///
+    /// 顺带处理一个悬空状态：如果当前正停在即将被隐藏的页上（切开到运行模式时人在相机页），
+    /// 要退回检测页 —— 否则导航栏里没有任何高亮项，内容区却还显示着相机参数，
+    /// 操作员会以为"我就在这一页"，实际上导航已经没有它了。
+    ///
+    /// 公开而不是私有：顶栏通过 <see cref="EngineerModeMessage"/> 触发它，
+    /// 但测试要能直接摆布模式，不必发全局消息（那个 messenger 是静态的，
+    /// 在并行测试里会成为隐式的共享状态）。
+    /// </summary>
+    public void ApplyEngineerMode(bool isEngineerMode)
+    {
+        VisibleBottomItems.Clear();
+        foreach (var item in BottomItems)
+        {
+            if (isEngineerMode || !item.EngineerOnly)
+                VisibleBottomItems.Add(item);
         }
 
-        // 未实现的路由（参数/配方/历史/PLC/日志/系统）：撤回到当前页，
-        // 让"点了没反应"变成"高亮弹回去"，而不是停在一个打不开的页签上。
-        _revertingSelection = true;
-        SelectedNavItem = FindItem(ActivePage);
-        _revertingSelection = false;
+        if (isEngineerMode) return;
+
+        var current = _navigation.CurrentRoute;
+        var standingOnHidden = BottomItems.Any(item =>
+            item.EngineerOnly && string.Equals(item.Route, current, StringComparison.Ordinal));
+
+        if (standingOnHidden)
+            _navigation.Navigate(NavigationService.InspectionRoute);
+
+        SyncActiveState();
     }
 
-    private NavItem? FindItem(string label)
-        => TopItems.FirstOrDefault(i => i.Label == label)
-           ?? BottomItems.FirstOrDefault(i => i.Label == label);
+    private void SyncActiveState()
+    {
+        var route = _navigation.CurrentRoute;
+
+        foreach (var item in _allItems)
+            item.IsActive = string.Equals(item.Route, route, StringComparison.Ordinal);
+
+        OnPropertyChanged(nameof(ActivePage));
+    }
 }
 
 /// <summary>
-/// 导航项：Label=显示文字，Geometry=SVG Path 数据
+/// 导航项。
+///
+/// <see cref="Route"/> 和 <see cref="Label"/> 刻意分开：以前用 Label 当路由 key，
+/// 改一次显示文案就会把导航打断（而且中文当 key 时打错一个字是编译期发现不了的）。
 /// </summary>
-public record NavItem(string Label, string Geometry);
+public partial class NavItem : ObservableObject
+{
+    public NavItem(string route, string label, string geometry, bool engineerOnly = false)
+    {
+        Route = route;
+        Label = label;
+        Geometry = geometry;
+        EngineerOnly = engineerOnly;
+    }
+
+    /// <summary>路由名，交给 <see cref="INavigationService"/></summary>
+    public string Route { get; }
+
+    /// <summary>显示名 / ToolTip</summary>
+    public string Label { get; }
+
+    /// <summary>SVG Path 数据</summary>
+    public string Geometry { get; }
+
+    /// <summary>
+    /// 是否只在工程师模式可见。
+    ///
+    /// 相机参数、日志这类页面操作员用不到，摆在运行模式的导航里只会让人误点进去，
+    /// 看到一堆看不懂的按钮。运行模式和工程师模式的区别，主要就体现在这个标志上。
+    /// </summary>
+    public bool EngineerOnly { get; }
+
+    /// <summary>当前页是不是我。由 <see cref="SidebarViewModel"/> 单向写入。</summary>
+    [ObservableProperty]
+    private bool _isActive;
+}

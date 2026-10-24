@@ -5,9 +5,9 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using OpenCvSharp;
-using VisionStation.Core;
+using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
+using VisionStation.Engines.Onnx;
 
 namespace VisionStation.GoldenSet;
 
@@ -24,12 +24,11 @@ namespace VisionStation.GoldenSet;
 ///   2 = 运行失败（数据集校验不通过 / 模型缺失）
 ///
 /// 关键约定：
-///   所有样本都走真实的 Pipeline → OnnxYoloTool 链路，不绕过任何预处理，
+///   所有样本都走真实的 OnnxInspectionEngine 链路，不绕过任何预处理，
 ///   否则测出来的数字和产线跑出来的不是一回事。
 /// </summary>
 internal static class Program
 {
-    private const string ToolName = "Yolo";
     private const int ExitOk = 0;
     private const int ExitRegression = 1;
     private const int ExitError = 2;
@@ -171,13 +170,20 @@ internal static class Program
             NmsThreshold = opts.Nms
         };
 
-        using var tool = new OnnxYoloTool(modelPath, opts.Conf, opts.Nms) { Name = ToolName };
+        // 跑批只关心推理质量，类别名用模型自带的那套（NEU-DET）
+        var engineOptions = new OnnxRecipeData
+        {
+            ModelPath = modelPath,
+            Confidence = opts.Conf,
+            Nms = opts.Nms
+        };
+        using var engine = new OnnxInspectionEngine(modelPath, engineOptions);
 
         // Warmup：首帧要付模型加载 + 算子融合的代价（100~300ms），
         // 不预热的话第一张图的耗时会污染平均值和 P95，让人误判"算法变慢了"。
         var items = opts.Limit > 0 ? dataset.Items.Take(opts.Limit).ToList() : dataset.Items;
         if (items.Count == 0) return report;
-        Warmup(tool, root, items[0]);
+        Warmup(engine, root, items[0]);
 
         var sw = Stopwatch.StartNew();
         int done = 0;
@@ -194,18 +200,15 @@ internal static class Program
                 if (image.Empty())
                     throw new InvalidOperationException($"图片解码失败：{item.Image}");
 
-                var rois = new List<RoiRegion>
+                // 走真实链路：IInspectionEngine → YoloDetector，不直调推理
+                var inspection = engine.Inspect(new InspectionRequest
                 {
-                    new() { Name = ToolName, X = 0, Y = 0, Width = image.Width, Height = image.Height }
-                };
+                    Image = image,
+                    TriggerSource = "GoldenSet",
+                    ImagePath = item.Image
+                });
 
-                // 走真实链路：Pipeline → IVisionTool，不直调工具
-                var pipeline = new Pipeline(new IVisionTool[] { tool });
-                var inspection = pipeline.Run(
-                    image, rois, new CalibrationConfig(),
-                    triggerSource: "GoldenSet", imagePath: item.Image);
-
-                var result = inspection.GetToolResult(ToolName);
+                var result = inspection.GetToolResult(ResultKeys.Defect);
 
                 var classCounts = result.Metrics
                     .Where(kv => kv.Key.StartsWith("Count_", StringComparison.Ordinal))
@@ -237,18 +240,14 @@ internal static class Program
         return report;
     }
 
-    private static void Warmup(OnnxYoloTool tool, string root, GoldenItem first)
+    private static void Warmup(OnnxInspectionEngine engine, string root, GoldenItem first)
     {
         try
         {
             var path = Path.Combine(root, first.Image.Replace('/', Path.DirectorySeparatorChar));
             using var img = Cv2.ImRead(path, ImreadModes.Unchanged);
             if (img.Empty()) return;
-            var roi = new RoiRegion { Name = ToolName, X = 0, Y = 0, Width = img.Width, Height = img.Height };
-            using var gray = new Mat();
-            if (img.Channels() > 1) Cv2.CvtColor(img, gray, ColorConversionCodes.BGR2GRAY);
-            else img.CopyTo(gray);
-            tool.Execute(gray, roi);
+            engine.Inspect(new InspectionRequest { Image = img, TriggerSource = "Warmup", ImagePath = first.Image });
         }
         catch
         {

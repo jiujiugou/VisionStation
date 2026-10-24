@@ -112,7 +112,7 @@ public class ImageStoreTests : IDisposable
     private static InspectionReport Report(bool ok)
     {
         var report = new InspectionReport();
-        report.SetToolResult("Presence", new Core.Tools.ToolResult { IsOk = ok, Summary = ok ? "OK" : "NG" });
+        report.SetToolResult("Presence", new ToolResult { IsOk = ok, Summary = ok ? "OK" : "NG" });
         return report;
     }
 

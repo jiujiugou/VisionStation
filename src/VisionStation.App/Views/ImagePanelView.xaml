@@ -78,8 +78,10 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- 图像显示区：支持缩放+平移 -->
-        <Border Grid.Row="1" Background="{StaticResource TextPrimary}" BorderBrush="{StaticResource CardBorder}"
+        <!-- 图像显示区：支持缩放+平移。
+             底色用 ImageCanvasBg（专用深色画布），不再借用 TextPrimary ——
+             以前是"碰巧也是深色所以拿来用"，改个文字颜色就会把图像区一起改掉。 -->
+        <Border Grid.Row="1" Background="{StaticResource ImageCanvasBg}" BorderBrush="{StaticResource CardBorder}"
                 BorderThickness="1" CornerRadius="0,4,4,4"
                 ClipToBounds="True"
                 MouseWheel="OnMouseWheel"
@@ -97,6 +99,26 @@
                         </TransformGroup>
                     </Image.RenderTransform>
                 </Image>
+
+                <!-- 空态说明：没有图像时这里原本是一块黑，谁都以为程序坏了。
+                     VM 模式下本来就不采图，必须写清楚"图在平台那边"。 -->
+                <TextBlock Text="{Binding EmptyHint}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextAlignment="Center" TextWrapping="Wrap"
+                           FontSize="13" Foreground="#8A8A8A"
+                           IsHitTestVisible="False"
+                           Panel.ZIndex="98">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentImage}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
 
                 <!-- 鼠标坐标 + 缩放级别（左下角浮层） -->
                 <Border Background="{StaticResource ScrimBg}" CornerRadius="3" Padding="8,3"

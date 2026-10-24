@@ -58,18 +58,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     public ResultPanelViewModel ResultPanel { get; }
     public LogPanelViewModel LogPanel { get; }
     public ControlPanelViewModel ControlPanel { get; }
-    public RoiEditorViewModel RoiEditor { get; }
-
-    /// <summary>ROI 编辑覆盖层是否打开。</summary>
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsImagePanelVisible))]
-    private bool _isRoiEditorOpen;
-
-    /// <summary>
-    /// 原图面板与编辑覆盖层互斥：编辑时原图让位，退出编辑后回来。
-    /// 用派生属性而不是在 XAML 里加反向转换器 —— 少一个转换器，也便于单测。
-    /// </summary>
-    public bool IsImagePanelVisible => !IsRoiEditorOpen;
 
     /// <param name="uiContext">
     /// UI 线程的同步上下文，由组合根在 UI 线程上捕获后注入。
@@ -80,7 +68,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         ResultPanelViewModel resultPanel,
         LogPanelViewModel logPanel,
         ControlPanelViewModel controlPanel,
-        RoiEditorViewModel roiEditor,
         IInspectionWorkflow workflow,
         ITriggerSource trigger,
         ICamera camera,
@@ -94,7 +81,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         ResultPanel = resultPanel;
         LogPanel = logPanel;
         ControlPanel = controlPanel;
-        RoiEditor = roiEditor;
 
         _workflow = workflow;
         _trigger = trigger;
@@ -113,10 +99,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         // 否则相机明明连上了，也要等第一帧检测跑完才亮。
         WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
         WeakReferenceMessenger.Default.Send(new LogMessage("VisionStation 已就绪", LogMsgLevel.Success));
-
-        WeakReferenceMessenger.Default.Register<InspectionPageViewModel, RoisUpdatedMessage>(this,
-            static (_, _) => WeakReferenceMessenger.Default.Send(
-                new LogMessage("ROI 已更新，下一帧生效", LogMsgLevel.Info)));
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -238,29 +220,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
             }
         }
     }
-
-    // ═══════════════════════════════════════════════════════════
-    //  ROI 编辑态
-    // ═══════════════════════════════════════════════════════════
-
-    /// <summary>F2：进入/退出 ROI 编辑。</summary>
-    [RelayCommand]
-    private void ToggleRoiEditor()
-    {
-        if (!IsRoiEditorOpen)
-        {
-            // 进入编辑时把当前图交给编辑器：编辑器要看着底图画框。
-            // 还没采过图时 OriginalImage 为 null，编辑器自己显示空态。
-            RoiEditor.Image = ImagePanel.OriginalImage;
-        }
-
-        IsRoiEditorOpen = !IsRoiEditorOpen;
-    }
-
-    /// <summary>
-    /// 离开本页时调用。编辑态不退出的话，覆盖层会跟着用户漂到别的页面上去。
-    /// </summary>
-    public void ExitEditMode() => IsRoiEditorOpen = false;
 
     public void Dispose()
     {

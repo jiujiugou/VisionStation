@@ -66,12 +66,17 @@ public sealed class CameraStatusMessage : ValueChangedMessage<bool>
 }
 
 /// <summary>
-/// ROI 已更新消息
-/// 发送者：RoiEditorVM（保存后）→ 订阅者：InspectionWorkflow（重新加载 ROIs）
+/// 运行/工程师模式切换消息
+/// 发送者：TopBarVM（顶栏的模式按钮）
+/// 订阅者：SidebarVM（运行模式隐藏工程师专属页面）
+///
+/// 为什么模式走消息而不是让侧边栏读顶栏的属性：
+/// 侧边栏和顶栏是同级的两个常驻区域，谁都不拥有谁。让侧边栏去引用顶栏，
+/// 等于把"兄弟"变成"父子"，以后顶栏一改侧边栏就编译不过。
 /// </summary>
-public sealed class RoisUpdatedMessage : ValueChangedMessage<bool>
+public sealed class EngineerModeMessage : ValueChangedMessage<bool>
 {
-    public RoisUpdatedMessage() : base(true) { }
+    public EngineerModeMessage(bool isEngineerMode) : base(isEngineerMode) { }
 }
 
 /// <summary>

@@ -23,6 +23,9 @@
             <DataTemplate DataType="{x:Type vm:SidebarViewModel}">
                 <views:SidebarView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:TopBarViewModel}">
+                <views:TopBarView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:StatusBarViewModel}">
                 <views:StatusBarView />
             </DataTemplate>
@@ -43,9 +46,6 @@
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:ControlPanelViewModel}">
                 <views:ControlPanelView />
-            </DataTemplate>
-            <DataTemplate DataType="{x:Type vm:RoiEditorViewModel}">
-                <views:RoiEditorView />
             </DataTemplate>
         </ResourceDictionary>
     </Application.Resources>

@@ -25,8 +25,13 @@ public sealed class AppPaths
     /// <summary>File 相机读取的图像目录</summary>
     public string ImageFolder { get; }
 
-    /// <summary>有无检测模板（PresenceTool 用）</summary>
-    public string TemplatePath { get; }
+    /// <summary>
+    /// 检测引擎资源（.sol 流程文件、ONNX 模型）的解析基准目录。
+    ///
+    /// 用 exe 目录而不是 cwd：流程文件与模型随程序部署，和 exe 同生共死。
+    /// 配方里写相对路径时都相对它解析（RecipeConfig.ResolveAsset）。
+    /// </summary>
+    public string AssetRoot { get; }
 
     /// <summary>检测结果图片存储目录</summary>
     public string StorageFolder { get; }
@@ -50,7 +55,7 @@ public sealed class AppPaths
     {
         DataRoot      = options.DataRoot;
         ImageFolder   = ResolveInput(options.Camera.ImageFolder, "TestImages");
-        TemplatePath  = ResolveInput(options.Detection.TemplatePath, @"TestImages\hole_template.png");
+        AssetRoot     = AppContext.BaseDirectory;
         StorageFolder = ResolveOutput(options.Storage.ImageFolder, "InspectedImages");
         DbPath        = ResolveOutput(options.Storage.DbPath, "visionstation.db");
         LogFolder     = ResolveOutput(options.Logging.LogFolder, "Logs");

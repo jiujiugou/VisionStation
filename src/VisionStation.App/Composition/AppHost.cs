@@ -9,10 +9,10 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services;
+using VisionStation.App.Services.Inspection;
 using VisionStation.App.ViewModels;
 using VisionStation.Core;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
 using VisionStation.Devices;
 using VisionStation.Service;
 using VisionStation.Service.Housekeeping;
@@ -119,7 +119,8 @@ public sealed class AppHost : IAsyncDisposable
         services
             .AddSingleton(appPaths)
             .AddSingleton(options)
-            .AddCore(recipe, appPaths)
+            .AddDetection(recipe, appPaths)
+            .AddVmLink(options)
             .AddDevices(appPaths, options)
             .AddStorage(appPaths, options)
             .AddAppServices(appPaths, options)
@@ -175,6 +176,25 @@ public sealed class AppHost : IAsyncDisposable
         services.GetRequiredService<InspectionPageViewModel>();
 
         await services.GetRequiredService<IInspectionRepository>().EnsureCreatedAsync();
+
+        // VM 模式（TCP 中转）：VisionMaster 主动把结果推过来，这里起监听。
+        // 顺序放在数据库建表之后 —— 第一帧结果就要写库，表还没建就收结果只会报错。
+        var loadedRecipe = services.GetRequiredService<RecipeConfig>();
+        var appOptions = services.GetRequiredService<AppOptions>();
+        if (appOptions.VmLink.Enabled)
+        {
+            if (string.Equals(loadedRecipe.Engine, EngineNames.Vm, StringComparison.OrdinalIgnoreCase))
+            {
+                var vmDriver = services.GetRequiredService<VmInspectionDriver>();
+                vmDriver.Start();
+                log.LogInformation("[VM链路] 已启动，监听 {Endpoint}，等待 VisionMaster 推送", vmDriver.Endpoint);
+            }
+            else
+            {
+                log.LogWarning("VmLink:Enabled=true，但配方引擎是 {Engine}（不是 Vm），VM 结果监听未启动",
+                    loadedRecipe.Engine);
+            }
+        }
     }
 
     public void Show()
@@ -254,6 +274,10 @@ public sealed class AppHost : IAsyncDisposable
 
         // 1 停掉定时触发。已进入 Elapsed 的回调仍可能触发，靠第 2 步拦住。
         Guarded("1 stop-trigger", () => services.GetService<ITriggerSource>()?.Stop(), budget);
+
+        // 1.5 停 VM 结果监听。必须早于第 4 步释放容器：
+        // 否则 VM 再推一帧进来，处理时会落到已释放的 DbContext 上。
+        Guarded("1.5 stop-vm-link", () => services.GetService<VmInspectionDriver>()?.Stop(), budget);
 
         // 2 应用级取消：页面 VM 据此拒绝排队中的触发，在途帧拿到的令牌开始取消。
         Guarded("2 cancel", () => services.GetService<ShutdownState>()?.BeginStop(), budget);
@@ -348,11 +372,17 @@ public sealed class AppHost : IAsyncDisposable
                 if (!File.Exists(path)) continue;
 
                 var json = File.ReadAllText(path);
-                var recipe = JsonSerializer.Deserialize<RecipeConfig>(json, RecipeJsonOptions);
-                if (recipe is { Tools.Count: > 0 })
+
+                // 判据与 JsonRecipeStore 一致：能说出自己用哪个引擎的才是配方
+                if (RecipeConfig.HasEngineDeclaration(json))
                 {
-                    Log.Information("已加载配方 {Name}（{Path}）", recipe.Name, path);
-                    return recipe;
+                    var recipe = JsonSerializer.Deserialize<RecipeConfig>(json, RecipeJsonOptions);
+                    if (recipe is not null)
+                    {
+                        Log.Information("已加载配方 {Name}（引擎 {Engine}，{Path}）",
+                            recipe.Name, recipe.Engine, path);
+                        return recipe;
+                    }
                 }
             }
             catch (Exception ex)
@@ -397,8 +427,8 @@ public sealed class AppHost : IAsyncDisposable
             ?? throw new InvalidOperationException($"内嵌配方资源缺失: {resourceName}（打包配置被改动过？）");
         using var reader = new StreamReader(stream);
         var recipe = JsonSerializer.Deserialize<RecipeConfig>(reader.ReadToEnd(), RecipeJsonOptions);
-        if (recipe == null || recipe.Tools.Count == 0)
-            throw new InvalidOperationException("内嵌默认配方内容为空或无效");
+        if (recipe == null || string.IsNullOrWhiteSpace(recipe.Engine))
+            throw new InvalidOperationException("内嵌默认配方内容为空或无效（缺 engine 段）");
         return recipe;
     }
 }

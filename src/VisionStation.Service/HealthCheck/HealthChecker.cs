@@ -7,34 +7,43 @@ namespace VisionStation.Service;
 /// <summary>
 /// 启动自检
 ///
-/// 检查项：
-///   相机在线、数据库、存储路径可写、模板文件存在、配方文件合法
+/// 检查项：相机在线、数据库、存储路径、检测引擎资源、配方合法。
 ///
-/// 被 App.xaml.cs 调用，写日志。不为零外部依赖。
+/// 与改造前的区别：原来的"模板文件"检查变成了"检测引擎"检查 ——
+/// 模板是自研 PresenceTool 的输入，现在引擎的输入是 .sol 流程文件或 ONNX 模型。
+/// 检查的对象变了，但目的没变：**在启动时就把"跑不起来的配置"指出来**，
+/// 而不是等第一帧检测时才炸，还炸得不知所云。
 /// </summary>
 public class HealthChecker : IHealthChecker
 {
     /// <summary>SQLite 文件头魔数（"SQLite format 3\0"，16 字节）</summary>
     private static readonly byte[] SqliteMagic = "SQLite format 3\0"u8.ToArray();
 
-    /// <summary>ToolFactory 支持的工具类型；不在其中 = 该工具会被静默跳过</summary>
-    private static readonly HashSet<string> KnownToolTypes =
-        new(StringComparer.OrdinalIgnoreCase) { "Presence", "Dimension", "Defect", "Yolo" };
-
     private readonly DeviceManager _devices;
     private readonly string _dbPath;
     private readonly string _storagePath;
-    private readonly string _templatePath;
     private readonly RecipeConfig? _recipe;
+    private readonly string _assetRoot;
 
+    /// <summary>引擎运行时本身不可用时的原因（如本机没装 VM SDK），null = 正常</summary>
+    private readonly string? _engineRuntimeProblem;
+
+    /// <param name="devices">设备管理器</param>
+    /// <param name="dbPath">数据库文件</param>
+    /// <param name="storagePath">图片存储目录</param>
+    /// <param name="recipe">已加载的配方（可空：部分探针测试只验单项检查）</param>
+    /// <param name="assetRoot">引擎资源的解析基准目录（exe 目录）</param>
+    /// <param name="engineRuntimeProblem">引擎运行时缺失的原因（可选）</param>
     public HealthChecker(DeviceManager devices,
-        string dbPath, string storagePath, string templatePath, RecipeConfig? recipe)
+        string dbPath, string storagePath, RecipeConfig? recipe, string assetRoot,
+        string? engineRuntimeProblem = null)
     {
         _devices = devices;
         _dbPath = dbPath;
         _storagePath = storagePath;
-        _templatePath = templatePath;
         _recipe = recipe;
+        _assetRoot = assetRoot;
+        _engineRuntimeProblem = engineRuntimeProblem;
     }
 
     /// <summary>
@@ -58,7 +67,7 @@ public class HealthChecker : IHealthChecker
             Safe(CheckDevices, "设备连接"),   // 1. 相机在线
             Safe(CheckDatabase, "数据库"),    // 2. 数据库文件
             Safe(CheckStorage, "存储路径"),   // 3. 存储路径
-            Safe(CheckTemplate, "模板文件"),  // 4. 模板文件
+            Safe(CheckEngine, "检测引擎"),    // 4. 引擎资源（.sol / 模型）
             Safe(CheckRecipe, "配方")         // 5. 配方
         };
     }
@@ -163,66 +172,48 @@ public class HealthChecker : IHealthChecker
         }
     }
 
-    private HealthResult CheckTemplate()
+    /// <summary>
+    /// 检测引擎检查：引擎资源在不在、运行时有没有缺。
+    ///
+    /// 这三件事分别对应三种完全不同的故障：
+    ///   1. 资源缺失 —— 工程师没把 .sol / 模型拷过来（部署问题）
+    ///   2. 运行时缺失 —— 本机没装 VM 或没部署其运行时（环境问题）
+    ///   3. 配方非法 —— 引擎名/参数写错（配置问题）
+    /// 混成一句"检测失败"的话，现场要在三种方向之间乱试。
+    /// </summary>
+    private HealthResult CheckEngine()
     {
-        // S7：模板可以随配方走（每个 Presence 工具自带 template 字段）。
-        // 自检必须检查"实际会被加载的那几个" —— 否则会出现最坏的情况：
-        // 自检说模板 OK，工具那边 File.Exists 不成立就静默不加载，匹配结果全凭运气。
-        // _recipe 可空（部分探针测试只验单项检查），空时退到全局模板路径。
-        var fromRecipe = _recipe is null
-            ? new List<string>()
-            : _recipe.Tools
-                .Where(t => t.Enabled && string.Equals(t.Type, "Presence", StringComparison.OrdinalIgnoreCase))
-                .Select(t => t.Template)
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+        if (_recipe is null)
+            return new HealthResult("检测引擎", false, "未加载配方", "配方为空，无法确定用哪个引擎");
 
-        if (fromRecipe.Count > 0)
-        {
-            var missing = fromRecipe.Where(p => !File.Exists(p)).ToList();
-            if (missing.Count > 0)
-                return new HealthResult("模板文件", false, string.Join("；", missing), "配方声明的模板不存在");
+        var isVm = string.Equals(_recipe.Engine, EngineNames.Vm, StringComparison.OrdinalIgnoreCase);
+        var label = isVm ? "VM 流程文件" : "ONNX 模型";
 
-            var undecodable = fromRecipe.FirstOrDefault(p => !LooksLikeImage(p));
-            if (undecodable != null)
-                return new HealthResult("模板文件", false, undecodable, "文件存在但不是可识别的图像");
+        var configured = isVm ? _recipe.Vm.SolutionPath : _recipe.Onnx.ModelPath;
+        if (string.IsNullOrWhiteSpace(configured))
+            return new HealthResult("检测引擎", false, _recipe.Engine, $"{label}路径未配置");
 
-            return new HealthResult("模板文件", true, string.Join("；", fromRecipe));
-        }
+        var path = RecipeConfig.ResolveAsset(configured, _assetRoot);
 
-        // 配方没声明模板 → 检查全局默认（单配方时代的写法，保持兼容）
-        if (string.IsNullOrEmpty(_templatePath))
-            return new HealthResult("模板文件", false, "未配置", "TemplatePath 为空");
+        if (!File.Exists(path))
+            return new HealthResult("检测引擎", false, $"{_recipe.Engine} · {path}",
+                $"{label}不存在");
 
-        if (!File.Exists(_templatePath))
-            return new HealthResult("模板文件", false, _templatePath, "文件不存在");
-
-        // 文件存在 ≠ 可解码。只读文件头魔数，不解码、不引第三方库。
-        // 挡住「改了扩展名的文本 / 半截下载文件」——这类文件在运行期才会炸，停机点太晚。
-        if (!LooksLikeImage(_templatePath))
-            return new HealthResult("模板文件", false, _templatePath, "文件存在但不是可识别的图像");
-
-        return new HealthResult("模板文件", true, _templatePath);
-    }
-
-    /// <summary>按文件头判断是否为常见图像（BMP / PNG / JPEG / RIFF-WEBP）</summary>
-    private static bool LooksLikeImage(string path)
-    {
-        Span<byte> head = stackalloc byte[12];
-        int n;
         try
         {
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            n = fs.Read(head);
+            if (new FileInfo(path).Length == 0)
+                return new HealthResult("检测引擎", false, $"{_recipe.Engine} · {path}", $"{label}是空文件");
         }
-        catch { return false; }
+        catch (IOException ex)
+        {
+            return new HealthResult("检测引擎", false, $"{_recipe.Engine} · {path}", $"文件无法读取（{ex.GetType().Name}）");
+        }
 
-        if (n >= 2 && head[0] == (byte)'B' && head[1] == (byte)'M') return true;                     // BMP
-        if (n >= 4 && head[0] == 0x89 && head[1] == 0x50 && head[2] == 0x4E && head[3] == 0x47) return true; // PNG
-        if (n >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF) return true;            // JPEG
-        if (n >= 4 && head[0] == (byte)'R' && head[1] == (byte)'I' && head[2] == (byte)'F' && head[3] == (byte)'F') return true; // WEBP
-        return false;
+        // 运行时缺失优先报：此时即使文件齐了也跑不起来，先说最致命的那条
+        if (_engineRuntimeProblem is { } problem)
+            return new HealthResult("检测引擎", false, $"{_recipe.Engine} · {Path.GetFileName(path)}", problem);
+
+        return new HealthResult("检测引擎", true, $"{_recipe.Engine} · {Path.GetFileName(path)}");
     }
 
     private HealthResult CheckRecipe()
@@ -230,39 +221,14 @@ public class HealthChecker : IHealthChecker
         if (_recipe == null)
             return new HealthResult("配方文件", false, "空", "配方为空");
 
-        if (_recipe.Tools.Count == 0)
-            return new HealthResult("配方文件", false, "空", "配方无效或为空");
-
-        // 只查 Tools.Count > 0 不够：「类型为空 / 引用了不存在的 ROI / 标定值为 0」
-        // 都会被放行，缺陷到运行期才炸（且不报错，只是判定结果悄悄变错）。
-        var problems = new List<string>();
-
-        double ppm = _recipe.Calibration?.PixelPerMillimeter ?? 0;
-        if (ppm <= 0)
-            problems.Add($"标定值非法 PixelPerMillimeter={ppm}");
-
-        var roiNames = new HashSet<string>(
-            _recipe.Rois.Select(r => r.Name), StringComparer.OrdinalIgnoreCase);
-
-        foreach (var t in _recipe.Tools.Where(t => t.Enabled))
-        {
-            if (string.IsNullOrWhiteSpace(t.Type))
-            {
-                problems.Add("存在工具未指定类型");
-                continue;
-            }
-            if (!KnownToolTypes.Contains(t.Type))
-                problems.Add($"未知工具类型 {t.Type}");
-
-            // Yolo 允许不绑 ROI（它自己出框），其余工具必须绑到存在的 ROI
-            if (!string.IsNullOrWhiteSpace(t.Roi) && !roiNames.Contains(t.Roi))
-                problems.Add($"{t.Type} 引用了不存在的 ROI: {t.Roi}");
-        }
-
+        // 校验规则本身在 Core（RecipeConfig.Validate），这里只负责把它说给操作员听。
+        // 规则写在两处迟早会对不上 —— 这是"单一真相源"最容易被破坏的地方之一。
+        var problems = _recipe.Validate();
         bool ok = problems.Count == 0;
+
         return new HealthResult("配方文件",
             ok,
-            ok ? $"{_recipe.Name} · {_recipe.Tools.Count}个工具" : string.Join("；", problems.Take(3)),
+            ok ? $"{_recipe.Name} · {_recipe.Engine}" : string.Join("；", problems.Take(3)),
             ok ? null : "配方不合法");
     }
 }

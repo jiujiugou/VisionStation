@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\VisionStation.Core\VisionStation.Core.csproj" />
+    <ProjectReference Include="..\..\src\VisionStation.Engines.Onnx\VisionStation.Engines.Onnx.csproj" />
   </ItemGroup>
 
 </Project>

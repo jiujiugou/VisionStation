@@ -1,0 +1,70 @@
+<UserControl x:Class="VisionStation.App.Views.TopBarView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:TopBarViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        顶栏：工位名 + 当前模式（左），配方 / 引擎 / 画面 / 设备灯 / 模式开关（右）。
+        常驻不滚动 —— "状态永远可见"是产线界面的第一条铁律：操作员不该点开菜单
+        才发现设备掉线。这里只放"随时要瞟一眼"的，明细留在各自的页面里。
+    -->
+    <Border Background="{StaticResource TopBarBg}"
+            BorderBrush="{StaticResource TopBarBorder}"
+            BorderThickness="0,0,0,1"
+            Height="42"
+            Padding="14,0">
+        <Grid>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <TextBlock Text="{Binding StationName}"
+                           FontSize="13" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimary}" />
+                <TextBlock Text="{Binding ModeText}"
+                           FontSize="12"
+                           Foreground="{StaticResource TextMuted}"
+                           Margin="10,0,0,0" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+
+                <!-- 配方信息：只读。切换配方的代价是换引擎实例，不属于顶栏一次点击 -->
+                <TextBlock Text="配方" FontSize="12" Foreground="{StaticResource TextMuted}"
+                           VerticalAlignment="Center" />
+                <TextBlock Text="{Binding RecipeName}" FontSize="12" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimary}" Margin="6,0,0,0"
+                           VerticalAlignment="Center" />
+                <TextBlock Text="{Binding EngineText}" FontSize="12"
+                           Foreground="{StaticResource TextSecondary}" Margin="8,0,0,0"
+                           VerticalAlignment="Center" />
+                <TextBlock Text="{Binding FrameText}" FontSize="12"
+                           Foreground="{StaticResource TextMuted}" Margin="8,0,0,0"
+                           VerticalAlignment="Center" />
+
+                <Border Width="1" Height="14" Background="{StaticResource CardBorder}" Margin="14,0" />
+
+                <!-- 设备灯 -->
+                <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                         Fill="{Binding CameraOnline, Converter={StaticResource BoolToCameraColor}}" />
+                <TextBlock Text="相机" FontSize="12" Foreground="{StaticResource TextSecondary}"
+                           Margin="5,0,0,0" VerticalAlignment="Center" />
+
+                <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="14,0,0,0"
+                         Fill="{Binding PlcOnline, Converter={StaticResource BoolToCameraColor}}" />
+                <TextBlock Text="{Binding PlcText}" FontSize="12" Foreground="{StaticResource TextSecondary}"
+                           Margin="5,0,0,0" VerticalAlignment="Center" />
+
+                <Border Width="1" Height="14" Background="{StaticResource CardBorder}" Margin="14,0" />
+
+                <Button Content="切换模式"
+                        Command="{Binding ToggleModeCommand}"
+                        Style="{StaticResource MinorButton}"
+                        MinWidth="72"
+                        AutomationProperties.Name="切换运行与工程师模式"
+                        ToolTip="工程师模式会显示相机参数与日志等调试页面" />
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

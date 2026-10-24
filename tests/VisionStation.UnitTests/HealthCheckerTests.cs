@@ -24,7 +24,11 @@ public class HealthCheckerTests : IDisposable
     }
 
     private HealthChecker Make(string? dbPath, DeviceManager? devices = null)
-        => new(devices ?? new DeviceManager(), dbPath!, NewDir(), "", null);
+    {
+        // 资源根与存储目录用同一个临时目录：这些用例只关心设备/数据库，引擎资源不参与
+        var dir = NewDir();
+        return new(devices ?? new DeviceManager(), dbPath!, dir, null, dir);
+    }
 
     /// <summary>R-017：设备表为空不得判「全部在线」——0==0 是判据失效，必须显式 FAIL。</summary>
     [Fact]

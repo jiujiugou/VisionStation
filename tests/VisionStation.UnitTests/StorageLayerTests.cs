@@ -2,7 +2,6 @@ using System.Globalization;
 using Microsoft.Data.Sqlite;
 using OpenCvSharp;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
 using VisionStation.Storage;
 using Xunit;
 
@@ -23,10 +22,11 @@ public class StorageLayerTests
 
     private static InspectionReport MakeReport(string trigger = "Test")
     {
-        var r = new InspectionReport { TriggerSource = trigger };
-        r.SetToolResult("Presence", ToolResult.Ok("有"));
-        r.SetToolResult("Dimension", ToolResult.Ok("尺寸合格"));
-        r.SetToolResult("Defect", ToolResult.Ok("无缺陷"));
+        var r = new InspectionReport { TriggerSource = trigger, Engine = "TestEngine" };
+        // 键是业务名、Role 决定进哪一列 —— 与真实引擎的产出方式一致
+        r.SetToolResult("有无", new ToolResult { IsOk = true, Summary = "有", Role = ResultKeys.Locate });
+        r.SetToolResult("尺寸", new ToolResult { IsOk = true, Summary = "尺寸合格", Role = ResultKeys.Measure });
+        r.SetToolResult("缺陷", new ToolResult { IsOk = true, Summary = "无缺陷", Role = ResultKeys.Defect });
         return r;
     }
 
@@ -99,7 +99,7 @@ public class StorageLayerTests
         await repo.EnsureCreatedAsync();
 
         var report = MakeReport();
-        report.SetToolResult("Yolo", ToolResult.Ng("孔位缺失"));   // 第四个工具
+        report.SetToolResult("划痕", ToolResult.Ng("孔位缺失"));   // 第四项（无角色，只进 JSON 快照）
 
         await repo.SaveAsync(report);
 
@@ -110,8 +110,8 @@ public class StorageLayerTests
         using var doc = System.Text.Json.JsonDocument.Parse(rows[0].ToolResultsJson);
         var props = doc.RootElement.EnumerateObject().ToList();
         Assert.Equal(4, props.Count);
-        Assert.False(doc.RootElement.GetProperty("Yolo").GetProperty("IsOk").GetBoolean());
-        Assert.True(doc.RootElement.GetProperty("Presence").GetProperty("IsOk").GetBoolean());
+        Assert.False(doc.RootElement.GetProperty("划痕").GetProperty("IsOk").GetBoolean());
+        Assert.True(doc.RootElement.GetProperty("有无").GetProperty("IsOk").GetBoolean());
     }
 
     // ── R-S03：老库缺列要能自动补，且不丢数据 ──────────────────────

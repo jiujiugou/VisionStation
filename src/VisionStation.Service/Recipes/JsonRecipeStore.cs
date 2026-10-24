@@ -157,7 +157,7 @@ public sealed class JsonRecipeStore : IRecipeStore
                     recipe.Sensor.Width,
                     recipe.Sensor.Height,
                     recipe.UpdatedAt,
-                    recipe.Tools.Count(t => t.Enabled),
+                    recipe.Engine,
                     string.Equals(fileName, active, StringComparison.OrdinalIgnoreCase)));
             }
             catch (Exception ex)
@@ -216,10 +216,13 @@ public sealed class JsonRecipeStore : IRecipeStore
     private RecipeConfig? ReadRecipe(string path)
     {
         var json = File.ReadAllText(path);
-        var recipe = JsonSerializer.Deserialize<RecipeConfig>(json, Options);
 
-        // 没有工具 = 这份文件不是配方（或者是写坏的空壳）。组合根也是这个判据。
-        return recipe is { Tools.Count: > 0 } ? recipe : null;
+        // 没声明 engine = 这份文件不是配方（或还是 schemaVersion 1 的旧配方）。
+        // 判据本身在 Core，组合根用的是同一个 —— 两处判据不同会出现
+        // "列表里能看见、启动时加载不了"这种自相矛盾。
+        if (!RecipeConfig.HasEngineDeclaration(json)) return null;
+
+        return JsonSerializer.Deserialize<RecipeConfig>(json, Options);
     }
 
     private string? ReadPointer()

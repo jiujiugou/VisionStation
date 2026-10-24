@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VisionMaster 结果模拟器。
+
+    干什么：往 VisionStation 的 VM 链路端口发几行结果 JSON，
+            不用开 VM 客户端就能验证"接收 → 解析 → 入库 → 界面"整条链。
+
+    为什么值得留一个：
+      · 联调时 VM 那边还没配好「发送数据」模块，上位机侧可以先自证能跑；
+      · 改完解析规则，用它回归一遍比每次都开 VM 快得多；
+      · 演示时不需要授权、不需要相机。
+
+    它只做一件事：连上去、写一行、关掉。不模拟真实节拍，也不做重连压力测试。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>VisionStation.VmSimulator</RootNamespace>
+    <AssemblyName>VmSimulator</AssemblyName>
+  </PropertyGroup>
+
+</Project>

@@ -1,5 +1,5 @@
 using NetArchTest.Rules;
-using VisionStation.Core;
+using VisionStation.Core.Engines;
 using VisionStation.Service;
 
 namespace VisionStation.UnitTests;
@@ -24,7 +24,7 @@ namespace VisionStation.UnitTests;
 /// </summary>
 public class ArchitectureTests
 {
-    private static readonly System.Reflection.Assembly CoreAssembly = typeof(Pipeline).Assembly;
+    private static readonly System.Reflection.Assembly CoreAssembly = typeof(IInspectionEngine).Assembly;
     private static readonly System.Reflection.Assembly ServiceAssembly = typeof(HealthChecker).Assembly;
 
     [Fact]

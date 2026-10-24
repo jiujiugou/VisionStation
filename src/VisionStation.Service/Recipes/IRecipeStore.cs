@@ -20,7 +20,7 @@ public sealed record RecipeSummary(
     int Width,
     int Height,
     DateTimeOffset? UpdatedAt,
-    int ToolCount,
+    string Engine,
     bool IsActive);
 
 /// <summary>

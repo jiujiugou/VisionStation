@@ -1,16 +1,18 @@
+using System.IO;
 using System.ComponentModel;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using VisionStation.App.Abstractions;
+using VisionStation.App.Services;
+using VisionStation.App.Composition;
 using VisionStation.App.Composition.Lifecycle;
-using VisionStation.App.Services.Coordinates;
 using VisionStation.App.Services.Inspection;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Models;
-using VisionStation.Core.Tools;
+using VisionStation.Core.Engines;
 using VisionStation.Devices;
 using VisionStation.Storage;
 using VisionStation.Service.Recipes;
@@ -159,6 +161,9 @@ internal sealed class FakeWorkflow : IInspectionWorkflow
 
     public CancellationToken LastToken { get; private set; }
 
+    /// <summary>VM 推送进来的报告（按到达顺序记录），用来断言"外部结果确实走到了工作流"。</summary>
+    public List<InspectionReport> ExternalReports { get; } = new();
+
     public async Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct)
     {
         RunCount++;
@@ -167,6 +172,108 @@ internal sealed class FakeWorkflow : IInspectionWorkflow
         if (Gate is { } gate) return await gate.Task.WaitAsync(ct).ConfigureAwait(false);
 
         return Result;
+    }
+
+    public Task<InspectionRunResult?> AcceptExternalAsync(InspectionReport report, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+
+        ExternalReports.Add(report);
+        LastToken = ct;
+
+        return Task.FromResult(Result);
+    }
+}
+
+/// <summary>
+/// 检测引擎替身。
+///
+/// 与 <see cref="FakeWorkflow"/> 的分工：那个替身替掉"整条链路"（含采图/存图/存库），
+/// 这个只替掉"判定" —— 工作流自己的职责（尺寸校验、存图失败计数、帧释放）
+/// 必须用真工作流传真引擎跑，才测得到。
+/// </summary>
+internal sealed class FakeEngine : IInspectionEngine
+{
+    /// <summary>固定返回的报告（未设置 Factory 时使用）</summary>
+    public InspectionReport? Report { get; set; }
+
+    /// <summary>按请求生成报告（优先级高于 Report）</summary>
+    public Func<InspectionRequest, InspectionReport>? Factory { get; set; }
+
+    public int InspectCount { get; private set; }
+
+    /// <summary>重载被调用次数</summary>
+    public int ReloadCount { get; private set; }
+
+    /// <summary>重载返回的失败原因（null = 成功）</summary>
+    public string? ReloadProblem { get; set; }
+
+    public string Name => "FakeEngine";
+
+    public InspectionReport Inspect(InspectionRequest request)
+    {
+        InspectCount++;
+        return Factory?.Invoke(request)
+            ?? Report
+            ?? InspectionReport.Failure(Name, "替身未配置报告", request.TriggerSource, request.ImagePath);
+    }
+
+    public string? Reload()
+    {
+        ReloadCount++;
+        return ReloadProblem;
+    }
+
+    public void Dispose() { }
+}
+
+/// <summary>
+/// 支持输出扫描的引擎替身（只有 VM 引擎才有这个能力）。
+/// 单独一个类而不是给 <see cref="FakeEngine"/> 加接口：
+/// "引擎不支持扫描"本身是一条要测的分支（ONNX 引擎就是这种情况）。
+/// </summary>
+internal sealed class FakeScanningEngine : IInspectionEngine, IOutputScanner
+{
+    public OutputScanResult Result { get; set; } = new(Array.Empty<ScannedModule>(), null);
+
+    /// <summary>最近一次扫描收到的模块名</summary>
+    public IReadOnlyList<string> LastScanNames { get; private set; } = Array.Empty<string>();
+
+    public string Name => "FakeVm";
+
+    public InspectionReport Inspect(InspectionRequest request)
+        => InspectionReport.Failure(Name, "替身不检测", request.TriggerSource, request.ImagePath);
+
+    public string? Reload() => null;
+
+    public OutputScanResult Scan(IReadOnlyList<string> moduleNames)
+    {
+        LastScanNames = moduleNames;
+        return Result;
+    }
+
+    public void Dispose() { }
+}
+
+/// <summary>测试用的路径与配方：数据目录落临时目录，避免污染 bin。</summary>
+internal static class TestPaths
+{
+    public static AppPaths Create() => new(new AppOptions
+    {
+        DataRoot = Path.Combine(Path.GetTempPath(), "vs_test_" + Guid.NewGuid().ToString("N")[..8])
+    });
+
+    /// <summary>带一个模块声明的配方 —— 扫描命令要有模块名才做事</summary>
+    public static RecipeConfig Recipe()
+    {
+        var recipe = new RecipeConfig { Name = "测试配方", Engine = EngineNames.Vm };
+        recipe.Vm.Outputs.Add(new VmOutputMapping
+        {
+            Module = "圆查找1",
+            Label = "外径",
+            Role = ResultKeys.Measure
+        });
+        return recipe;
     }
 }
 
@@ -222,7 +329,8 @@ internal static class TestPages
         FakeCamera? camera = null,
         ShutdownState? shutdown = null,
         InFlightWorkMonitor? inFlight = null,
-        ILogger<InspectionPageViewModel>? logger = null)
+        ILogger<InspectionPageViewModel>? logger = null,
+        IInspectionEngine? engine = null)
     {
         trigger ??= new FakeTriggerSource();
         camera ??= new FakeCamera();
@@ -231,8 +339,8 @@ internal static class TestPages
             new ImagePanelViewModel(),
             new ResultPanelViewModel(),
             new LogPanelViewModel(),
-            new ControlPanelViewModel(trigger, camera, new NoopDialog()),
-            new RoiEditorViewModel(new CoordinateMapper(), new RecipeConfig(), new NoopRecipeStore(), new NoopDialog()),
+            new ControlPanelViewModel(trigger, camera, new NoopDialog(),
+                engine ?? new FakeEngine(), TestPaths.Create(), TestPaths.Recipe()),
             workflow ?? new FakeWorkflow(),
             trigger,
             camera,

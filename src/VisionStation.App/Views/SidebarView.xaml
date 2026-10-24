@@ -4,58 +4,55 @@
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             Width="52" Background="{StaticResource SidebarBg}"
+             Width="60" Background="{StaticResource SidebarBg}"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:SidebarViewModel, IsDesignTimeCreatable=False}">
+
+    <!-- 导航项 = 按钮，不是列表项。
+         以前是两个 ListBox 共享一个 SelectedItem，实测会同时亮两个图标
+         （各列表各自记住自己的选中项，互不清除），操作员判断不出当前页。
+         改成按钮后彻底没有"选中"这个控件状态：高亮完全由 NavItem.IsActive 决定，
+         而 IsActive 由 SidebarViewModel 从 NavigationService.CurrentRoute 单向同步。 -->
     <UserControl.Resources>
-        <Style x:Key="NavListBox" TargetType="ListBox">
+        <Style x:Key="NavButton" TargetType="Button">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="ItemContainerStyle">
+            <Setter Property="Foreground" Value="#999" />
+            <!-- 按钮内容全在模板里（只有一个 Path），默认算不出可读名。
+                 显式给一个：读屏软件靠它，自动走查也靠它按名字点。 -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+            <!-- 键盘焦点交给页面内容，侧边栏不抢 Tab 序列 -->
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
                 <Setter.Value>
-                    <Style TargetType="ListBoxItem">
-                        <Setter Property="Width" Value="38" />
-                        <Setter Property="Height" Value="38" />
-                        <Setter Property="Margin" Value="0,2" />
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="Cursor" Value="Hand" />
-                        <Setter Property="Foreground" Value="#999" />
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="ListBoxItem">
-                                    <Border x:Name="border"
-                                            Background="{TemplateBinding Background}"
-                                            CornerRadius="4" Padding="0"
-                                            ToolTip="{Binding Label}">
-                                        <Path Data="{Binding Geometry}"
-                                              Fill="{TemplateBinding Foreground}"
-                                              Width="18" Height="18"
-                                              Stretch="Uniform"
-                                              HorizontalAlignment="Center"
-                                              VerticalAlignment="Center" />
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="{StaticResource SidebarHover}" />
-                                            <Setter Property="Foreground" Value="{StaticResource CardBg}" />
-                                        </Trigger>
-                                        <Trigger Property="IsSelected" Value="True">
-                                            <Setter TargetName="border" Property="Background" Value="{StaticResource Accent}" />
-                                            <Setter Property="Foreground" Value="{StaticResource CardBg}" />
-                                        </Trigger>
-                                        <MultiTrigger>
-                                            <MultiTrigger.Conditions>
-                                                <Condition Property="IsSelected" Value="True" />
-                                                <Condition Property="IsMouseOver" Value="True" />
-                                            </MultiTrigger.Conditions>
-                                            <Setter TargetName="border" Property="Background" Value="{StaticResource AccentHover}" />
-                                        </MultiTrigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="4"
+                                ToolTip="{Binding Label}">
+                            <Path Data="{Binding Geometry}"
+                                  Fill="{TemplateBinding Foreground}"
+                                  Width="18" Height="18"
+                                  Stretch="Uniform"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource SidebarHover}" />
+                                <Setter Property="Foreground" Value="{StaticResource CardBg}" />
+                            </Trigger>
+                            <!-- 放在 IsMouseOver 之后：当前页悬停时保持强调色，不闪回灰色 -->
+                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource Accent}" />
+                                <Setter Property="Foreground" Value="{StaticResource CardBg}" />
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
@@ -68,23 +65,38 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- 上部导航 (4个) -->
-        <!-- 导航 = 选中状态，绑定即可；不再有 SelectionChanged 回调 -->
-        <ListBox x:Name="TopNav" Grid.Row="0" ItemsSource="{Binding TopItems}"
-                 Style="{StaticResource NavListBox}"
-                 SelectedItem="{Binding SelectedNavItem, Mode=TwoWay}"
-                 Margin="0,6,0,0" />
+        <!-- 上部导航 -->
+        <ItemsControl Grid.Row="0" Margin="0,6,0,0"
+                      HorizontalAlignment="Center"
+                      ItemsSource="{Binding TopItems}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Style="{StaticResource NavButton}"
+                            CommandParameter="{Binding}"
+                            Command="{Binding DataContext.NavigateCommand,
+                                              RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
 
-        <!-- 自动运行指示灯（space区域中央） -->
+        <!-- 自动运行指示灯 -->
         <Ellipse Grid.Row="1" Width="8" Height="8" Fill="{StaticResource Ok}"
                  HorizontalAlignment="Center" VerticalAlignment="Bottom"
                  Margin="0,0,0,12"
                  Visibility="{Binding IsDimmed, Converter={StaticResource BoolToVis}}" />
 
-        <!-- 下部导航 (4个) -->
-        <ListBox x:Name="BottomNav" Grid.Row="2" ItemsSource="{Binding BottomItems}"
-                 Style="{StaticResource NavListBox}"
-                 SelectedItem="{Binding SelectedNavItem, Mode=TwoWay}"
-                 Margin="0,0,0,8" />
+        <!-- 下部导航：绑的是按模式过滤后的子集，不是全量 -->
+        <ItemsControl Grid.Row="2" Margin="0,0,0,8"
+                      HorizontalAlignment="Center"
+                      ItemsSource="{Binding VisibleBottomItems}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Style="{StaticResource NavButton}"
+                            CommandParameter="{Binding}"
+                            Command="{Binding DataContext.NavigateCommand,
+                                              RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
     </Grid>
 </UserControl>

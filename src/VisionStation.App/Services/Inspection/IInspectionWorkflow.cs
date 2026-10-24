@@ -27,6 +27,17 @@ public interface IInspectionWorkflow
     ///   3. 帧图像的 <c>Mat</c> 在方法内释放，调用方拿到的只有托管位图。
     /// </remarks>
     Task<InspectionRunResult?> RunOnceAsync(CancellationToken ct);
+
+    /// <summary>
+    /// 外部引擎（VisionMaster）推来一帧结果：读图 → 标注 → 存库，返回可显示的结果。
+    ///
+    /// 为什么不复用 <see cref="RunOnceAsync"/>：那一条是"程序主动采图 → 检测"，
+    /// VM 模式下方向和数据源都不一样（图在 VM 侧、结果已是最终的）。
+    /// 硬塞进一个方法会让里面到处是 if，两种模式都变得看不清。
+    /// </summary>
+    /// <param name="report">已由 VM 结果解析出的报告（判定不再修改）</param>
+    /// <param name="ct">取消令牌</param>
+    Task<InspectionRunResult?> AcceptExternalAsync(InspectionReport report, CancellationToken ct);
 }
 
 /// <summary>

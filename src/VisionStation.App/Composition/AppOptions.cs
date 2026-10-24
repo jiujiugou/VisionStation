@@ -26,11 +26,17 @@ public sealed record PlcOptions(bool Enabled, string Ip, int Port, byte Station,
 
 public sealed record StorageOptions(string Mode, string ImageFolder, string DbPath);
 
-public sealed record DetectionOptions(string TemplatePath);
-
 public sealed record RecipeOptions(string Path);
 
 public sealed record LoggingOptions(string LogFolder);
+
+/// <summary>
+/// VM 结果链路的监听参数。
+/// </summary>
+/// <param name="Enabled">是否启动监听。配方引擎不是 Vm 时保持 false，避免白起一个端口。</param>
+/// <param name="Port">监听端口，VisionMaster 里「发送数据」模块配成 TCP 客户端连这里</param>
+/// <param name="BindAddress">绑定地址。默认只监听本机，VM 与上位机同机部署时够用</param>
+public sealed record VmLinkOptions(bool Enabled, int Port, string BindAddress);
 
 /// <summary>
 /// 全部应用选项的聚合。绑定入口是 <see cref="AppOptionsBinder.Bind"/>。
@@ -41,9 +47,15 @@ public sealed record AppOptions
     public TriggerOptions Trigger { get; init; } = new(2000);
     public PlcOptions Plc { get; init; } = new(false, "127.0.0.1", 502, 1, "D100", "D101", "D102", 100);
     public StorageOptions Storage { get; init; } = new("All", "InspectedImages", "visionstation.db");
-    public DetectionOptions Detection { get; init; } = new(@"TestImages\hole_template.png");
     public RecipeOptions Recipe { get; init; } = new(@"Config\recipes\default.json");
     public LoggingOptions Logging { get; init; } = new("Logs");
+
+    /// <summary>
+    /// VM 结果链路的监听参数（TCP 中转模式）。
+    /// 端口属于"这台机器"，不属于"这个产品"，所以放 appsettings 而不是配方 ——
+    /// 换产品只换配方，改端口才动配置。
+    /// </summary>
+    public VmLinkOptions VmLink { get; init; } = new(false, 9100, "127.0.0.1");
 
     /// <summary>Service 层的管家阈值 record，自带构造校验（阈值填错启动即失败），这里直接复用。</summary>
     public HousekeepingOptions Housekeeping { get; init; } = HousekeepingOptions.Default;
@@ -99,9 +111,6 @@ public static class AppOptionsBinder
         if (!allowedStorageModes.Contains(storage.Mode, StringComparer.OrdinalIgnoreCase))
             errors.Add($"Storage:Mode = \"{storage.Mode}\" 不合法，可选值：{string.Join(", ", allowedStorageModes)}");
 
-        var detection = new DetectionOptions(
-            Read(config, "Detection:TemplatePath", @"TestImages\hole_template.png"));
-
         var recipe = new RecipeOptions(
             Read(config, "Recipe:Path", @"Config\recipes\default.json"));
 
@@ -109,6 +118,8 @@ public static class AppOptionsBinder
             Read(config, "Logging:LogFolder", "Logs"));
 
         var housekeeping = ReadHousekeeping(config, errors);
+
+        var vmLink = ReadVmLink(config, errors);
 
         var dataRoot = ResolveDataRoot(dataRootOverride);
 
@@ -121,12 +132,29 @@ public static class AppOptionsBinder
             Trigger = trigger,
             Plc = plc,
             Storage = storage,
-            Detection = detection,
             Recipe = recipe,
             Logging = logging,
             Housekeeping = housekeeping,
+            VmLink = vmLink,
             DataRoot = dataRoot
         };
+    }
+
+    /// <summary>
+    /// VM 链路：Enabled=false 时其余键全部走默认值不校验（没有 VM 的环境不该被迫配它）；
+    /// Enabled=true 时端口必须合法 —— 端口配错会让现场一直等不到结果，比启动期报错难查得多。
+    /// </summary>
+    private static VmLinkOptions ReadVmLink(IConfiguration config, List<string> errors)
+    {
+        var enabled = ReadBool(config, "VmLink:Enabled", false, errors);
+        if (!enabled)
+            return new VmLinkOptions(false, 9100, "127.0.0.1");
+
+        var port = ReadInt(config, "VmLink:Port", 9100, errors);
+        if (port is <= 0 or > 65535)
+            errors.Add("VmLink:Port 必须在 1~65535 之间");
+
+        return new VmLinkOptions(true, port, Read(config, "VmLink:BindAddress", "127.0.0.1"));
     }
 
     /// <summary>

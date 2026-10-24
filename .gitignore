@@ -23,6 +23,8 @@ InspectedImages/
 
 # Crash / diagnostic logs
 crash*.log
+# VM SDK 崩溃现场（PlatformSDK-*.dmp）：几百 KB 一个，是本机调试痕迹不是源码
+*.dmp
 crash_task.log
 crash_domain.log
 crash_recipe.log

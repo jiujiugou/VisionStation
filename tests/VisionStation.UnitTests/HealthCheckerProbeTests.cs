@@ -8,6 +8,7 @@ namespace VisionStation.UnitTests;
 
 /// <summary>
 /// R-102 / R-103 正向用例：修复后的探测不得把「真的可用」误判为故障。
+/// 2026-10-23：模板文件的正例换成引擎资源（.sol / ONNX 模型），与反例文件保持一致。
 /// 与 HealthCheckerContractTests 里的反例成对存在——只有反例通过，说明是误杀，不是修复。
 /// </summary>
 public class HealthCheckerProbeTests
@@ -33,43 +34,40 @@ public class HealthCheckerProbeTests
             cmd.ExecuteNonQuery();
         }
 
-        var hc = new HealthChecker(new DeviceManager(), db, dir, "", null);
+        var hc = new HealthChecker(new DeviceManager(), db, dir, null, dir);
         var r = hc.RunAll().First(x => x.Item == "数据库");
 
         Assert.True(r.OK, $"真实可用的 SQLite 库被误判：{r.Detail} / {r.Error}");
     }
 
     [Fact]
-    public void R103_RealBmpHeader_MustPass()
+    public void R103_RealModelFile_MustPass()
     {
         var dir = NewRoot();
-        var tpl = Path.Combine(dir, "real_template.bmp");
+        var model = Path.Combine(dir, "neu-det.onnx");
+        File.WriteAllBytes(model, new byte[] { 0x08, 0x07, 0x12, 0x00 });   // 非空模型文件
 
-        // 最小 BMP 头：'B','M' + 文件长度 + 保留字段 + 像素数据偏移（共 14 字节头）
-        var bytes = new byte[54 + 16];
-        bytes[0] = (byte)'B';
-        bytes[1] = (byte)'M';
-        BitConverter.GetBytes(bytes.Length).CopyTo(bytes, 2);
-        BitConverter.GetBytes(54).CopyTo(bytes, 10);
-        File.WriteAllBytes(tpl, bytes);
+        var recipe = new RecipeConfig { Name = "ONNX 配方", Engine = EngineNames.Onnx };
+        recipe.Onnx.ModelPath = model;
 
-        var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, tpl, null);
-        var r = hc.RunAll().First(x => x.Item == "模板文件");
+        var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, recipe, dir);
+        var r = hc.RunAll().First(x => x.Item == "检测引擎");
 
-        Assert.True(r.OK, $"真实 BMP 被误判：{r.Detail} / {r.Error}");
+        Assert.True(r.OK, $"真实存在的模型被误判：{r.Detail} / {r.Error}");
     }
 
     [Fact]
-    public void R103_TextFileRenamedToBmp_MustFail()
+    public void R103_MissingModel_MustFail()
     {
         var dir = NewRoot();
-        var tpl = Path.Combine(dir, "fake_template.bmp");
-        File.WriteAllText(tpl, "plain text, not an image");
 
-        var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, tpl, null);
-        var r = hc.RunAll().First(x => x.Item == "模板文件");
+        var recipe = new RecipeConfig { Name = "ONNX 配方", Engine = EngineNames.Onnx };
+        recipe.Onnx.ModelPath = Path.Combine(dir, "not-exist.onnx");
 
-        Assert.False(r.OK, "文本文件改扩展名必须被判为不可用");
+        var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, recipe, dir);
+        var r = hc.RunAll().First(x => x.Item == "检测引擎");
+
+        Assert.False(r.OK, "模型缺失必须 FAIL：引擎在启动期就该被指出来");
     }
 
     [Fact]
@@ -79,7 +77,7 @@ public class HealthCheckerProbeTests
         var dm = new DeviceManager();
         dm.Register(new CameraDevice(new OfflineCamera()));
 
-        var hc = new HealthChecker(dm, Path.Combine(dir, "a.db"), dir, "", null);
+        var hc = new HealthChecker(dm, Path.Combine(dir, "a.db"), dir, null, dir);
 
         var item = hc.RunAll().Single(x => x.Item == "设备连接");
         Assert.False(item.OK);

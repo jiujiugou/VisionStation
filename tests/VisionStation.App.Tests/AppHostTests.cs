@@ -329,9 +329,6 @@ public class AppHostTests
 
         public Task SaveAsync(InspectionReport report) => Task.CompletedTask;
 
-        public Task<List<InspectionRecord>> GetRecentAsync(int count = 100) =>
-            Task.FromResult(new List<InspectionRecord>());
-
         public Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null) =>
             Task.FromResult((0, 0));
 

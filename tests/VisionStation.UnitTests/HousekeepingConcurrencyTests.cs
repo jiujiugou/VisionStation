@@ -65,7 +65,8 @@ public class HousekeepingConcurrencyTests
         await repo.EnsureCreatedAsync();
 
         var ex = await Record.ExceptionAsync(() =>
-            Task.WhenAll(Enumerable.Range(0, 16).Select(_ => repo.GetRecentAsync(10))));
+            Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
+                repo.QueryAsync(new InspectionQuery { Take = 10 }))));
 
         Assert.Null(ex);
     }
@@ -77,7 +78,8 @@ public class HousekeepingConcurrencyTests
         var repo = new InspectionRepository(Path.Combine(dir, "cc.db"));
         await repo.EnsureCreatedAsync();
 
-        var tasks = Enumerable.Range(0, 8).Select(_ => (Task)Task.Run(() => repo.GetRecentAsync(5)))
+        var tasks = Enumerable.Range(0, 8).Select(_ => (Task)Task.Run(() =>
+                repo.QueryAsync(new InspectionQuery { Take = 5 })))
             .Concat(Enumerable.Range(0, 8).Select(_ => (Task)Task.Run(() => repo.DeleteOlderThanAsync(DateTime.Now.AddYears(-1)))));
 
         var ex = await Record.ExceptionAsync(() => Task.WhenAll(tasks));

@@ -100,9 +100,6 @@ internal sealed class FakeInspectionRepository : IInspectionRepository
         return Task.CompletedTask;
     }
 
-    public Task<List<InspectionRecord>> GetRecentAsync(int count = 100) =>
-        Task.FromResult(new List<InspectionRecord>());
-
     public Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null) =>
         Task.FromResult((0, 0));
 

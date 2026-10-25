@@ -103,7 +103,7 @@ public class StorageLayerTests
 
         await repo.SaveAsync(report);
 
-        var rows = await repo.GetRecentAsync(1);
+        var rows = await repo.QueryAsync(new InspectionQuery { Take = 1 });
         Assert.Single(rows);
         Assert.Equal("NG", rows[0].OverallVerdict);
 
@@ -133,7 +133,7 @@ public class StorageLayerTests
 
         Assert.Contains("ToolResultsJson", ReadColumns(dbPath));
 
-        var rows = await v2.GetRecentAsync(10);
+        var rows = await v2.QueryAsync(new InspectionQuery { Take = 10 });
         Assert.Single(rows);                              // 旧数据没被清掉
         Assert.Equal("补列前", rows[0].TriggerSource);
         // 补列默认值是空串，不是 "{}"：旧行本来就没有这份快照，
@@ -142,7 +142,7 @@ public class StorageLayerTests
 
         // 补列之后能正常写入
         await v2.SaveAsync(MakeReport("补列后"));
-        Assert.Equal(2, (await v2.GetRecentAsync(10)).Count);
+        Assert.Equal(2, (await v2.QueryAsync(new InspectionQuery { Take = 10 })).Count);
     }
 
     // ── R-S04：并发写不因锁等待失败（WAL + 5s 上限）────────────────

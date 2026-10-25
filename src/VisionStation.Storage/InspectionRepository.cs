@@ -36,7 +36,6 @@ public interface IInspectionRepository
 {
     Task EnsureCreatedAsync();
     Task SaveAsync(InspectionReport report);
-    Task<List<InspectionRecord>> GetRecentAsync(int count = 100);
     Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null);
     Task<int> DeleteOlderThanAsync(DateTime cutoff);
 
@@ -198,13 +197,6 @@ public class InspectionRepository : IInspectionRepository
         _logger?.LogInformation("[DB] 保存记录 ID:{Id} 判定:{Verdict}", report.Id, report.OverallVerdict);
         return true;
     });
-
-    /// <summary>查询最近 N 条记录（按时间倒序）</summary>
-    public Task<List<InspectionRecord>> GetRecentAsync(int count = 100) => RunAsync(db =>
-        db.InspectionRecords
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(count)
-            .ToListAsync());
 
     /// <summary>统计 OK/NG 数量（可选时间范围）</summary>
     public Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null) => RunAsync(async db =>

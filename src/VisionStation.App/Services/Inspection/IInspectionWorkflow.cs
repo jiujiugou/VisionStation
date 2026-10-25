@@ -5,7 +5,7 @@ using VisionStation.Devices;
 namespace VisionStation.App.Services.Inspection;
 
 /// <summary>
-/// 一次检测的编排：采图 → Pipeline → 标注 → 存图 → 存库，返回一份可显示的结果。
+/// 一次检测的编排：采图 → 引擎判定 → 标注 → 存图 → 存库，返回一份可显示的结果。
 ///
 /// 为什么它不在 ViewModel 里：这段代码里没有一行与界面有关，
 /// 但它决定了界面会不会卡。放在 VM 里的后果是"线程归属"和"界面逻辑"
@@ -14,7 +14,7 @@ namespace VisionStation.App.Services.Inspection;
 /// 它不是 CD 里那套"为可测而生的服务"：
 ///   - 真实现只有 <see cref="InspectionWorkflow"/>；
 ///   - 测试里需要它的第二个实现，是因为"两个触发并发只跑一帧""关闭时等在途"
-///     必须能控制"这一帧什么时候返回"，用真实现＋真 Pipeline 做不到（Pipeline 没有可阻塞的注入口）。
+///     必须能控制"这一帧什么时候返回"，用真实现＋真引擎做不到（引擎没有可阻塞的注入口）。
 /// </summary>
 public interface IInspectionWorkflow
 {

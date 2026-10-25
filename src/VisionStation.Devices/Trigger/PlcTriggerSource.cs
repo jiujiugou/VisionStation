@@ -19,12 +19,12 @@ namespace VisionStation.Devices;
 ///   失败后下一笔请求本会自动重连，这里显式重试只是把"恢复时间"压到
 ///   一个轮询周期内，并且让 LastError 始终有最新原因。
 ///
-/// 归属：ModbusTcpPlc 连接由组合根创建（DI 单例，与本源、结果回写共用），
+/// 归属：PLC 连接（TCP 或 RTU，由配置决定）由组合根创建（DI 单例，与本源、结果回写共用），
 /// 本源只管轮询，Dispose 时**不关连接**——谁 new 的连接谁 dispose。
 /// </summary>
 public sealed class PlcTriggerSource : ITriggerSource
 {
-    private readonly ModbusTcpPlc _plc;
+    private readonly IPlcConnection _plc;
     private readonly PlcAddress _triggerAddress;
     private readonly PlcAddress? _heartbeatAddress;
     private readonly System.Timers.Timer _timer;
@@ -43,12 +43,12 @@ public sealed class PlcTriggerSource : ITriggerSource
     public bool IsConnected => _plc.IsConnected;
 
     /// <summary>底层连接（组合根据此把同一连接交给结果回写器——一个连接，两处共用）</summary>
-    public ModbusTcpPlc ConnectedPlc => _plc;
+    public IPlcConnection ConnectedPlc => _plc;
 
     /// <summary>最近一次失败的人话原因（与 IDevice.LastError 同一约定）</summary>
     public string? LastError => _plc.LastError;
 
-    public PlcTriggerSource(ModbusTcpPlc plc, PlcAddress triggerAddress,
+    public PlcTriggerSource(IPlcConnection plc, PlcAddress triggerAddress,
         PlcAddress? heartbeatAddress, int pollIntervalMs,
         Action<Exception>? onError = null)
     {

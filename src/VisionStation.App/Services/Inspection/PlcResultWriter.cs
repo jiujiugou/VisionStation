@@ -9,8 +9,8 @@ namespace VisionStation.App.Services.Inspection;
 /// 检测结果回写 PLC — 每帧判定完成後把 OK/NG 写进结果寄存器
 ///
 /// 归属与线程：
-///   - 组合根创建的单例，活到进程结束；底层 ModbusTcpPlc 连接与触发源共用（谁 new 谁管）。
-///   - Enqueue 永不阻塞：结果先进有界队列，后台线程消费——PLC 断线重试（TCP 超时 2s）
+///   - 组合根创建的单例，活到进程结束；底层 PLC 连接（TCP 或 RTU）与触发源共用（谁 new 谁管）。
+///   - Enqueue 永不阻塞：结果先进有界队列，后台线程消费——PLC 断线重试（TCP 2s / 串口 500ms）
 ///     绝不能卡住 UI 线程和下一帧检测。
 ///   - 队列满 = PLC 侧跟不上或断了：丢最旧的并留日志。丢回写必须可见，
 ///     否则现场只看到"PLC 收不到判定"，查无对证。
@@ -25,14 +25,14 @@ public sealed class PlcResultWriter : IDisposable
 
     private const int QueueCapacity = 16;
 
-    private readonly ModbusTcpPlc _plc;
+    private readonly IPlcConnection _plc;
     private readonly PlcAddress _resultAddress;
     private readonly ILogger? _logger;
     private readonly Channel<short> _queue = Channel.CreateBounded<short>(
         new BoundedChannelOptions(QueueCapacity) { FullMode = BoundedChannelFullMode.DropOldest });
     private readonly CancellationTokenSource _cts = new();
 
-    public PlcResultWriter(ModbusTcpPlc plc, PlcAddress resultAddress, ILogger? logger = null)
+    public PlcResultWriter(IPlcConnection plc, PlcAddress resultAddress, ILogger? logger = null)
     {
         _plc = plc;
         _resultAddress = resultAddress;

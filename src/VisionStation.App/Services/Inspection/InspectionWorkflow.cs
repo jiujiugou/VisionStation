@@ -29,6 +29,16 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     private readonly ILogger<InspectionWorkflow> _logger;
 
     /// <summary>
+    /// PLC 结果回写（可空：未启用 PLC 时为 null）。
+    ///
+    /// 归属说明：回写**必须在这一层**，不能只在界面上那一层。
+    /// 本类有两条判定路径——主动检测（RunCoreAsync）和 VM 推送（AcceptExternalCoreAsync）——
+    /// 而 VM 模式走的正是第二条。回写放在 ViewModel 里时只有第一条会回写，
+    /// 结果就是"真上产线、VM 判完、PLC 永远收不到 OK/NG"。
+    /// </summary>
+    private readonly PlcResultWriter? _plcWriter;
+
+    /// <summary>
     /// 连续存图失败次数。成功一次即清零。
     ///
     /// 单次失败可以容忍（偶发 IO 抖动），连续失败说明存储子系统已经不可用：
@@ -57,7 +67,8 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         IInspectionRepository repo,
         ImageStoreService imageStore,
         RecipeConfig recipe,
-        ILogger<InspectionWorkflow> logger)
+        ILogger<InspectionWorkflow> logger,
+        PlcResultWriter? plcWriter = null)
     {
         _camera = camera;
         _engine = engine;
@@ -65,6 +76,7 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         _imageStore = imageStore;
         _recipe = recipe;
         _logger = logger;
+        _plcWriter = plcWriter;
     }
 
     /// <summary>当前使用的引擎名（状态栏/日志用）</summary>
@@ -157,6 +169,10 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
             }
 
             await _repo.SaveAsync(report).ConfigureAwait(false);
+
+            // 回写 PLC：入库之后、返回之前。产线上 PLC 拿到判定才能动剔除机构，
+            // 越早越好；但必须等入库成功——否则会出现"PLC 已经放行、库里却没有这条记录"。
+            _plcWriter?.Write(report.IsOk);
 
             _logger.LogInformation("判定:{V} 引擎:{E} 文件:{F} 耗时:{Ms}ms",
                 report.OverallVerdict, report.Engine,
@@ -252,6 +268,10 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         ct.ThrowIfCancellationRequested();
 
         await _repo.SaveAsync(report).ConfigureAwait(false);
+
+        // 回写 PLC：VM 推送这条路径以前完全没有回写，导致"判定归 VM、回写没人做"。
+        // 与主动检测那条保持一致：入库成功后再写，避免 PLC 放行了库里却没记录。
+        _plcWriter?.Write(report.IsOk);
 
         if (report.Results.Count == 0)
             _logger.LogError("[VM] 未给出任何结论，本帧按 NG 处理");

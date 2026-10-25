@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using HslCommunication;
 using HslCommunication.ModBus;
 
@@ -8,8 +8,11 @@ namespace VisionStation.Devices.Plc;
 /// Modbus TCP 连接的薄封装。
 /// 与 NitroGateway 同款姿势：HslCommunication 上面盖一层自己的语义——
 /// 人话错误（LastError）、区域合法性自己把关、不往外漏 Hsl 类型。
+///
+/// 与 <see cref="ModbusRtuPlc"/> 是同一个 <see cref="IPlcConnection"/> 的两个实现，
+/// 上层（触发源、结果回写）按接口编程，不关心底下是网线还是串口。
 /// </summary>
-public sealed class ModbusTcpPlc : IDisposable
+public sealed class ModbusTcpPlc : IPlcConnection, IDisposable
 {
     private readonly ModbusTcpNet _client;
 
@@ -55,50 +58,50 @@ public sealed class ModbusTcpPlc : IDisposable
     }
 
     /// <summary>读一个 16 位寄存器（保持寄存器 4x）。失败返回 null 并填 LastError。</summary>
-    public short? ReadShort(PlcAddress a)
+    public short? ReadShort(PlcAddress address)
     {
-        if (a.Area != ModbusArea.HoldingRegister)
+        if (address.Area != ModbusArea.HoldingRegister)
         {
-            LastError = $"{a} 不是保持寄存器，16 位读取只支持 D/4x 区域";
+            LastError = $"{address} 不是保持寄存器，16 位读取只支持 D/4x 区域";
             return null;
         }
-        var r = _client.ReadInt16(Addr(a.Offset));
+        var r = _client.ReadInt16(Addr(address.Offset));
         return Settle(r, r.IsSuccess ? (short?)r.Content : null);
     }
 
     /// <summary>读一个位（线圈 0x / 离散输入 1x）。失败返回 null 并填 LastError。</summary>
-    public bool? ReadBit(PlcAddress a)
+    public bool? ReadBit(PlcAddress address)
     {
-        OperateResult<bool> r = a.Area switch
+        OperateResult<bool> r = address.Area switch
         {
-            ModbusArea.Coil => _client.ReadCoil(Addr(a.Offset)),
-            ModbusArea.DiscreteInput => _client.ReadDiscrete(Addr(a.Offset)),
+            ModbusArea.Coil => _client.ReadCoil(Addr(address.Offset)),
+            ModbusArea.DiscreteInput => _client.ReadDiscrete(Addr(address.Offset)),
             _ => OperateResult.CreateFailedResult<bool>(new OperateResult("保持寄存器要用 ReadShort 读，不能按位读")),
         };
         return Settle(r, r.IsSuccess ? (bool?)r.Content : null);
     }
 
     /// <summary>写一个 16 位寄存器（保持寄存器 4x）。成功返回 true。</summary>
-    public bool WriteShort(PlcAddress a, short value)
+    public bool WriteShort(PlcAddress address, short value)
     {
-        if (a.Area != ModbusArea.HoldingRegister)
+        if (address.Area != ModbusArea.HoldingRegister)
         {
-            LastError = $"{a} 不是保持寄存器，16 位写入只支持 D/4x 区域";
+            LastError = $"{address} 不是保持寄存器，16 位写入只支持 D/4x 区域";
             return false;
         }
-        var r = _client.Write(Addr(a.Offset), value);
+        var r = _client.Write(Addr(address.Offset), value);
         return Settle(r, r.IsSuccess);
     }
 
     /// <summary>写一个线圈（0x）。成功返回 true。</summary>
-    public bool WriteBit(PlcAddress a, bool value)
+    public bool WriteBit(PlcAddress address, bool value)
     {
-        if (a.Area != ModbusArea.Coil)
+        if (address.Area != ModbusArea.Coil)
         {
-            LastError = $"{a} 不是线圈，位写入只支持 M/Y/0x 区域";
+            LastError = $"{address} 不是线圈，位写入只支持 M/Y/0x 区域";
             return false;
         }
-        var r = _client.Write(Addr(a.Offset), value);
+        var r = _client.Write(Addr(address.Offset), value);
         return Settle(r, r.IsSuccess);
     }
 

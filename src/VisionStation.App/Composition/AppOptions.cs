@@ -13,6 +13,13 @@ public sealed record CameraOptions(string Mode, string ImageFolder, string FileF
 
 public sealed record TriggerOptions(int TimerIntervalMs);
 
+/// <summary>PLC 传输方式。串口（RTU）是现场主流，TCP 保留给走网关/交换机的场合。</summary>
+public enum PlcTransport
+{
+    Tcp = 0,
+    Rtu = 1,
+}
+
 /// <summary>
 /// PLC 通讯段。Enabled=false 时整段不生效（默认）——没有 PLC 的环境照常跑手动/定时触发。
 /// 地址写法见 ModbusAddressParser：汇川习惯 D100/M10 或 Modbus 原生 4x100。
@@ -20,9 +27,21 @@ public sealed record TriggerOptions(int TimerIntervalMs);
 ///   Trigger   = PLC 写 1 请求拍照，软件触发后回写 0（自清除）；
 ///   Result    = 软件每帧判定后写 1(OK)/2(NG)；
 ///   Heartbeat = 软件每次轮询 +1，PLC 看到它变化就知道软件活着。
+///
+/// 传输方式（Transport）：Tcp 用 Ip:Port；Rtu 用 SerialPort/BaudRate/DataBits/Parity/StopBits。
+/// 两套参数**同时保留**，切换传输不用重新填另一套——Ip/Port 在 Rtu 下不参与，反之亦然。
+/// 串口默认值是 H5U 出厂默认（9600-8-E-1），不是通用真理：现场以 PLC 侧实际配置为准，
+/// 对不上就是一笔都读不通，且报错只显示超时。
 /// </summary>
 public sealed record PlcOptions(bool Enabled, string Ip, int Port, byte Station,
-    string TriggerAddress, string ResultAddress, string HeartbeatAddress, int PollIntervalMs);
+    string TriggerAddress, string ResultAddress, string HeartbeatAddress, int PollIntervalMs,
+    PlcTransport Transport = PlcTransport.Tcp,
+    string SerialPort = "COM3",
+    int BaudRate = 9600,
+    int DataBits = 8,
+    SerialParity Parity = SerialParity.None,
+    SerialStopBits StopBits = SerialStopBits.One,
+    int SerialTimeoutMs = 500);
 
 public sealed record StorageOptions(string Mode, string ImageFolder, string DbPath);
 
@@ -198,7 +217,50 @@ public static class AppOptionsBinder
         if (!ModbusAddressParser.TryParse(heartbeatAddr, out _, out var e3))
             errors.Add($"Plc:HeartbeatAddress {e3}");
 
-        return new PlcOptions(true, ip, port, station, triggerAddr, resultAddr, heartbeatAddr, poll);
+        // 传输方式：默认 Tcp（保持既有配置的语义不变）；现场主流是 Rtu
+        var transport = ReadEnum(config, "Plc:Transport", PlcTransport.Tcp, errors);
+        var serialPort = Read(config, "Plc:SerialPort", "COM3");
+        var baud = ReadInt(config, "Plc:BaudRate", 9600, errors);
+        var dataBits = ReadInt(config, "Plc:DataBits", 8, errors);
+        var serialTimeout = ReadInt(config, "Plc:SerialTimeoutMs", 500, errors);
+        var parity = ReadEnum(config, "Plc:Parity", SerialParity.None, errors);
+        var stopBits = ReadEnum(config, "Plc:StopBits", SerialStopBits.One, errors);
+
+        // 串口参数只在 Rtu 下校验：用 Tcp 的环境不该被一串串口默认值卡住启动
+        if (transport == PlcTransport.Rtu)
+        {
+            if (string.IsNullOrWhiteSpace(serialPort))
+                errors.Add("Plc:SerialPort 在 Rtu 模式下不能为空（例如 COM3）");
+            if (baud <= 0)
+                errors.Add("Plc:BaudRate 必须大于 0（现场常见 9600 / 19200 / 38400 / 115200）");
+            if (dataBits is < 5 or > 8)
+                errors.Add("Plc:DataBits 必须在 5~8 之间（Modbus RTU 实际只支持 8）");
+            if (serialTimeout is < 50 or > 5000)
+                errors.Add("Plc:SerialTimeoutMs 必须在 50~5000 毫秒之间（串口卡住时它决定回写排队多长）");
+        }
+
+        return new PlcOptions(true, ip, port, station, triggerAddr, resultAddr, heartbeatAddr, poll,
+            transport, serialPort, baud, dataBits, parity, stopBits, serialTimeout);
+    }
+
+    /// <summary>
+    /// 枚举型配置项。**只接受名字不接受数字**——"Plc:Transport": "1" 看着像端口号，
+    /// 静默当成 Rtu 是现场最难查的一类错，所以数字直接报错。
+    /// </summary>
+    private static T ReadEnum<T>(IConfiguration config, string key, T defaultValue, List<string> errors)
+        where T : struct, Enum
+    {
+        var text = config[key];
+        if (string.IsNullOrWhiteSpace(text)) return defaultValue;
+        if (text.All(char.IsAsciiDigit))
+        {
+            errors.Add($"{key} = \"{text}\" 不接受数字，请填名字：{string.Join(" / ", Enum.GetNames<T>())}");
+            return defaultValue;
+        }
+        if (Enum.TryParse<T>(text, ignoreCase: true, out var parsed) && Enum.IsDefined(parsed))
+            return parsed;
+        errors.Add($"{key} = \"{text}\" 不合法，可选：{string.Join(" / ", Enum.GetNames<T>())}");
+        return defaultValue;
     }
 
     private static byte ReadByte(IConfiguration config, string key, byte defaultValue, List<string> errors)

@@ -90,7 +90,14 @@ public static class ServiceCollectionExtensions
 
             // PLC 模式：连接是单例（触发源轮询、结果回写共用），归属组合根；
             // 触发源 Dispose 时不关连接（谁 new 谁管）。
-            var conn = new ModbusTcpPlc(plc.Ip, plc.Port, plc.Station);
+            // 传输方式由配置选：Tcp 走网线/网关，Rtu 走串口（现场主流）。
+            // 这是**唯一**决定用哪种传输的地方，上层两处消费者只认 IPlcConnection。
+            IPlcConnection conn = plc.Transport switch
+            {
+                PlcTransport.Rtu => new ModbusRtuPlc(plc.SerialPort, plc.BaudRate, plc.Station,
+                    plc.DataBits, plc.Parity, plc.StopBits, plc.SerialTimeoutMs),
+                _ => new ModbusTcpPlc(plc.Ip, plc.Port, plc.Station),
+            };
             return new PlcTriggerSource(
                 conn,
                 ModbusAddressParser.Parse(plc.TriggerAddress),

@@ -102,8 +102,11 @@ public sealed record HistoryRow(
 ///
 /// 为什么这一页必须存在（和审计页同一个理由，但问的是另一个问题）：
 ///   审计回答"昨天下午谁动过参数"，历史回答"这一件为什么判 NG、和早上的件有什么不一样"。
-///   数据在 InspectionRecords 里躺了 30 天，之前**一个出口都没有** ——
-///   仓储的 GetRecentAsync/GetStatisticsAsync 在 src 里零调用，只有测试在调。
+///   数据在 InspectionRecords 里躺了 30 天，之前**一个出口都没有**。
+///   这一页走的是 <c>QueryAsync</c>/<c>CountAsync</c>（要按引擎、时间范围筛），
+///   而仓储里那个不带筛选的 <c>GetRecentAsync</c> 至今只有测试在调 —— 属于可删的死代码，
+///   留着不删是因为它锁了一条"取最近 N 条"的语义测试，等历史页稳定后再决定。
+///   注意 <c>GetStatisticsAsync</c> **不是**零调用：今日良率在 <c>AppHost</c> 启动时就要它。
 ///
 /// 权限用 <see cref="Core.Users.Permission.ViewHistory"/>：操作员也有。
 /// 这不是"给工程师看的后台"，是操作员发现 NG 后自己要回看的那一页。

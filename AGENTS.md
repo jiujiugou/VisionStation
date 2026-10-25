@@ -16,8 +16,12 @@ WPF 金属零件视觉检测工作站。取图 → 检测引擎判定（VisionMa
 
 **VM 不走 SDK（2026-10-23 定稿，别改回去）**：VM 4.2 的 SDK 是 .NET Framework 4.6.1 + Remoting，
 在 .NET 8 里加载会崩（`E0000603` / `0xC000000D`），且要管理员权限与 VM 安装目录结构。
-现在的做法是 **VisionMaster 独立跑流程 → 「发送数据」模块经 TCP 推一行 JSON → 本程序解析入库**。
-`Engines.Vm` 里只有 `VmResultParser`（JSON→报告）和 `VmExternalEngine`（推驱动占位），**不引用 SDK**。
+现在的做法是 **VisionMaster 独立跑流程 → 「发送数据」模块经 TCP 推一行结果 → 本程序解析入库**。
+那一行有**两种格式**，由 `VmResultParser.Parse` 按首字符分流（`{` 走 JSON，否则走分隔符）：
+- **分隔符**（现场最省事、当前在用）：`判定;值1;值2…`，没有字段名，值按配方 `vm.outputs` 顺序落位；
+- **JSON**（要带图/逐项判定时用）：`{"verdict":"OK","imagePath":"...","items":[...]}`。
+判定的可识别取值见 `VmResultParser.ParseVerdict`（注意 VM 的模块状态 **2 也是 NG**）。
+`Engines.Vm` 里只有 `VmResultParser`（报文→报告）和 `VmExternalEngine`（推驱动占位），**不引用 SDK**。
 通信端点在 `Devices/Vm/VmResultListener`。配置见 `docs/引擎集成-说明.md`。
 
 ## 2. 目录与禁区
@@ -26,13 +30,15 @@ WPF 金属零件视觉检测工作站。取图 → 检测引擎判定（VisionMa
 |---|---|---|
 | `src/VisionStation.Core` | 契约与模型：`IInspectionEngine`、`InspectionReport`、`ToolResult`、`RecipeConfig`（**无 IO、无 WPF、无算法实现**） | 可改 |
 | `src/VisionStation.Engines.Onnx` | ONNX YOLO 缺陷检测引擎（`YoloDetector` 纯推理 + `OnnxInspectionEngine`） | 可改 |
-| `src/VisionStation.Engines.Vm` | VM 结果解析（JSON→报告）+ 推驱动占位引擎；**不引用 VM SDK**，任何机器可编译 | 可改 |
+| `src/VisionStation.Engines.Vm` | VM 报文解析（JSON / 分隔符→报告）+ 推驱动占位引擎；**不引用 VM SDK**，任何机器可编译 | 可改 |
 | `src/VisionStation.Devices` | 相机（海康 / 文件 / 网页摄像头）、触发源 | 可改 |
 | `src/VisionStation.Storage` | EF Core DbContext、检测仓储、图片存储 | 可改 |
 | `src/VisionStation.Service` | 自检（HealthChecker）、管家（Housekeeping） | 可改 |
 | `src/VisionStation.App` | WPF 组合根、DI 注册、ViewModel | 可改 |
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
-| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 218 项：143 + 75） | **只准加，不准改断言** |
+| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 353 项：245 + 108，2026-10-25 实测） | **只准加，不准改断言** |
+| `tools/GoldenSetRunner` | 黄金样本跑批（**在**解决方案里，受 ci.cmd 覆盖） | 可改 |
+| `tools/VmSimulator` · `tools/ClosureProbe` | VM 报文模拟/抓包、闭环探测（**不在** `.slnx` 里，ci.cmd 不构建它们） | 可改 |
 | `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |
 | `models/` | ONNX 权重 | **禁止编辑** |
@@ -43,14 +49,33 @@ Core 不得反向依赖任何工程；引擎不得依赖 App/Storage/Service。
 
 ## 3. 命令
 
+**日常改动（秒级，改一次跑一次）**
+
 ```bat
-ci.cmd                                                      :: 本地 CI 门禁：App 构建 + 测试 + 分析器棘轮 + 测试
-dotnet build tests\VisionStation.UnitTests -v q --nologo    :: 仅编译检查，不是门禁
-dotnet test  tests\VisionStation.UnitTests --nologo         :: 仅测试，不是门禁
+dotnet build src\VisionStation.App -v q --nologo                                  :: 增量编译（含依赖链）
+dotnet test  tests\VisionStation.App.Tests --filter "FullyQualifiedName~Plc" --nologo
 dotnet test  tests\VisionStation.UnitTests --filter "FullyQualifiedName~Housekeeping" --nologo
 ```
 
-`ci.cmd` 退出码 0 才算做完（这是唯一的门禁）；单独 `dotnet build` / `dotnet test` 不是门禁。任何"已完成"的说法，必须先贴门禁输出。
+**提交前（分钟级，跑一次算数）**
+
+```bat
+ci.cmd    :: 全量重建 src + 两个测试工程 → 分析器棘轮 → 353 项测试
+```
+
+`ci.cmd` 慢**是设计代价，不是故障**：三处 `--no-incremental` 全量重建，
+因为 `scripts/analyzer_gate.py` 靠 build 日志里的完整警告清单判棘轮，
+增量构建只报改动文件，棘轮会误判。所以它只在提交前跑。
+
+**说"改完了"要贴什么证据**
+
+| 改动性质 | 必须贴 |
+|---|---|
+| 单模块内部（一个 ViewModel、一个解析函数） | `dotnet build` 输出 + 相关测试 |
+| 跨模块：`Core` 契约、`Storage` 实体/查询、`appsettings` 结构、一次改 >5 个文件 | `ci.cmd` 输出（退出码 0） |
+
+中途遇到这三种情况也该跑一次 `ci.cmd`：改 `Core` 契约（编译挡得住签名，挡不住语义）、
+一次改超 5 个文件、自己心里没底。其余时候**不要为了"确认一下"跑 ci**。
 
 ## 4. 硬规则（违反即作废重做）
 

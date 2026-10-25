@@ -168,7 +168,7 @@ View **必须**有参数无参构造函数（`InitializeComponent` 之外不做�
 
 ### WPF-V1.3 code-behind 只允许视图自身行为
 允许：焦点、输入/鼠标捕获、拖拽、动画、DPI/尺寸测量、纯渲染辅助。
-禁止：访问 Repository/相机/Pipeline、导航、弹业务对话框、拼业务文案、改其他 VM 状态。
+禁止：访问 Repository/相机/检测引擎、导航、弹业务对话框、拼业务文案、改其他 VM 状态。
 
 ### WPF-V1.4 不要手写绑定的替代品
 XAML 已经能表达的事情（`Source`、`Visibility`、`SelectedItem`、`IsEnabled`）**必须**用绑定/触发器，

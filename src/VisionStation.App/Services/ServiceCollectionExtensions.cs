@@ -30,18 +30,15 @@ public static class ServiceCollectionExtensions
     /// 注册检测引擎（配方 + 引擎）。全系统只有这一处决定"用哪套检测"。
     ///
     /// 改造前这里造的是 Calibration + ToolFactory + Pipeline；
-    /// 现在只造一个 <see cref="IInspectionEngine"/> —— 判定逻辑要么在 VM 流程里，
-    /// 要么在 ONNX 引擎里，组合根不再持有任何算法参数。
+    /// 现在只造一个 <see cref="IInspectionEngine"/>，而且只有 VM 一条路 ——
+    /// 判定逻辑在 VM 流程里，组合根不持有任何算法参数和模型路径。
     /// </summary>
     public static IServiceCollection AddDetection(this IServiceCollection services,
-        RecipeConfig recipe, AppPaths appPaths)
+        RecipeConfig recipe)
     {
         services.AddSingleton(recipe);
 
-        services.AddSingleton<IInspectionEngine>(sp => InspectionEngineFactory.Create(
-            recipe,
-            appPaths.AssetRoot,
-            sp.GetService<ILoggerFactory>()));
+        services.AddSingleton<IInspectionEngine>(_ => InspectionEngineFactory.Create(recipe));
 
         return services;
     }

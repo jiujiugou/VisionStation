@@ -56,19 +56,5 @@
         "unit": ""
       }
     ]
-  },
-  "onnx": {
-    "modelPath": "models\\neu-det.onnx",
-    "confidence": 0.25,
-    "nms": 0.45,
-    "maxDetections": 100,
-    "classes": [
-      "crazing",
-      "inclusion",
-      "patches",
-      "pitted_surface",
-      "rolled-in_scale",
-      "scratches"
-    ]
   }
 }

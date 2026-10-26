@@ -32,10 +32,13 @@ public class RecipeConfig
     public DateTimeOffset? UpdatedAt { get; set; }
 
     /// <summary>
-    /// 本配方使用的检测引擎：<c>Vm</c>（VisionMaster 流程）或 <c>Onnx</c>（YOLO 缺陷检测）。
-    /// 大小写不敏感。
+    /// 本配方使用的检测引擎。大小写不敏感。
+    ///
+    /// 默认 <c>Vm</c>：运行时只跑 VM（ONNX 推理已移出运行时，归 tools/GoldenSetRunner）。
+    /// 默认值写错会让一份漏填 engine 的配方悄悄走到一条不存在的路上，
+    /// 所以这里必须和运行时的实际能力一致。
     /// </summary>
-    public string Engine { get; set; } = EngineNames.Onnx;
+    public string Engine { get; set; } = EngineNames.Vm;
 
     /// <summary>
     /// 本配方适配的画面尺寸。

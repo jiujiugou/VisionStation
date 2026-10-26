@@ -121,7 +121,7 @@ public sealed class AppHost : IAsyncDisposable
         services
             .AddSingleton(appPaths)
             .AddSingleton(options)
-            .AddDetection(recipe, appPaths)
+            .AddDetection(recipe)
             .AddVmLink(options)
             .AddDevices(appPaths, options)
             .AddStorage(appPaths, options)

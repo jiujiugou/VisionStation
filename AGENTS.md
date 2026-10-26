@@ -6,13 +6,17 @@
 
 ## 1. 这是什么
 
-WPF 金属零件视觉检测工作站。取图 → 检测引擎判定（VisionMaster 流程 / ONNX 缺陷检测）→ 配方驱动 → SQLite 存记录 → Serilog 落日志。
+WPF 金属零件视觉检测上位机。VisionMaster 跑流程出判定 → TCP 推入本程序 → 配方映射 → SQLite 存记录 → PLC 回写 → Serilog 落日志。
 
-技术栈：.NET 8 · WPF · OpenCvSharp4 · ONNX Runtime · EF Core + SQLite · xUnit · 海康 MVS SDK · 海康 VisionMaster（**经 TCP 接收结果，不加载其 SDK**）
+技术栈：.NET 8 · WPF · OpenCvSharp4 · EF Core + SQLite · xUnit · 海康 MVS SDK · 海康 VisionMaster（**经 TCP 接收结果，不加载其 SDK**）· ONNX Runtime（**仅 `tools/GoldenSetRunner` 离线跑批用，运行时不含**）
 
 **2026-10-23 起的架构事实**（读代码前先认这几条，否则会找不存在的类）：
 自研算法（模板匹配/霍夫圆/Blob）、`Pipeline`、`IVisionTool`、`Calibration`、`CoordinateMath`、ROI 编辑器**均已删除**。
-判定逻辑在引擎里：`IInspectionEngine` 两个实现，由配方 `engine` 字段选择。
+
+**2026-10-26：运行时单引擎（只有 VM）。** YOLO/ONNX 推理已移出运行时 —— `VisionStation.App` 不再引用
+`Engines.Onnx`、不再随发布复制 `models/*.onnx`，配方只认 `engine="Vm"`（`InspectionEngineFactory` 对其他值直接抛异常）。
+ONNX 保留为**离线验证工具**（`tools/GoldenSetRunner` 跑黄金样本库），不属于产线运行时。
+理由：两个引擎并存在同一个程序里，读代码的人无法判断哪条是主线，而产线只跑 VM 这一条。
 
 **VM 不走 SDK（2026-10-23 定稿，别改回去）**：VM 4.2 的 SDK 是 .NET Framework 4.6.1 + Remoting，
 在 .NET 8 里加载会崩（`E0000603` / `0xC000000D`），且要管理员权限与 VM 安装目录结构。
@@ -29,7 +33,7 @@ WPF 金属零件视觉检测工作站。取图 → 检测引擎判定（VisionMa
 | 路径 | 作用 | 能否修改 |
 |---|---|---|
 | `src/VisionStation.Core` | 契约与模型：`IInspectionEngine`、`InspectionReport`、`ToolResult`、`RecipeConfig`（**无 IO、无 WPF、无算法实现**） | 可改 |
-| `src/VisionStation.Engines.Onnx` | ONNX YOLO 缺陷检测引擎（`YoloDetector` 纯推理 + `OnnxInspectionEngine`） | 可改 |
+| `src/VisionStation.Engines.Onnx` | YOLO 推理（`YoloDetector` + `OnnxInspectionEngine`）。**App 不引用**，只服务 `tools/GoldenSetRunner` 离线跑批 | 可改 |
 | `src/VisionStation.Engines.Vm` | VM 报文解析（JSON / 分隔符→报告）+ 推驱动占位引擎；**不引用 VM SDK**，任何机器可编译 | 可改 |
 | `src/VisionStation.Devices` | 相机（海康 / 文件 / 网页摄像头）、触发源 | 可改 |
 | `src/VisionStation.Storage` | EF Core DbContext、检测仓储、图片存储 | 可改 |
@@ -39,12 +43,14 @@ WPF 金属零件视觉检测工作站。取图 → 检测引擎判定（VisionMa
 | `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 353 项：245 + 108，2026-10-25 实测） | **只准加，不准改断言** |
 | `tools/GoldenSetRunner` | 黄金样本跑批（**在**解决方案里，受 ci.cmd 覆盖） | 可改 |
 | `tools/VmSimulator` · `tools/ClosureProbe` | VM 报文模拟/抓包、闭环探测（**不在** `.slnx` 里，ci.cmd 不构建它们） | 可改 |
+| `scripts/rtu_slave.py` + `tools/RtuProbe` | Modbus RTU 从站模拟器 + 验证探针（需 com0com 虚拟串口对 COM3↔COM4，**不进 ci**，跑法见 `docs/产线闭环-说明.md` §8） | 可改 |
 | `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |
 | `models/` | ONNX 权重 | **禁止编辑** |
 | `Logs/` `InspectedImages/` `TestImages/` `*.db` | 运行期数据 | **禁止编辑**，也不要加入示例代码 |
 
-依赖方向单向：`Core ← Engines.{Onnx,Vm} ← App`，`Core ← Devices ← Storage ← Service ← App`。
+依赖方向单向：`Core ← Engines.Vm ← App`；`Core ← Engines.Onnx ← {UnitTests, GoldenSetRunner}`（**App 不在其中**）；
+`Core ← Devices ← Storage ← Service ← App`。
 Core 不得反向依赖任何工程；引擎不得依赖 App/Storage/Service。
 
 ## 3. 命令

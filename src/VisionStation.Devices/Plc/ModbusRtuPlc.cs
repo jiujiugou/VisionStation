@@ -33,8 +33,10 @@ public enum SerialStopBits
 ///
 /// 与 TCP 版的差异（都是串口固有，不是偷懒）：
 ///   1. 串口独占：同一时刻只能有一笔请求在飞。触发源轮询（100ms）和结果回写
-///      （后台线程）会撞在一起 —— 靠 Hsl 底层对通信对象的锁串行化，不额外加锁。
-///      代价是回写要等当前这笔读完成，最坏 = 一个 ReceiveTimeOut。
+///      （后台线程）会撞在一起 —— 必须由**本类自己的对象锁**串行化。
+///      （2026-10-25 实测修正：原注释以为 Hsl 底层会串行化，实测 30 路并发失败 43/50 笔，
+///        单线程同量零失败 —— 同一串口对象多线程并发调用会互相踩字节流。锁的代价是
+///        回写要等当前这笔读完成，最坏 = 一个 ReceiveTimeOut。）
 ///   2. 没有网络层重连：串口是本地资源，Connect 失败通常是"口被别的程序占了"
 ///      或"波特率不对"，重试不会自愈。所以失败信息里必须把串口参数原样带出来，
 ///      现场第一件事就是核对 COMx 和波特率。
@@ -45,6 +47,12 @@ public enum SerialStopBits
 public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
 {
     private readonly ModbusRtu _client;
+
+    /// <summary>
+    /// 串口字节流的互斥锁。**不能省**：PlcTriggerSource 的轮询线程与
+    /// PlcResultWriter 的回写线程共用本实例，而 Hsl 的串口对象不是线程安全的。
+    /// </summary>
+    private readonly object _sync = new();
 
     /// <summary>连接参数原样保留，错误信息里要用（现场第一件事就是核对串口和波特率）</summary>
     public string PortName { get; }
@@ -92,16 +100,19 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
         // 轮询线程死不得，而且"口被占用"在现场是最常见的一种失败。
         try
         {
-            var r = _client.Open();
-            if (r.IsSuccess)
+            lock (_sync)
             {
-                IsConnected = true;
-                LastError = null;
-                return true;
+                var r = _client.Open();
+                if (r.IsSuccess)
+                {
+                    IsConnected = true;
+                    LastError = null;
+                    return true;
+                }
+                IsConnected = false;
+                LastError = $"PLC 串口打开失败（{Description}）：{r.Message}";
+                return false;
             }
-            IsConnected = false;
-            LastError = $"PLC 串口打开失败（{Description}）：{r.Message}";
-            return false;
         }
         catch (Exception ex)
         {
@@ -113,9 +124,12 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
 
     public void Disconnect()
     {
-        try { _client.Close(); }
-        catch (Exception) { /* 关闭失败没有补救动作，如实置状态即可 */ }
-        IsConnected = false;
+        lock (_sync)
+        {
+            try { _client.Close(); }
+            catch (Exception) { /* 关闭失败没有补救动作，如实置状态即可 */ }
+            IsConnected = false;
+        }
     }
 
     /// <summary>读一个 16 位寄存器（保持寄存器 4x）。失败返回 null 并填 LastError。</summary>
@@ -126,20 +140,26 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
             LastError = $"{address} 不是保持寄存器，16 位读取只支持 D/4x 区域";
             return null;
         }
-        var r = _client.ReadInt16(Addr(address.Offset));
-        return Settle(r, r.IsSuccess ? (short?)r.Content : null);
+        lock (_sync)
+        {
+            var r = _client.ReadInt16(Addr(address.Offset));
+            return Settle(r, r.IsSuccess ? (short?)r.Content : null);
+        }
     }
 
     /// <summary>读一个位（线圈 0x / 离散输入 1x）。失败返回 null 并填 LastError。</summary>
     public bool? ReadBit(PlcAddress address)
     {
-        OperateResult<bool> r = address.Area switch
+        lock (_sync)
         {
-            ModbusArea.Coil => _client.ReadCoil(Addr(address.Offset)),
-            ModbusArea.DiscreteInput => _client.ReadDiscrete(Addr(address.Offset)),
-            _ => OperateResult.CreateFailedResult<bool>(new OperateResult("保持寄存器要用 ReadShort 读，不能按位读")),
-        };
-        return Settle(r, r.IsSuccess ? (bool?)r.Content : null);
+            OperateResult<bool> r = address.Area switch
+            {
+                ModbusArea.Coil => _client.ReadCoil(Addr(address.Offset)),
+                ModbusArea.DiscreteInput => _client.ReadDiscrete(Addr(address.Offset)),
+                _ => OperateResult.CreateFailedResult<bool>(new OperateResult("保持寄存器要用 ReadShort 读，不能按位读")),
+            };
+            return Settle(r, r.IsSuccess ? (bool?)r.Content : null);
+        }
     }
 
     /// <summary>写一个 16 位寄存器（保持寄存器 4x）。成功返回 true。</summary>
@@ -150,8 +170,11 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
             LastError = $"{address} 不是保持寄存器，16 位写入只支持 D/4x 区域";
             return false;
         }
-        var r = _client.Write(Addr(address.Offset), value);
-        return Settle(r, r.IsSuccess);
+        lock (_sync)
+        {
+            var r = _client.Write(Addr(address.Offset), value);
+            return Settle(r, r.IsSuccess);
+        }
     }
 
     /// <summary>写一个线圈（0x）。成功返回 true。</summary>
@@ -162,14 +185,20 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
             LastError = $"{address} 不是线圈，位写入只支持 M/Y/0x 区域";
             return false;
         }
-        var r = _client.Write(Addr(address.Offset), value);
-        return Settle(r, r.IsSuccess);
+        lock (_sync)
+        {
+            var r = _client.Write(Addr(address.Offset), value);
+            return Settle(r, r.IsSuccess);
+        }
     }
 
     private T Settle<T>(OperateResult r, T valueOnSuccess)
     {
         if (r.IsSuccess)
         {
+            // 成功要把连接状态置回来：否则一笔偶发失败之后 IsConnected 会永久停在 false，
+            // 状态栏一直显示"PLC 离线"，实际后面每笔都通 —— 比失败本身更误导人。
+            IsConnected = true;
             LastError = null;
         }
         else

@@ -15,8 +15,17 @@ public sealed class ShutdownState : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private int _stopping;
 
+    /// <summary>
+    /// 取消令牌。**只在 <see cref="BeginStop"/> 之后才会被取消**。
+    /// 注意：不要在 <see cref="Dispose"/> 之后访问它（会 ObjectDisposedException），
+    /// 需要"是否已停"的判断请用 <see cref="IsStopping"/>。
+    /// </summary>
     public CancellationToken Token => _cts.Token;
 
+    /// <summary>
+    /// 是否已进入关闭流程。用独立的整型标志而不是读令牌状态，
+    /// 就是为了释放之后仍能安全回答这个问题（见类型注释）。
+    /// </summary>
     public bool IsStopping => Volatile.Read(ref _stopping) == 1;
 
     /// <summary>开始关闭。幂等：重复调用不重复取消、不抛异常。</summary>
@@ -34,6 +43,7 @@ public sealed class ShutdownState : IDisposable
         }
     }
 
+    /// <summary>释放 CTS。调用后 <see cref="IsStopping"/> 仍可安全读取。</summary>
     public void Dispose()
     {
         _cts.Dispose();

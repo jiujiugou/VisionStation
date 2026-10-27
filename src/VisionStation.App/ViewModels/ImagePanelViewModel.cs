@@ -21,8 +21,14 @@ namespace VisionStation.App.ViewModels;
 public partial class ImagePanelViewModel : ObservableObject
 {
     /// <summary>
-    /// 图像是否由外部引擎推来（VM）。决定等待态怎么说话：
-    /// VM 模式下"还没图"是正常态，自采模式下"还没图"意味着没点开始。
+    /// 图像是否由外部引擎推来（VM）。决定等待态怎么说话。
+    ///
+    /// <para>
+    /// <b>现状：恒为 true。</b>自采模式（程序自己截图后检测）随相机层在 2026-10-26 删除，
+    /// 运行时唯一的引擎 <c>VmExternalEngine</c> 实现了 <see cref="IPushDrivenEngine"/>。
+    /// 保留这个分支是因为下面的 <c>ShowWaitingState</c> / <c>ApplyLinkStatus</c> 依赖它
+    /// 区分"等平台推"和"等你点开始"，而测试里仍会构造非推驱动的替身。
+    /// </para>
     /// </summary>
     private readonly bool _isPushDriven;
 
@@ -97,13 +103,23 @@ public partial class ImagePanelViewModel : ObservableObject
     // ═══════════════════════════════════════════════════════════
 
     /// <summary>
-    /// NG 画面在**主图**上的最短停留时长。
+    /// NG 画面在**主图**上的最短停留时长（默认 2 秒）。
     ///
+    /// <para>
     /// 业务参数，不是算出来的：人从低头到抬头看屏幕约 1~2 秒，
     /// 剔除气缸动作 0.5~1.5 秒，取 2 秒是覆盖这两件事的下限。
     /// **现场节拍不同就要改这个数**，别当成技术常数。
+    /// </para>
+    /// <para>
+    /// 做成实例字段（构造可覆盖）而不是常量，是为了让测试把窗口压到几十毫秒 ——
+    /// 否则验证"窗口内 OK 不上屏"每个用例都要真等 2 秒，既慢又容易偶发失败。
+    /// 默认值仍是 2 秒，生产行为一个字不变。
+    /// </para>
     /// </summary>
-    private static readonly TimeSpan NgHoldDuration = TimeSpan.FromSeconds(2);
+    private readonly TimeSpan _ngHoldDuration;
+
+    /// <summary>NG 保持的默认时长（现场节拍变了先改这里）。</summary>
+    private static readonly TimeSpan DefaultNgHoldDuration = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// 主图的保持截止时刻（UTC）。过期的判断只发生在"下一件到达时"，
@@ -172,14 +188,31 @@ public partial class ImagePanelViewModel : ObservableObject
         }
     }
 
+    /// <summary>无引擎版本：按"非推驱动"初始化。只有测试和设计器会用到。</summary>
     public ImagePanelViewModel()
-        : this(null)
+        : this(null, null)
     {
     }
 
-    public ImagePanelViewModel(IInspectionEngine? engine)
+    /// <summary>
+    /// 构造即订阅两条消息并进入等待态。
+    ///
+    /// <para>
+    /// 注意 <c>ShowWaitingState()</c> 在构造里发属性通知：此时 XAML 可能还没绑上来，
+    /// 通知会落空 —— 但没关系，属性值本身已经设好，绑定建立时会读到。
+    /// </para>
+    /// </summary>
+    /// <param name="engine">
+    /// 用来判断"图是不是外面推来的"。没有引擎（单测）时按自采模式说话。
+    /// </param>
+    /// <param name="ngHoldDuration">
+    /// NG 主图保持时长；null = 用默认 2 秒。**只有测试会传别的值**：
+    /// 压到几十毫秒才能快速验证"窗口内 OK 不上屏"，真等 2 秒既慢又会偶发失败。
+    /// </param>
+    public ImagePanelViewModel(IInspectionEngine? engine, TimeSpan? ngHoldDuration = null)
     {
         _isPushDriven = engine is IPushDrivenEngine;
+        _ngHoldDuration = ngHoldDuration ?? DefaultNgHoldDuration;
 
         _selectedTab = Tabs[0]; // 默认显示原图
         ShowWaitingState();
@@ -189,6 +222,40 @@ public partial class ImagePanelViewModel : ObservableObject
 
         WeakReferenceMessenger.Default.Register<ImagePanelViewModel, VmLinkStatusMessage>(this,
             static (vm, msg) => vm.ApplyLinkStatus(msg.Value));
+
+        WeakReferenceMessenger.Default.Register<ImagePanelViewModel, ClearAllMessage>(this,
+            static (vm, _) => vm.ClearDisplay());
+    }
+
+    /// <summary>
+    /// 清掉画面，退回"等待结果"的空态。
+    ///
+    /// <para>
+    /// 要连 NG 保持窗口一起清：不清的话，交接班按一下清空，2 秒内来一帧 OK 仍会被旧窗口挡住
+    /// （那是"NG 要钉住"的逻辑），操作员看到的是"清了又没清"。
+    /// </para>
+    /// <para>
+    /// 最近 NG 回看也要清：那是上一班的不良品证据，留给下一班只会让人以为是自己这班的。
+    /// </para>
+    /// </summary>
+    private void ClearDisplay()
+    {
+        OriginalImage = null;
+        AnnotatedImage = null;
+        _lastImageTime = null;
+
+        // 撤销 NG 保持窗口
+        _ngHoldUntilUtc = DateTime.MinValue;
+        IsNgHeld = false;
+
+        // 最近 NG 回看
+        _recentNgOriginal = null;
+        _recentNgAnnotated = null;
+        HasRecentNg = false;
+        RecentNgText = "";
+        IsReviewingNg = false;
+
+        ShowWaitingState();
     }
 
     /// <summary>
@@ -287,7 +354,7 @@ public partial class ImagePanelViewModel : ObservableObject
                 HasRecentNg = true;
                 RecentNgText = $"{result.Report.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture)} NG";
                 OnPropertyChanged(nameof(RecentNgImage));
-                _ngHoldUntilUtc = now + NgHoldDuration;
+                _ngHoldUntilUtc = now + _ngHoldDuration;
             }
 
             if (!shouldShow) return;

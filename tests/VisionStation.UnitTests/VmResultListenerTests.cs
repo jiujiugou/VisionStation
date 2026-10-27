@@ -85,6 +85,33 @@ public class VmResultListenerTests
     }
 
     [Fact]
+    public async Task 断开重连后_首帧到达前不保留上一轮的最后结果时刻()
+    {
+        // VM 重启/网线抖动后重连，第一帧往往要等几秒才来。这段时间里断流判定拿什么当基准？
+        // 如果 LastLineUtc 还是上一轮连接的时间戳，`LastLineUtc ?? ConnectedAtUtc` 就永远
+        // 轮不到兜底 —— 只要断开超过阈值，重连后第一秒必然误报一次"已 N 秒没有收到结果"。
+        var calls = 0;
+
+        using var listener = new VmResultListener("127.0.0.1", 0, _ => Interlocked.Increment(ref calls));
+        listener.Start();
+
+        await SendAsync(listener.Port, "first");   // SendAsync 结束即断开，就是重连的形态
+        await WaitUntilAsync(() => Volatile.Read(ref calls) >= 1, Timeout);
+        Assert.NotNull(listener.LastLineUtc);
+
+        // 等上一条连接彻底收尾（计数归零），否则下面读到的可能还是旧连接的现场
+        await WaitUntilAsync(() => !listener.IsClientConnected, Timeout);
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, listener.Port);
+        await WaitUntilAsync(() => listener.IsClientConnected, Timeout);
+
+        // 重连成功、但一帧都还没推：旧时间戳必须已经清掉，基准回落到 ConnectedAtUtc
+        Assert.Null(listener.LastLineUtc);
+        Assert.NotNull(listener.ConnectedAtUtc);
+    }
+
+    [Fact]
     public void 端口被占用_启动直接抛异常()
     {
         // "起了但没在听"是现场最难查的状态之一，所以端口冲突必须在启动期就红
@@ -141,6 +168,42 @@ public class VmResultListenerTests
 
         listener.Stop();
         Assert.False(listener.IsListening);
+    }
+
+    [Fact]
+    public void 只调Dispose_端口被释放()
+    {
+        // 回归用例：Dispose 曾经先把 _disposed 置 true 再调 Stop，而 Stop 的第一行就是
+        // `if (_disposed) return;` —— 那次 Stop 被自己的守卫挡回去，监听器根本没关，
+        // 端口占着直到进程退出，第二个实例再来绑就是"地址已在使用"。
+        // 这里走的就是"只用 Dispose 收尾"的路径（测试、工具、探针都是这么收尾的）。
+        var listener = new VmResultListener("127.0.0.1", 0, _ => { });
+        listener.Start();
+        var port = listener.Port;
+        Assert.True(port > 0);
+
+        listener.Dispose();          // 刻意不先调 Stop()
+
+        Assert.False(listener.IsListening);
+
+        // 幂等：重复 Dispose、Dispose 之后再 Stop 都不能抛
+        listener.Dispose();
+        listener.Stop();
+        listener.Dispose();
+
+        // 契约不变：Dispose 之后这个实例就报废了，不能再 Start
+        Assert.Throws<ObjectDisposedException>(() => listener.Start());
+
+        // 端口真的松开了：同一端口能立刻再绑上（绑不上会抛 SocketException，测试直接失败）
+        var rebind = new TcpListener(IPAddress.Loopback, port);
+        try
+        {
+            rebind.Start();
+        }
+        finally
+        {
+            rebind.Stop();
+        }
     }
 
     private static async Task SendAsync(int port, string line)

@@ -22,12 +22,21 @@ public partial class MainWindow : Window, IAppWindow
         remove => CloseRequested -= value;
     }
 
+    /// <summary>
+    /// 唯一的构造参数是外壳 VM。窗口自己不做任何服务解析 ——
+    /// 依赖都已经被 <see cref="ShellViewModel"/> 收拢了，窗口只是它的显示载体。
+    /// </summary>
     public MainWindow(ShellViewModel vm)
     {
         InitializeComponent();
         DataContext = vm;
 
         // S2.3：关闭请求转成自有事件，由 AppHost 决定是否拦截（它会在收尾完成后自行 Shutdown）。
+        //
+        // 翻译规则只有一句：把宿主的结论抄进 WPF 的 e.Cancel。
+        //   宿主没订阅 / 订阅者没设 Cancel → e.Cancel = false → 窗口照常关闭（无宿主时的默认行为）；
+        //   宿主设了 Cancel = true          → 窗口这次不关，由宿主走收尾，收尾完再自己 Shutdown。
+        // 注意这里**不能**在事件里做 await：WPF 的 Closing 是同步的，异步收尾必须由宿主接管。
         Closing += (_, e) =>
         {
             var args = new WindowCloseRequestedEventArgs();

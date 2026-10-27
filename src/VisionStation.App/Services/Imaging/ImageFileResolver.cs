@@ -140,6 +140,14 @@ public static class ImageFileResolver
         return (newest.FullName, null);
     }
 
+    /// <summary>
+    /// 失败文案的前半句：区分"平台压根没发路径"和"发了但用不了"。
+    ///
+    /// <para>
+    /// 这两句话对应完全不同的现场动作：前者要去 VM 里加存图模块，
+    /// 后者要去查盘符/权限/共享。合成一句"没有图像"就等于把排查方向也合掉了。
+    /// </para>
+    /// </summary>
     private static string DescribeReported(string raw) => raw.Length == 0
         ? "本帧结果没有带图像路径（平台侧未发 imagePath）"
         : $"平台给的图像路径不可用：{raw}";

@@ -39,9 +39,9 @@
     <!-- 兜底配方内嵌进程序集：磁盘配方损坏时回退到同一份文件，
          杜绝"代码里手抄一份兜底参数"和 default.json 悄悄对不上的问题 -->
     <EmbeddedResource Include="Config\recipes\default.json" />
-    <!-- 深度学习权重不再随程序发布：运行时只走 VM，模型归 tools/GoldenSetRunner 离线跑批使用。
-         （此前这里复制 ../models/*.onnx 是为了让已删除的 ToolFactory 能找到权重，
-         现在 App 不加载任何模型，把 12.7MB 权重塞进每个发布目录没有意义。） -->
+    <!-- 权重文件不进发布目录：运行时只走 VM，本程序不加载任何模型。
+         （2026-10-27 ONNX 推理整条线删除前，这里复制 ../models/*.onnx；
+         现在连模型文件本身都已从仓库移除。） -->
   </ItemGroup>
 
   <ItemGroup>

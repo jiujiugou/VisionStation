@@ -27,7 +27,20 @@ namespace VisionStation.App.ViewModels;
 /// </summary>
 public partial class ResultPanelViewModel : ObservableObject
 {
-    /// <summary>工具名 → 界面显示名。认不出来的工具直接显示原名。</summary>
+    /// <summary>
+    /// 工具名 → 界面显示名。认不出来的工具直接显示原名。
+    ///
+    /// <para>
+    /// <b>这三个键已经不会在运行时出现了</b>：Presence / Dimension / Defect 属于
+    /// 2026-10 删除的自研算法引擎。VM 模式下报告里只有一条
+    /// <c>ResultKeys.Engine</c>（VM 的判定摘要），会走"未知工具原样显示"的分支，
+    /// 所以表格里显示的是工具名本身。
+    /// </para>
+    /// <para>
+    /// 保留这张表是为了读历史记录：旧数据里存着这三个键名，翻出来时仍能显示成中文。
+    /// 真要在界面上看到中文标签，应当由引擎在 <c>Summary</c> 里给出业务名，而不是靠这张表。
+    /// </para>
+    /// </summary>
     private static readonly Dictionary<string, string> ToolLabels = new(StringComparer.Ordinal)
     {
         ["Presence"] = "特征有无",
@@ -103,6 +116,14 @@ public partial class ResultPanelViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasVerdict;
 
+    /// <summary>
+    /// 构造即订阅两条消息：检测结果（摊平成表格）、日志（挑出 Warning/Error 上图）。
+    ///
+    /// <para>
+    /// 本类是单例、活到进程结束，所以不反注册。两条订阅都用弱引用重载 ——
+    /// 消息中心不会把 VM 钉住（虽然这里是单例，钉住也无所谓，但保持全项目一致）。
+    /// </para>
+    /// </summary>
     public ResultPanelViewModel()
     {
         WeakReferenceMessenger.Default.Register<ResultPanelViewModel, InspectionResultMessage>(this,
@@ -118,6 +139,35 @@ public partial class ResultPanelViewModel : ObservableObject
                 vm.RecentIssueText = $"{DateTime.Now:HH:mm}  {msg.Value.Text}";
                 vm.HasIssue = true;
             });
+
+        // 交接班清屏（控制面板的「清空」）
+        WeakReferenceMessenger.Default.Register<ResultPanelViewModel, ClearAllMessage>(this,
+            static (vm, _) => vm.ClearDisplay());
+    }
+
+    /// <summary>
+    /// 清掉眼前显示的东西，<b>不动今日统计</b>。
+    ///
+    /// <para>
+    /// 清的是：明细表、上一帧的结论与耗时、告警卡。
+    /// 不清的是：<see cref="TotalCount"/> / <see cref="NgCount"/> / <see cref="OkRateText"/> ——
+    /// 那是"今天 0 点到现在"的口径（启动时从库补基数，见上面的字段注释）。
+    /// 把它们归零会让良率从 97% 突然变成 "--"，交接班的人会以为质量出事了，
+    /// 而实际上只是有人按了下清屏。要重置统计得另外做一个明确的动作，不能挂在清屏上。
+    /// </para>
+    /// </summary>
+    private void ClearDisplay()
+    {
+        Rows.Clear();
+
+        HasVerdict = false;
+        VerdictText = "--";
+        VerdictSubText = "";
+        IsOk = false;
+        LastCycleText = "--";
+
+        RecentIssueText = "";
+        HasIssue = false;
     }
 
     /// <summary>把一帧报告摊平成表格行。调用方保证在 UI 线程上（消息由页面 VM 在 UI 线程发出）。</summary>
@@ -175,6 +225,10 @@ public partial class ResultPanelViewModel : ObservableObject
         UpdateOkRate();
     }
 
+    /// <summary>
+    /// 重算良率文字。分母用 <see cref="TotalCount"/>（含 OK 与 NG），
+    /// 无判定时显示 "--" 而不是 "0%" —— 0% 会被读成"全不合格"。
+    /// </summary>
     private void UpdateOkRate() =>
         OkRateText = TotalCount > 0
             ? $"{100.0 * (TotalCount - NgCount) / TotalCount:0.0}%"

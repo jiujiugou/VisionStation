@@ -58,11 +58,28 @@ public sealed record HousekeepingOptions
         DatabaseCleanIntervalMs = databaseCleanIntervalMs;
     }
 
-    /// <summary>默认值（与 appsettings.json 中的 Housekeeping 段一致）</summary>
+    /// <summary>
+    /// 默认值（与 appsettings.json 中的 Housekeeping 段一致）：
+    /// 内存上限 500MB、记录保留 30 天、图片保留 30 天、图片目录上限 1000MB、
+    /// 内存检查每 60 秒、数据库清理每 1 小时。
+    ///
+    /// 这六个数只在这里出现一次 —— appsettings 缺项时由绑定器取它，
+    /// 两处各抄一份的下场是有一份忘了改。
+    /// </summary>
     public static HousekeepingOptions Default => new(
         500, 30, 30, 1000L * 1024 * 1024, 60_000, 3_600_000);
 }
 
+/// <summary>
+/// 后台管家的生命周期把手。
+///
+/// <para>
+/// 空接口不是偷懒：注册时用它，是因为消费方（<c>AppHost</c>）需要在启动阶段
+/// "解析一次就让它跑起来"（构造函数自己起 Timer），关闭时又必须能拿到它去释放 ——
+/// 有接口才有这个"两个时机都能摸到同一个实例"的定位点。没有任何业务方法是有意的：
+/// 管家的工作全靠自己的定时器驱动，不接受外部调用。
+/// </para>
+/// </summary>
 public interface IHousekeepingService : IDisposable { }
 
 /// <summary>
@@ -71,23 +88,103 @@ public interface IHousekeepingService : IDisposable { }
 /// 2026-10-19 从 App 层迁入 Service 层：它是运维逻辑（GC 触发 + 数据保留策略），
 /// 与 UI 无关，不该住在 WPF 入口项目里。阈值经 <see cref="HousekeepingOptions"/>
 /// 显式传入，本类不认识 appsettings.json。
+///
+/// <para>
+/// <b>它做三件事，各按自己的节拍</b>（默认值见 <see cref="HousekeepingOptions.Default"/>）：
+/// <list type="number">
+///   <item><b>查内存</b> —— 默认每 60 秒。工作集超过上限（默认 500MB）就强制 GC 两次并记一条前后对比。</item>
+///   <item><b>删过期记录</b> —— 默认每 1 小时。截止点 = 当前时间往前 30 天（默认保留期），
+///         交给仓储按记录创建时间（<c>CreatedAt</c>）删；按自然时间算，与班次无关。</item>
+///   <item><b>删图片</b> —— 与第 2 项同一次调用里做（没有独立节拍）。
+///         先按保留期（默认 30 天）删过期文件，再按容量上限（默认 1000MB）从最旧的开始删到限额以下。</item>
+/// </list>
+/// </para>
+///
+/// <para>
+/// <b>为什么这些清理必须在后台，而不是界面线程</b>：一次清理要扫目录、逐文件 stat/删、
+/// 再对着库发一条 DELETE。几千张图时这是秒级甚至十秒级的同步 IO，
+/// 放在 UI 线程上就是"每小时卡一下"，而卡的那一下恰好可能是操作员按急停/看判定的时候。
+/// 界面线程只配做微秒级的事。
+/// </para>
+///
+/// <para>
+/// <b>归属</b>：DI 单例，构造即启动两个 <see cref="System.Timers.Timer"/>
+/// （<c>AutoReset = true</c>），回调跑在<b>线程池</b>上 —— 不在 UI 线程，也不在启动线程。
+/// 关停顺序由容器释放触发：<see cref="Dispose"/> 会先停 Timer，再最多等 5 秒让在跑的那一轮收尾
+/// （此时可能正卡在 SQLite 写入上，直接拆会留下截断的库文件）。
+/// <c>AppHost</c> 把它放在后台线程上释放，就是为了这最多 5 秒不冻界面。
+/// </para>
+///
+/// <para>
+/// <b>失败行为</b>：全吞。内存检查、清理、枚举目录、单文件删除，每一层都有 try/catch，
+/// 失败只记日志并让下一轮重试 —— 管家是个后台保洁，它报错不能影响产线，
+/// 也不能因为一个被 Verdict 占用的文件就从此不再清理。
+/// </para>
+///
+/// <para>
+/// <b>关键判断：重入保护用"跳过"而不是"排队"</b>。
+/// <c>System.Timers.Timer</c> 在上一轮没跑完时会再起一个回调线程，若用信号量排队，
+/// 结果是一轮比一轮慢、最后几十个线程同时抢库；跳过本轮只丢一次保洁，代价小得多。
+/// </para>
 /// </summary>
 public class HousekeepingService : IHousekeepingService
 {
+    /// <summary>检测记录仓储。清理只调它的 <c>DeleteOlderThanAsync</c>，不做别的读写。</summary>
     private readonly IInspectionRepository _repo;
+
+    /// <summary>
+    /// 要清理的图片目录 = <c>AppPaths.StorageFolder</c>（<c>Storage:ImageFolder</c> 的解析结果，
+    /// 默认 <c>&lt;数据根&gt;/InspectedImages</c>）。
+    ///
+    /// <para>
+    /// <b>现状：这是遗留配置，当前没有生产写入方。</b>相机层删除后图片由 VisionMaster
+    /// 存在它自己的输出目录，本程序只按报文路径去读、不往这里写。
+    /// 也就是说本类默认清理的是一个（几乎）永远空的目录。
+    /// </para>
+    /// <para>
+    /// 想让它真正管到 VM 的图，得把 <c>Storage:ImageFolder</c> 指到 VM 的输出目录 ——
+    /// 代码不做任何"猜平台目录"的动作，也不区分这两种情况，指哪儿清哪儿。
+    /// 指错目录的后果是本类会把那个目录里超过保留期的文件全删掉，所以改这项配置要看清。
+    /// </para>
+    /// </summary>
     private readonly string _imageFolder;
+
+    /// <summary>日志。可空：单测里不验证日志时不必造。</summary>
     private readonly ILogger<HousekeepingService>? _logger;
+
+    /// <summary>内存检查定时器（默认 60 秒，AutoReset，回调在线程池上）。</summary>
     private readonly System.Timers.Timer _memTimer;
+
+    /// <summary>数据库 + 图片清理定时器（默认 1 小时，AutoReset，回调在线程池上）。</summary>
     private readonly System.Timers.Timer _dbTimer;
+
+    /// <summary>内存上限（MB）。超了就 GC —— 这是"最后手段"，不是内存管理策略。</summary>
     private readonly int _maxMemoryMb;
+
+    /// <summary>检测记录保留天数（默认 30）。截止点按自然时间往前推，不是按班次。</summary>
     private readonly int _keepRecordsDays;
+
+    /// <summary>图片保留天数（默认 30，构造时已校验 ≥ 记录保留天数，见 Options 的说明）。</summary>
     private readonly int _imageRetentionDays;
+
+    /// <summary>图片目录容量上限（字节）。超了从最旧的删到限额以下。</summary>
     private readonly long _maxImageFolderBytes;
 
     /// <summary>清理重入保护：Timer.AutoReset 会在上一轮没跑完时再起一个线程</summary>
     private readonly SemaphoreSlim _cleanupGate = new(1, 1);
+
+    /// <summary>被重入保护跳过的轮数。只用于日志 —— 数字持续上涨说明"每轮都跑不完"，该调间隔了。</summary>
     private int _skippedRounds;
 
+    /// <summary>
+    /// 构造即启动 —— 没有 <c>Start()</c> 是有意的：少一个"忘了调"的失败面。
+    ///
+    /// 副作用：立刻创建并启动两个 Timer，第一次回调分别在 60 秒 / 1 小时后；
+    /// 也就是说<b>解析这个单例就等于开始保洁</b>（<c>AppHost</c> 启动时显式取一次就是为此）。
+    /// 线程：构造发生在 UI 线程（启动流程），但回调一律在线程池上，别在这里碰界面对象。
+    /// 失败行为：阈值非法会在 <see cref="HousekeepingOptions"/> 构造时就抛（启动期失败），
+    /// 走到这里时参数已经可信。
+    /// </summary>
     public HousekeepingService(IInspectionRepository repo,
         string imageFolder,
         HousekeepingOptions options,
@@ -119,7 +216,24 @@ public class HousekeepingService : IHousekeepingService
             _imageRetentionDays, _maxImageFolderBytes / 1024 / 1024);
     }
 
-    /// <summary>内存超限 → 强制 GC</summary>
+    /// <summary>
+    /// 内存超限 → 强制 GC。
+    ///
+    /// <para>
+    /// 量的是工作集（WorkingSet64，即进程实际占的物理内存），不是托管堆大小 ——
+    /// 操作员和产线关心的是"任务管理器里那个数"，托管堆小但进程占 1GB 一样要处理。
+    /// </para>
+    /// <para>
+    /// 两次 Collect 中间夹一个 WaitForPendingFinalizers 是标准写法：
+    /// 第一次回收后进终结器队列的对象要等终结器跑完才真正释放，
+    /// 只调一次的话日志里的"释放了 XX MB"会明显偏小。
+    /// <c>proc.Refresh()</c> 必须先调，否则读到的是缓存值 —— 前后一样，看起来像 GC 没用。
+    /// </para>
+    /// <para>
+    /// 这是兜底手段不是内存管理策略：真出问题还是查泄漏。异常只记日志（本方法是后台保洁，
+    /// 抛出去没人接，会直接带走线程池线程）。
+    /// </para>
+    /// </summary>
     private void CheckMemory()
     {
         try
@@ -145,7 +259,13 @@ public class HousekeepingService : IHousekeepingService
         }
     }
 
-    /// <summary>删过期数据库记录 + 过期图片文件（Timer 回调，async void 标准模式）</summary>
+    /// <summary>
+    /// 删过期数据库记录 + 过期图片文件（Timer 回调，async void 标准模式）。
+    ///
+    /// <c>async void</c> 平时是禁忌（异常会直接冒到线程池，把进程带走），这里能用是因为
+    /// <see cref="CleanupOnceAsync"/> 内部把所有异常都吞成了 false + 日志 ——
+    /// 换句话说"这个 async void 不会抛"是被下一层保证的，改那个方法时别把 catch 拆了。
+    /// </summary>
     private async void CleanupDatabase()
     {
         await CleanupOnceAsync().ConfigureAwait(false);
@@ -271,6 +391,10 @@ public class HousekeepingService : IHousekeepingService
         _logger?.LogInformation("[管家] 图片清理完成，当前占用 {Size}MB", totalSize / 1024 / 1024);
     }
 
+    /// <summary>
+    /// 1 = 已释放。用 Interlocked 而不是 bool：容器释放与本类自己的 Dispose
+    /// 可能在不同线程上各来一次，重复 Dispose 会把已释放的 SemaphoreSlim 再拆一遍（抛异常）。
+    /// </summary>
     private int _disposed;
 
     public void Dispose()

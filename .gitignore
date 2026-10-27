@@ -39,12 +39,6 @@ watchdog.log
 TestImages/VirtualCamera/
 notes/
 
-# MVTec AD 子集（几百 MB 的第三方数据，CC BY-NC-SA，不进仓库；用 scripts/prepare_mvtec_subset.py 重建）
-TestImages/MVTec-AD/
-
-# 黄金样本库运行产物（每次跑都变，基线才入库）
-tests/GoldenSet/last-run.json
-
 # 变异测试产物（每次跑都变；结论已抽到 audit/artifacts-core/evidence/）
 StrykerOutput/
 

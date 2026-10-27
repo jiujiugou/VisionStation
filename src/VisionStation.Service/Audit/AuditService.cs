@@ -85,30 +85,90 @@ public interface IAuditService
 ///
 /// 与 <see cref="Storage.InspectionRepository"/> 的分工：本类不认识 EF，
 /// 只管排队和调度，落库交给 <see cref="IAuditRepository"/>。
+///
+/// <para>
+/// <b>留痕范围（哪些动作必须记）</b>：本类不挑动作，动作由调用点决定。
+/// 以 <c>AuditAction</c> 枚举为准，<b>已有真实埋点</b>的是 14 项，按性质分五组：
+/// 启动/退出（AppStart、AppStop）；检测控制与安全（Start、Stop、EStopPressed）；
+/// 变更类（ModeSwitch 切换模式、EngineReload 重载流程）；
+/// 身份类（Login、Logout、LoginFailed、LoginLocked、SessionExpired）；
+/// 账号管理（UserCreate、PasswordChange）。
+/// 变更类应带 before/after —— 只记"谁动过"而不记改成什么，事后无法复现。
+/// </para>
+///
+/// <para>
+/// <b>已知的留痕缺口（读代码才能发现，不是设计）</b>：<c>EStopReset</c>、<c>RecipeSwitch</c>（换型）、
+/// <c>ParameterChange</c>（改参数）、<c>UserDisable</c>（停用用户）四项在枚举、权限表与审计页的
+/// 中文名表里都有，但<b>生产代码里没有任何 <c>Record</c> 调用点</b> ——
+/// 也就是说这几类操作当前不会留下流水。补埋点时不需要动本类，加在各自的命令里即可。
+/// </para>
+///
+/// <para>
+/// <b>归属</b>：DI 单例，活到进程结束。构造即 <c>Task.Run</c> 起一个常驻消费循环
+/// （单读者）；<see cref="Record"/> / <see cref="RecordAs"/> 由任意线程调用（多写者），
+/// 内部无锁，靠 Channel 自身的并发语义。关闭时由组合根显式调 <see cref="Flush"/>
+/// （不是 IDisposable，理由见接口注释），位置在容器释放之前。
+/// </para>
+///
+/// <para>
+/// <b>失败行为：永不抛、永不阻塞。</b>这是设计选择，不是疏漏 ——
+/// 队列满了丢最新一条并记 Error；写库失败只记日志、该条审计就此消失，不重试也不回滚主流程。
+/// 理由：审计是"旁证"，产线动作是"主证"。为了记一笔账而卡住停止检测/急停，
+/// 是把安全让位于记录；反过来说，审计写不进去必须<b>在日志里看得见</b>（这就是那些 Error 的用途），
+/// 否则就成了"以为在留痕、其实一条没落库"。
+/// </para>
+///
+/// <para>
+/// <b>已知副作用</b>：<see cref="Record"/> 读不到身份时会退化成 <c>unknown/unknown</c> 而不是丢掉这条 ——
+/// 宁可记一笔"不知道是谁"，也好过这个动作完全没发生。
+/// </para>
 /// </summary>
 public sealed class AuditService : IAuditService
 {
     /// <summary>队列容量。一天几十条的量级，1024 已经够应付任何突发</summary>
     private const int QueueCapacity = 1024;
 
+    /// <summary>落库端口。本类只调它的 SaveAsync / Query*，不碰 EF。</summary>
     private readonly IAuditRepository _repo;
+
+    /// <summary>日志。可空：单测不验证日志时不必造 —— 但队列丢弃与写入失败只能靠它留痕。</summary>
     private readonly ILogger<AuditService>? _logger;
 
     /// <summary>
     /// 取当前用户名 / 角色。
     ///
-    /// 用委托而不是直接读会话：阶段 1 还没有登录模块，这里回落到 Windows 账户；
-    /// 阶段 2 接入 ISessionService 后，组合根换一行委托即可，所有埋点不用改。
+    /// 用委托而不是直接注入 <c>ISessionService</c>：一是避免环（会话要审计、审计要读会话），
+    /// 二是让"这次操作算谁的"变成一个可替换的输入。
+    /// 现状：组合根传的委托读会话；未登录（含启动阶段的 AppStart）回落到 Windows 账户 + 角色"未登录"，
+    /// 那本身就是有效信息（"这条是在没人登录时发生的"）。
     /// </summary>
     private readonly Func<(string UserName, string UserRole)> _identity;
 
+    /// <summary>审计条目队列（有界 1024，满即丢最新）。写方任意线程，读方只有消费循环一个。</summary>
     private readonly Channel<AuditEntry> _queue;
+
+    /// <summary>后台消费任务。由 <see cref="Flush"/> 等待它清空后结束。</summary>
     private readonly Task _consumer;
+
+    /// <summary>取消源。只在 Flush 超时（还有条目没写完）时才用 —— 是"放弃等待"的开关，不是常规关闭路径。</summary>
     private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>连续写库失败次数。用于日志节流：表不存在时每 10 条才记一次，否则会把日志刷爆。</summary>
     private int _consecutiveFailures;
+
+    /// <summary>累计丢弃条数（队列满）。只用于日志里的"累计丢弃 N 条"。</summary>
     private int _dropped;
+
+    /// <summary>1 = Flush 已经走过。保证队列只 Complete 一次。</summary>
     private int _disposed;
 
+    /// <summary>
+    /// 构造即启动消费循环（<c>Task.Run</c>，跑在线程池上，直到 Flush 关掉队列）。
+    ///
+    /// 副作用：占一个常驻后台线程等待 Channel；解析这个单例就等于"开始记账"，
+    /// 所以 <c>AppHost</c> 在启动末尾解析它并立刻记第一条 AppStart。
+    /// 没有可失败的前置条件 —— 仓储连不上也照样构造成功，错误会在消费循环里逐条暴露。
+    /// </summary>
     public AuditService(
         IAuditRepository repo,
         Func<(string UserName, string UserRole)>? identity = null,
@@ -130,6 +190,13 @@ public sealed class AuditService : IAuditService
         _consumer = Task.Run(ConsumeAsync);
     }
 
+    /// <summary>
+    /// 记一条审计，身份取"当前会话"。
+    ///
+    /// 前置条件：无。线程：任意线程（调用点是 UI 线程按钮命令，但本方法不碰 UI）。
+    /// 副作用：只往队列里塞一个对象，微秒级返回。
+    /// 失败行为：不抛、不阻塞 —— 身份取不到就记成 unknown；队列满就丢并记 Error。
+    /// </summary>
     public void Record(
         AuditAction action,
         string target = "",
@@ -153,6 +220,14 @@ public sealed class AuditService : IAuditService
         RecordAs(userName, userRole, action, target, before, after, result, detail);
     }
 
+    /// <summary>
+    /// 用指定身份记一条审计。登录/登出/失败尝试必须走这里 ——
+    /// 那些时刻"会话"要么还没建立、要么已经没了，用 <see cref="Record"/> 会把账记到 Windows 账户名下，
+    /// 而"谁在试密码"恰恰是最该留住的信息。
+    ///
+    /// 空用户名/空角色会被补成 <c>unknown</c> 而不是丢弃：一条残缺的审计也胜过没有。
+    /// 同样不抛：队列满时丢本条 + 记 Error（丢审计比卡产线轻）。
+    /// </summary>
     public void RecordAs(
         string userName,
         string userRole,
@@ -240,6 +315,18 @@ public sealed class AuditService : IAuditService
     ///
     /// 不等的话，关机那一瞬间队列里剩下的几条会随进程消失 ——
     /// 而"关机前最后做了什么"恰恰是事后最想知道的。
+    ///
+    /// <para>
+    /// 机制：先 <c>TryComplete</c> 让消费循环"读完剩余条目后自然退出"，再 <c>Wait(timeout)</c>。
+    /// 超时不是错误，只是如实记一条警告，然后取消消费循环 —— 剩下的条目确实会丢，
+    /// 但不允许为了记账把关闭流程拖到超时之外（<c>AppHost</c> 给的时间预算是严格的）。
+    /// </para>
+    /// <para>
+    /// 幂等（<c>_disposed</c>），重复调用直接返回。**注意副作用**：调用之后队列已关闭，
+    /// 之后再来的 <see cref="RecordAs"/> 会被 TryWrite 拒掉，走"队列已满"那条日志 ——
+    /// 消息措辞与实际原因不符（其实是"已关闭"），排障时别被这句话带偏。
+    /// 所以组合根把它放在关闭流程的倒数第二步（记完 AppStop 之后、释放容器之前）。
+    /// </para>
     /// </summary>
     public void Flush(TimeSpan timeout)
     {

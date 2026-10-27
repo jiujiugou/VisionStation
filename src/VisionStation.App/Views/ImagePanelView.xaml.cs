@@ -5,9 +5,21 @@ using VisionStation.App.ViewModels;
 
 namespace VisionStation.App.Views;
 
+/// <summary>
+/// 图像显示区的视图层：滚轮缩放、拖拽平移、F 键复位、像素坐标读数。
+///
+/// <para>
+/// 这些都留在 code-behind 而不是 VM 里，因为它们全是**纯视觉交互**：
+/// 缩放比例和偏移量只影响这一块画布，不进数据、不入库、不影响判定。
+/// 放进 VM 的结果是每次拖一下鼠标都要发属性通知，而除了这一个 View 没人关心。
+/// </para>
+/// <para>
+/// 与 VM 的交界只有一个：<c>DataContext as ImagePanelViewModel</c>，且只读（取图像尺寸）。
+/// </para>
+/// </summary>
 public partial class ImagePanelView : UserControl
 {
-    // 缩放/平移状态
+    // 缩放/平移状态。全部只在 UI 线程读写，不需要锁。
     private double _zoom = 1.0;
     private Point _panStart;
     private Point _mousePos;
@@ -87,6 +99,10 @@ public partial class ImagePanelView : UserControl
         _panStart = pos;
     }
 
+    /// <summary>
+    /// 结束平移。**必须无条件释放鼠标捕获**（即使这次按下没真正开始平移）——
+    /// 捕获不释放会让整个窗口之后都收不到鼠标事件，看起来像界面卡死。
+    /// </summary>
     private void OnMouseUp(object sender, MouseButtonEventArgs e)
     {
         _isPanning = false;
@@ -109,6 +125,10 @@ public partial class ImagePanelView : UserControl
         }
     }
 
+    /// <summary>
+    /// 把 <see cref="_zoom"/> 写进 ScaleTransform。
+    /// 只改缩放、不动平移 —— 平移由滚轮换算和拖拽各自负责，这里再动一次会互相打架。
+    /// </summary>
     private void ApplyZoom()
     {
         ZoomTransform.ScaleX = _zoom;

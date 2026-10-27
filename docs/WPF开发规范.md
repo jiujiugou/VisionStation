@@ -233,7 +233,7 @@ Converter **必须**是纯函数，无 IO、无状态、无异常逃逸。
 ## 7. 线程模型（WPF-T）—— 工业软件最硬的一条
 
 ### WPF-T1.1 UI 线程只做 UI
-UI 线程上**不得**执行：OpenCV 运算、模板匹配、ONNX 推理、数据库读写、文件/网络 IO、
+UI 线程上**不得**执行：OpenCV 运算、模板匹配、数据库读写、文件/网络 IO、
 等待设备、`Thread.Sleep`、`.Result` / `.Wait()` / `GetAwaiter().GetResult()`。
 
 判据：任何一次用户操作导致界面连续无响应超过 100 ms，都按缺陷处理。

@@ -20,18 +20,23 @@ namespace VisionStation.App.ViewModels;
 /// 为什么没有“选中项”这个概念了：
 ///   改造前用两个 <c>ListBox</c> 共享一个 <c>SelectedItem</c>。实测（真 WPF，见
 ///   docs/WPF规范落地记录.md）两个列表各自记住自己的选中项、互不清除，
-///   结果**同时有两个图标是高亮的** —— 点下半部的相机，上半部的检测还亮着，
+///   结果**同时有两个图标是高亮的** —— 点下半部的某一页，上半部的检测还亮着，
 ///   操作员没法判断"我现在在哪一页"。这不是绑定写错，是"选中"本身不该由控件拥有：
 ///   导航状态归 <see cref="INavigationService"/>，图标只是把它画出来。
 ///   所以这里改成按钮 + <see cref="NavItem.IsActive"/>，唯一真相源是 CurrentRoute。
 /// </summary>
 public partial class SidebarViewModel : ObservableObject
 {
+    /// <summary>导航服务。**唯一真相源**：本类只读它的 CurrentRoute，从不自己记"当前页"。</summary>
     private readonly INavigationService _navigation;
+
+    /// <summary>会话。只用来查权限位（审计页要不要出现），不读用户名。</summary>
     private readonly ISessionService _session;
+
+    /// <summary>全部导航项（上下两组合并）。<see cref="SyncActiveState"/> 要遍历它把所有项的高亮清掉。</summary>
     private readonly IReadOnlyList<NavItem> _allItems;
 
-    /// <summary>当前是否工程师模式（由顶栏广播驱动）</summary>
+    /// <summary>当前是否工程师模式。由 <see cref="EngineerModeMessage"/> 驱动，见 <see cref="ApplyEngineerMode"/>。</summary>
     private bool _isEngineerMode;
 
     /// <summary>是否暗化（自动运行时 true，手动/停止时 false）</summary>
@@ -56,6 +61,19 @@ public partial class SidebarViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<NavItem> VisibleBottomItems { get; } = new();
 
+    /// <summary>
+    /// 构造：建导航项 → 按当前模式与权限算可见集 → 订阅三路消息 → 与导航状态对齐。
+    ///
+    /// <para>
+    /// 顺序不能乱：<see cref="ApplyEngineerMode"/> 里会读 <see cref="_allItems"/>，
+    /// 而那是在建完 <see cref="BottomItems"/> 之后才赋值的。
+    /// </para>
+    /// <para>
+    /// <c>TriggerStateMessage</c> 的订阅用的是带接收者的**普通** lambda（不是 static）——
+    /// 因为它不需要额外状态，写成 static 只是习惯；真正影响的是这里必须拿 <c>vm</c>，
+    /// 所以签名里保留了它。
+    /// </para>
+    /// </summary>
     public SidebarViewModel(INavigationService navigation, ISessionService session)
     {
         _navigation = navigation;
@@ -134,6 +152,10 @@ public partial class SidebarViewModel : ObservableObject
         _navigation.Navigate(item.Route);
     }
 
+    /// <summary>
+    /// 导航状态变了就重算高亮。只看两个属性：
+    /// CurrentRoute（决定谁亮）与 CurrentPage（页面实例换了但路由名可能没变）。
+    /// </summary>
     private void OnNavigationChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName is nameof(INavigationService.CurrentRoute)
@@ -146,8 +168,8 @@ public partial class SidebarViewModel : ObservableObject
     /// <summary>
     /// 按模式重建可见导航项。
     ///
-    /// 顺带处理一个悬空状态：如果当前正停在即将被隐藏的页上（切开到运行模式时人在相机页），
-    /// 要退回检测页 —— 否则导航栏里没有任何高亮项，内容区却还显示着相机参数，
+    /// 顺带处理一个悬空状态：如果当前正停在即将被隐藏的页上（切回运行模式时人还在「图像来源」页），
+    /// 要退回检测页 —— 否则导航栏里没有任何高亮项，内容区却还显示着那一页的配置，
     /// 操作员会以为"我就在这一页"，实际上导航已经没有它了。
     ///
     /// 公开而不是私有：顶栏通过 <see cref="EngineerModeMessage"/> 触发它，
@@ -160,7 +182,7 @@ public partial class SidebarViewModel : ObservableObject
         RebuildVisible();
 
         // 当前停在的页若已不可见，必须退回检测页：
-        // 退出工程师模式时人可能停在相机页；登出时人可能停在审计页。
+        // 退出工程师模式时人可能停在「图像来源」页；登出时人可能停在审计页。
         // 不退的话侧栏没有任何高亮项，内容区却还显示着那一页。
         var current = _navigation.CurrentRoute;
         var currentItem = _allItems.FirstOrDefault(i =>
@@ -178,6 +200,15 @@ public partial class SidebarViewModel : ObservableObject
     /// </summary>
     public void RefreshVisibility() => ApplyEngineerMode(_isEngineerMode);
 
+    /// <summary>
+    /// 按当前模式与权限重建可见项。
+    ///
+    /// <para>
+    /// 用的是"清空 + 重新 Add"而不是原地增删：项数是个位数，重建比维护增删逻辑便宜，
+    /// 而且不会出现"删了但没删干净"的半状态。代价是按钮会重建一次 ——
+    /// 所以只在模式/权限变化时调，不要放进滚动或每帧路径里。
+    /// </para>
+    /// </summary>
     private void RebuildVisible()
     {
         VisibleBottomItems.Clear();
@@ -205,6 +236,15 @@ public partial class SidebarViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>
+    /// 把所有项的高亮刷新成"当前路由那一项亮"。
+    ///
+    /// <para>
+    /// 遍历全量 <see cref="_allItems"/> 而不是可见集：不可见的项也必须把
+    /// <see cref="NavItem.IsActive"/> 清掉，否则切回工程师模式时会看到两个亮项
+    /// （隐藏期间它一直保持着 true）。
+    /// </para>
+    /// </summary>
     private void SyncActiveState()
     {
         var route = _navigation.CurrentRoute;
@@ -224,6 +264,15 @@ public partial class SidebarViewModel : ObservableObject
 /// </summary>
 public partial class NavItem : ObservableObject
 {
+    /// <summary>
+    /// 建一个导航项。全部属性只读 —— 导航项在运行时不该被改，模式与权限的
+    /// 变化靠"换可见集合"表达，而不是改项的属性。
+    /// </summary>
+    /// <param name="route">路由名（与 <see cref="NavigationService"/> 的常量一致）</param>
+    /// <param name="label">显示文字 / ToolTip</param>
+    /// <param name="geometry">SVG Path 数据（Material 风格图标，24×24 视框）</param>
+    /// <param name="engineerOnly">是否只在工程师模式可见</param>
+    /// <param name="requiredPermission">额外要求的权限位</param>
     public NavItem(
         string route,
         string label,
@@ -250,15 +299,17 @@ public partial class NavItem : ObservableObject
     /// <summary>
     /// 是否只在工程师模式可见。
     ///
-    /// 相机参数、日志这类页面操作员用不到，摆在运行模式的导航里只会让人误点进去，
-    /// 看到一堆看不懂的按钮。运行模式和工程师模式的区别，主要就体现在这个标志上。
+    /// <para>
+    /// 图像来源这类页面操作员用不到，摆在运行模式的导航里只会让人误点进去，
+    /// 看到一堆看不懂的配置。运行模式和工程师模式的区别，主要就体现在这个标志上。
+    /// </para>
     /// </summary>
     public bool EngineerOnly { get; }
 
     /// <summary>
     /// 需要哪个权限位才显示。<see cref="Permission.None"/> = 不需要。
     ///
-    /// 与 <see cref="EngineerOnly"/> 是两个维度：相机页看"在不在工程师模式"，
+    /// 与 <see cref="EngineerOnly"/> 是两个维度：图像来源页看"在不在工程师模式"，
     /// 审计页看"是不是管理员"。后者与模式无关 —— 管理员在运行模式下也该能查审计。
     /// </summary>
     public Permission RequiredPermission { get; }

@@ -51,10 +51,22 @@ public sealed class ImageSourceSettingsStore
 
     private readonly string _path;
     private readonly ILogger<ImageSourceSettingsStore>? _logger;
+
+    /// <summary>
+    /// 读写互斥。**必须**：每帧都在检测线程读 <see cref="Current"/>，
+    /// 而保存发生在 UI 线程，两者同时跑时 <c>_current</c> 是一个引用赋值 ——
+    /// 引用赋值本身是原子的，加锁是为了保证"文件写完"与"内存值更新"这两步不被看见中间态。
+    /// </summary>
     private readonly object _sync = new();
 
+    /// <summary>当前生效值。只在锁内读写。</summary>
     private ImageSourceSettings _current;
 
+    /// <summary>
+    /// 构造即尝试读盘。文件不存在按"未启用"处理（这是绝大多数机器的状态，不是错误）；
+    /// 文件损坏也只记日志、退回默认，**不让程序起不来** —— 一个调试辅助设置
+    /// 没有资格阻止产线软件启动。
+    /// </summary>
     public ImageSourceSettingsStore(string path, ILogger<ImageSourceSettingsStore>? logger = null)
     {
         _path = path;
@@ -101,6 +113,10 @@ public sealed class ImageSourceSettingsStore
             copy.FolderFallbackEnabled, copy.Folder, copy.Recursive);
     }
 
+    /// <summary>
+    /// 从磁盘读。**所有失败都退回 <see cref="ImageSourceSettings.Disabled"/>**，
+    /// 唯一区别是留不留日志：文件不存在（首次运行）静默，读失败或 JSON 坏掉记 Warning。
+    /// </summary>
     private ImageSourceSettings Load()
     {
         try

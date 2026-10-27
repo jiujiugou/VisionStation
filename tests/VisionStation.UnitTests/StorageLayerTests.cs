@@ -1,6 +1,5 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
-using OpenCvSharp;
 using VisionStation.Core.Models;
 using VisionStation.Storage;
 using Xunit;
@@ -8,8 +7,16 @@ using Xunit;
 namespace VisionStation.UnitTests;
 
 /// <summary>
-/// Storage 切片（F-S01..F-S06）的防线用例。
+/// Storage 切片（F-S02..F-S04）的防线用例。
 /// 每条对应 RequirementCatalog 里的一条约束，命令写在约束的 command 字段里。
+///
+/// <para>
+/// 原本这里还有 R-S01 / R-S05 / R-S06 三条（存图路径写回、文件名唯一、抽样率校验），
+/// 2026-10-27 随 <c>ImageStoreService</c> 一起删除：相机层删掉后本程序不再写图，
+/// 图由 VisionMaster 存盘、本程序只按报文路径读，那个服务已经没有生产调用者。
+/// 留下的三条是 <see cref="InspectionRepository"/> 与 <see cref="StorageSchema"/> 的，
+/// 它们仍在生产路径上。
+/// </para>
 /// </summary>
 public class StorageLayerTests
 {
@@ -30,20 +37,12 @@ public class StorageLayerTests
         return r;
     }
 
-    private static CameraFrame MakeFrame(string path)
-        => new()
-        {
-            Image = new Mat(16, 16, MatType.CV_8UC3, Scalar.All(0)),
-            Timestamp = DateTime.Now,
-            FilePath = path
-        };
-
-    private static List<string> ReadColumns(string dbPath)
+    private static List<string> ReadColumns(string dbPath, string table = "InspectionRecords")
     {
         using var conn = new SqliteConnection($"Data Source={dbPath}");
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "PRAGMA table_info(\"InspectionRecords\");";
+        cmd.CommandText = $"PRAGMA table_info(\"{table}\");";
         using var rd = cmd.ExecuteReader();
         var cols = new List<string>();
         while (rd.Read()) cols.Add(rd.GetString(1));
@@ -57,37 +56,6 @@ public class StorageLayerTests
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
-    }
-
-    // ── R-S01：存图路径必须写回报告 ────────────────────────────────
-    [Fact]
-    public void R_S01_SavedPathIsWrittenBack()
-    {
-        var root = NewRoot();
-        var svc = new ImageStoreService(root);
-        var report = MakeReport();
-        var frame = MakeFrame("HikCamera_Frame_12");
-
-        var result = svc.Save(frame, report);
-
-        Assert.True(result.IsSaved, result.Error);
-        Assert.Equal(result.Path, report.ImagePath);
-        Assert.True(File.Exists(report.ImagePath), "记录里的路径必须指向真实存在的文件");
-        Assert.StartsWith(root, report.ImagePath, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void R_S01_SkippedFrame_DoesNotTouchImagePath()
-    {
-        var svc = new ImageStoreService(NewRoot());
-        svc.SetMode(ImageStoreMode.NGOnly);
-
-        var report = MakeReport();          // 全 OK → NGOnly 下不存
-        report.ImagePath = "原图来源";
-        var result = svc.Save(MakeFrame("src"), report);
-
-        Assert.Equal(ImageSaveOutcome.Skipped, result.Outcome);
-        Assert.Equal("原图来源", report.ImagePath);
     }
 
     // ── R-S02：全部工具结果都要落库 ────────────────────────────────
@@ -145,6 +113,62 @@ public class StorageLayerTests
         Assert.Equal(2, (await v2.QueryAsync(new InspectionQuery { Take = 10 })).Count);
     }
 
+    // ── R-S03（审计表）：补列不能只认检测记录表 ──────────────────────
+    [Fact]
+    public async Task R_S03_OldAuditTableGetsUpgraded()
+    {
+        var dbPath = Path.Combine(NewRoot(), "s03_audit.db");
+
+        var v1 = new AuditRepository(dbPath);
+        await v1.EnsureCreatedAsync();
+        await v1.SaveAsync(new AuditEntry
+        {
+            UserName = "op01",
+            UserRole = "Operator",
+            Action = AuditAction.ParameterChange,
+            Detail = "补列前",
+        });
+
+        // 用 DROP COLUMN 模拟「上一版代码建的库」：结构里没有 Detail。
+        // Detail 没有索引、不是主键，满足 SQLite DROP COLUMN 的限制；
+        // 这条语句与 R-S03 用的是同一个手法（本机 SQLite 版本已支持）。
+        ExecSql(dbPath, "ALTER TABLE \"AuditLogs\" DROP COLUMN \"Detail\";");
+        Assert.DoesNotContain("Detail", ReadColumns(dbPath, "AuditLogs"));
+
+        var v2 = new AuditRepository(dbPath);
+        await v2.EnsureCreatedAsync();          // 这里必须给审计表补列，而不是只补检测表
+
+        Assert.Contains("Detail", ReadColumns(dbPath, "AuditLogs"));
+
+        var rows = await v2.QueryRecentAsync();
+        Assert.Single(rows);                    // 旧数据没被清掉
+        Assert.Equal("op01", rows[0].UserName);
+        // Detail 在模型里是 string?，补列必须是可空列；老行拿到 NULL，与新建库一致
+        Assert.Null(rows[0].Detail);
+
+        // 补列之后能正常写入。这里故意不给 Detail 赋值（仓储会写 null）：
+        // 若补列时把它加成 NOT NULL DEFAULT ''，这一句会抛 NOT NULL constraint failed ——
+        // 「列补上了但审计仍然写不进去」同样是上线才会发现的缺陷。
+        await v2.SaveAsync(new AuditEntry
+        {
+            UserName = "op02",
+            UserRole = "Operator",
+            Action = AuditAction.Login,
+        });
+        await v2.SaveAsync(new AuditEntry
+        {
+            UserName = "op03",
+            UserRole = "Operator",
+            Action = AuditAction.Login,
+            Detail = "补列后",
+        });
+
+        var after = await v2.QueryRecentAsync();
+        Assert.Equal(3, after.Count);
+        Assert.Equal("补列后", after[0].Detail);   // 按 Id 倒序，最新一条在最前
+        Assert.Null(after[1].Detail);              // 可空列可以正常写 null
+    }
+
     // ── R-S04：并发写不因锁等待失败（WAL + 5s 上限）────────────────
     [Fact]
     public async Task R_S04_ConcurrentWrites_NoBusyFailure()
@@ -174,39 +198,5 @@ public class StorageLayerTests
         var (ok, ng) = await repo.GetStatisticsAsync();
         Assert.Equal(160, ok + ng);
         Assert.Equal(0, ng);
-    }
-
-    // ── R-S05：文件名对同一毫秒的不同报告唯一 ──────────────────────
-    [Fact]
-    public void R_S05_FileNameUniquePerReport()
-    {
-        var at = new DateTime(2026, 10, 19, 12, 0, 0, 123);
-        var id1 = Guid.Parse("11111111-1111-1111-1111-111111111111");
-        var id2 = Guid.Parse("22222222-2222-2222-2222-222222222222");
-
-        var a = ImageStoreService.BuildFileName(at, "NG", "cap", id1);
-        var b = ImageStoreService.BuildFileName(at, "NG", "cap", id2);
-
-        Assert.NotEqual(a, b);
-        Assert.Equal(a, ImageStoreService.BuildFileName(at, "NG", "cap", id1));  // 同报告重存幂等
-        Assert.StartsWith("120000123_NG_cap_", a, StringComparison.Ordinal);
-    }
-
-    // ── R-S06：抽样率为 0 在配置入口就被拦下 ───────────────────────
-    [Fact]
-    public void R_S06_SamplingRateValidated()
-    {
-        var svc = new ImageStoreService(NewRoot());
-
-        Assert.Throws<ArgumentOutOfRangeException>(() => svc.SetMode(ImageStoreMode.Sampling, 0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => svc.SetMode(ImageStoreMode.Sampling, -1));
-
-        svc.SetMode(ImageStoreMode.Sampling, 1);
-        var frame = MakeFrame("f");
-        for (var i = 0; i < 10; i++)
-        {
-            var r = svc.Save(frame, MakeReport($"s{i}"));
-            Assert.NotEqual(ImageSaveOutcome.Failed, r.Outcome);
-        }
     }
 }

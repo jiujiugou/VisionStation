@@ -40,6 +40,23 @@ public class StatusBarViewModelTests
     }
 
     [Fact]
+    public void VM收帧丢帧消息_更新数字并标记有无丢帧()
+    {
+        // 丢帧是"有一件没被判过"，必须在常驻可见的地方露出来。
+        // 状态栏只显示：数字口径在驱动层，这里不重算。
+        var vm = new StatusBarViewModel();
+        Assert.Equal("--", vm.VmFrameStats);   // VM 链路没启用时不能说"收 0 丢 0"
+
+        WeakReferenceMessenger.Default.Send(new VmThroughputMessage(120, 0));
+        Assert.Equal("收 120 / 丢 0", vm.VmFrameStats);
+        Assert.False(vm.HasVmDrops);
+
+        WeakReferenceMessenger.Default.Send(new VmThroughputMessage(121, 3));
+        Assert.Equal("收 121 / 丢 3", vm.VmFrameStats);
+        Assert.True(vm.HasVmDrops);           // 一旦丢过帧，这一格就变红，不再回到常态色
+    }
+
+    [Fact]
     public void 零耗时帧_不显示Infinity()
     {
         var vm = new StatusBarViewModel();

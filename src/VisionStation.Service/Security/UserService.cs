@@ -81,44 +81,101 @@ public interface IUserService
 ///
 /// 3) <b>审计在这里记，不交给调用方</b>。认证失败的原因（账号不存在 / 密码错 /
 ///    被停用）只有服务内部知道，交给界面记必然记不全。
+///
+/// <para>
+/// <b>定位</b>：登录链路上的第一环（认证 → 建会话 → 界面按权限开合）。
+/// 上层调用方是登录窗 VM（<c>LoginViewModel</c>）与启动流程
+/// （<c>AppHost.InitializeAsync</c> 调 <see cref="EnsureDefaultAdminAsync"/>）。
+/// 本类**只管密码与账号状态**：不建会话、不做权限判断 —— 那是
+/// <see cref="ISessionService"/> 的事，分开才能单独测"降级"而不用先造一次真实认证。
+/// </para>
+///
+/// <para>
+/// <b>归属</b>：DI 单例，活到进程结束（失败计数必须跨请求存活，否则锁定无意义）。
+/// 无 UI 依赖，异步方法内部 <c>ConfigureAwait(false)</c> 续体会落在任意线程池线程；
+/// 唯一被多线程共享的可变状态是失败计数字典，由 <c>_gate</c> 保护。
+/// </para>
+///
+/// <para>
+/// <b>失败行为</b>：<b>从不向调用方抛业务异常</b>，全部翻译成返回值 ——
+/// 查询账号时数据库异常 → 记日志 + 审计 + 当作登录失败返回；
+/// 轮数升级失败 → 记警告，本次照常登录；记录最后登录时间失败 → 记警告，不影响登录。
+/// 理由都一样：登录失败要能给出人话提示，抛异常只会变成"程序崩了"。
+/// </para>
+///
+/// <para>
+/// <b>最容易被问到的判断</b>：账号不存在也照样计入失败次数（<c>RegisterFailure</c>），
+/// 否则"枚举账号名"就能免费无限次试探；代价是打错用户名也会锁 60 秒 —— 这是刻意接受的。
+/// </para>
 /// </summary>
 public sealed class UserService : IUserService
 {
     /// <summary>连续失败多少次触发锁定</summary>
     public const int MaxFailuresBeforeLock = 3;
 
-    /// <summary>锁定时长</summary>
+    /// <summary>锁定时长。60 秒足够让撞库变成不划算，又不至于让夜班操作员等太久。</summary>
     public static readonly TimeSpan LockDuration = TimeSpan.FromSeconds(60);
 
-    /// <summary>出厂默认管理员</summary>
+    /// <summary>出厂默认管理员的登录名。改了它，现场说明书和交接班表都要跟着改。</summary>
     public const string DefaultAdminUserName = "admin";
 
     /// <summary>
-    /// 出厂默认密码。
+    /// 出厂默认口令 —— 值由常量自己携带，<b>注释里不复述</b>
+    /// （给别人看的代码里写明文等于泄露；要看值只能看这一行常量）。
     ///
-    /// 明文写在源码里是刻意的：工控设备的出厂密码本来就印在说明书上，
-    /// 藏起来只会变成"装机的人自己也不知道密码"。
-    /// 真正的保护是 <see cref="UserAccount.MustChangePassword"/> —— 首次登录必须改，
-    /// 改之前每一次登录都写进审计。
+    /// <para>
+    /// 明文常量存在源码里是有意为之：工控设备的出厂口令本来就要写进出厂说明，
+    /// 藏成"每次装机自己猜"只会让人把口令贴在机箱上。
+    /// 真正的保护不是这个字符串，而是<b>首次登录必须改密</b>：
+    /// 账号由 <see cref="EnsureDefaultAdminAsync"/> 建成 <c>MustChangePassword = true</c>，
+    /// 登录窗（<c>LoginViewModel</c>）看到这一位就强制走改密流程、
+    /// 不让直接进主界面；改完再用新口令重新认证一次拿到更新后的账号。
+    /// </para>
+    /// <para>
+    /// 取证：只要有人还在这份口令上登录，每次成功的审计 detail 都会带
+    /// "使用的是出厂密码，需立即修改"（见 <see cref="AuthenticateAsync"/> 末尾），
+    /// 复盘时一眼能看出"这台机器从装机起就没人改过密码"。
+    /// </para>
+    /// <para>
+    /// <b>已知副作用</b>：<see cref="EnsureDefaultAdminAsync"/> 建号时会把该口令打进日志
+    /// （方便首次装机的人照抄），于是 <c>Logs</c> 目录里就留了一份明文。
+    /// 交付现场的机器在首次改密后应当清一次日志 —— 这一点代码没有替你兜。
+    /// </para>
     /// </summary>
     public const string DefaultAdminPassword = "1234";
 
     /// <summary>新密码最短长度。工控现场是戴手套敲数字键，不追求复杂度，靠锁定 + 审计兜底。</summary>
     public const int MinPasswordLength = 4;
 
+    /// <summary>
+    /// 单个账号的失败状态。<c>LockedUntil</c> 为 null = 还没锁；
+    /// 计数与锁定时间放在同一个对象里，避免"计数清零了但锁还在"这种半状态。
+    /// </summary>
     private sealed class FailureState
     {
         public int Count;
         public DateTime? LockedUntil;
     }
 
+    /// <summary>账号仓储。唯一的数据来源，本类不建表、不写 SQL。</summary>
     private readonly IUserRepository _repo;
+
+    /// <summary>
+    /// 审计。认证的每一次尝试（成功/失败/被锁）都要留痕 ——
+    /// 这是"谁在试密码"唯一的线索，所以放在服务里而不是交给界面。
+    /// </summary>
     private readonly IAuditService _audit;
+
+    /// <summary>日志。可空：单测里不关心日志时不必造一个 ILogger。</summary>
     private readonly ILogger<UserService>? _logger;
+
+    /// <summary>时间源。注入是为了让"锁 60 秒后自动解锁"能被单测瞬间验证。</summary>
     private readonly Func<DateTime> _now;
 
     /// <summary>用户名 → 失败状态。键用不区分大小写的比较器，与查库规则一致。</summary>
     private readonly Dictionary<string, FailureState> _failures = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>失败字典的闸门。后台线程可能同时来两次登录，不加锁会丢计数（= 少锁一次）。</summary>
     private readonly object _gate = new();
 
     public UserService(
@@ -133,6 +190,25 @@ public sealed class UserService : IUserService
         _now = now ?? (() => DateTime.Now);
     }
 
+    /// <summary>
+    /// 库里的账号表为空时建一个出厂管理员（登录名见 <see cref="DefaultAdminUserName"/>，
+    /// 口令由 <see cref="DefaultAdminPassword"/> 提供，强制首次改密）。
+    ///
+    /// <para>
+    /// 判据是"表里一个人都没有"，不是"admin 不存在"：现场自己建过账号之后，
+    /// 这个方法就永久不再起作用 —— 否则管理员被删了会被它悄悄重建一个出厂口令账号，
+    /// 等于给所有人留了一扇后门。
+    /// </para>
+    /// <para>
+    /// 调用点在 <c>AppHost.InitializeAsync</c>，失败由它 catch 后只记日志：
+    /// 账号初始化失败的正确后果是"没人能登录、只能看状态"，而不是"程序起不来"。
+    /// 本方法自己不吞异常（仓储怎么抛就怎么抛），把降级决定留给启动流程。
+    /// </para>
+    /// <para>
+    /// 线程：启动线程上一次性的调用，内部 <c>await</c> 后会落到线程池；
+    /// 除写库外无共享状态，不会与正在跑的登录互相干扰（此时根本还没人能登录）。
+    /// </para>
+    /// </summary>
     public async Task EnsureDefaultAdminAsync(CancellationToken ct = default)
     {
         var all = await _repo.GetAllAsync().ConfigureAwait(false);
@@ -161,6 +237,25 @@ public sealed class UserService : IUserService
             DefaultAdminUserName, DefaultAdminPassword);
     }
 
+    /// <summary>
+    /// 认证。**唯一**的密码校验入口，任何地方都不要绕开它直接调 <c>PasswordHasher.Verify</c>
+    /// （否则失败计数、锁定与审计都会漏）。
+    ///
+    /// <para>
+    /// 判定顺序是刻意的，每一步都在挡一类事故：
+    /// 空输入 → 锁定期 → 查库（异常按失败处理）→ 账号不存在 → 已停用 → 密码错 → 成功。
+    /// 锁定期放在查库之前：锁定期间连数据库都不碰，爆破就打不到库上。
+    /// </para>
+    /// <para>
+    /// 副作用：写审计（每次尝试）、改内存失败计数、成功后更新最后登录时间、必要时升级密码轮数。
+    /// 后两项失败只记日志 —— 登录本身已经成立，不该因为"记不上最后登录时间"把人挡在门外。
+    /// </para>
+    /// <para>
+    /// 失败行为：从不抛。所有异常都翻译成
+    /// <see cref="AuthOutcome"/> + 一句给操作员看的话（见 <see cref="AuthResult.Message"/>）。
+    /// 线程：UI 线程发起（登录命令），await 之后在线程池上继续，返回值不再碰界面对象。
+    /// </para>
+    /// </summary>
     public async Task<AuthResult> AuthenticateAsync(
         string userName, string password, CancellationToken ct = default)
     {
@@ -261,6 +356,25 @@ public sealed class UserService : IUserService
         return new AuthResult(AuthOutcome.Success, user);
     }
 
+    /// <summary>
+    /// 改密。前置条件：知道当前密码（**所以它不是"重置密码"** —— 管理员重置这条路径目前不存在）。
+    ///
+    /// <para>
+    /// 四道校验按顺序：账号存在 → 当前密码正确 → 新密码够长 → 新旧不同。
+    /// "新旧必须不同"不是洁癖：出厂口令登录 → 改密成同一个串 → 强制改密标志被清掉，
+    /// 等于没改。
+    /// </para>
+    /// <para>
+    /// 成功后把 <c>MustChangePassword</c> 置 false，这就是"首次登录强制改密"的出口 ——
+    /// 标志位的清除发生在改密成功这一刻，而不是登录的时候，否则跳过改密也能进主界面。
+    /// </para>
+    /// <para>
+    /// 失败行为：返回 <c>(false, 原因)</c>，原因直接给操作员看；不抛（除了仓储自身的异常，
+    /// 那属于真故障，由界面统一按"操作失败"提示）。
+    /// 注意本方法<b>不检查 <c>IsEnabled</c></b>：停用账号拿着旧密码仍可改密，
+    /// 但它照样登不进来（<see cref="AuthenticateAsync"/> 会拦），所以不构成绕过。
+    /// </para>
+    /// </summary>
     public async Task<(bool Ok, string? Error)> ChangePasswordAsync(
         string userName, string currentPassword, string newPassword, CancellationToken ct = default)
     {
@@ -287,11 +401,22 @@ public sealed class UserService : IUserService
         return (true, null);
     }
 
+    /// <summary>
+    /// 列出全部账号（用户管理页用）。纯转发、不做过滤 ——
+    /// 停用账号要留在列表里，否则"这个人曾经存在"就查不到了。
+    /// 失败（读库异常）直接抛给调用方，这里没有可降级的返回值。
+    /// </summary>
     public Task<IReadOnlyList<UserAccount>> GetUsersAsync(CancellationToken ct = default)
         => _repo.GetAllAsync();
 
     // ── 失败计数（内存，见类注释第 1 条） ──
 
+    /// <summary>
+    /// 是否处于锁定期；是则带出剩余时间（用于提示"请 X 秒后再试"）。
+    ///
+    /// 顺手做过期清零：不在这里清，锁定到期后的第一次失败会因为 Count 仍 ≥ 阈值而立刻再锁，
+    /// 表现成"输对密码也进不来"。这一步必须在锁内做，否则并发下会重复清零/重复锁定。
+    /// </summary>
     private bool TryGetLock(string userName, out TimeSpan remaining)
     {
         lock (_gate)
@@ -334,6 +459,10 @@ public sealed class UserService : IUserService
         }
     }
 
+    /// <summary>
+    /// 清掉某账号的失败计数。只在**密码验证通过**时调 ——
+    /// 放在"账号存在"那一支会把"用户名对、密码错"的前两次白算。
+    /// </summary>
     private void ClearFailures(string userName)
     {
         lock (_gate)
@@ -342,6 +471,10 @@ public sealed class UserService : IUserService
         }
     }
 
+    /// <summary>
+    /// 刚好触发锁定时补两条记录（审计 + 日志）。单独一个方法是为了让
+    /// "账号不存在"和"密码错"两条分支都走同一段，避免只在一处记、另一处漏。
+    /// </summary>
     private void RecordLock(string userName)
     {
         _audit.RecordAs(userName, "未登录", AuditAction.LoginLocked, userName,

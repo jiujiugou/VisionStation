@@ -50,11 +50,27 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     /// <summary>丢弃报告的节流间隔：节拍压到 50ms 时每帧都丢，逐帧记日志等于把日志刷没。</summary>
     private const int DropReportIntervalMs = 5000;
 
+    /// <summary>图像区（当前帧 / 上一帧 / NG 保持）。四种"没图"的原因都由它显示。</summary>
     public ImagePanelViewModel ImagePanel { get; }
+
+    /// <summary>结果区（本次判定各字段、今日良率与产量）。</summary>
     public ResultPanelViewModel ResultPanel { get; }
+
+    /// <summary>日志区（滚动追加，合批刷新）。</summary>
     public LogPanelViewModel LogPanel { get; }
+
+    /// <summary>控制区（开始/停止/急停、自动手动切换）。触发信号由它发出。</summary>
     public ControlPanelViewModel ControlPanel { get; }
 
+    /// <summary>
+    /// 构造即订阅触发信号。
+    ///
+    /// <para>
+    /// <b>这个构造函数有副作用</b>（订阅 + 广播两条启动消息），所以容器里必须有人解析它，
+    /// 否则"按了开始检测没反应"—— 见 <see cref="Composition.AppHost.InitializeAsync"/>
+    /// 里提前取一次的那行。
+    /// </para>
+    /// </summary>
     /// <param name="uiContext">
     /// UI 线程的同步上下文，由组合根在 UI 线程上捕获后注入。
     /// 为 null 表示"没有 UI 线程"（单元测试），此时触发就地执行。
@@ -126,6 +142,19 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         }, (this, origin));
     }
 
+    /// <summary>
+    /// 跑一帧：防重入 → 登记在途 → 调工作流 → 回 UI 线程广播。
+    ///
+    /// <para>
+    /// 只在 UI 线程（或有同步上下文可回的地方）调用。异常必须在这里吃完 ——
+    /// 它由事件回调以 <c>_ =</c> 方式发起，逃出去的异常会直接终止进程。
+    /// </para>
+    /// <para>
+    /// <c>ConfigureAwait(true)</c> 是刻意的（虽然是默认值）：这里**需要**回到 UI 线程，
+    /// 因为紧接着要 <c>Publish</c>，而 WeakReferenceMessenger 是同步投递。
+    /// 谁想把它改成 false，要同时把 Publish 改成显式调度回去。
+    /// </para>
+    /// </summary>
     private async Task RunFrameAsync(TriggerOrigin origin)
     {
         // 防重入：上一帧没跑完，这一帧丢弃（不排队 —— 排队的帧只会让界面追不上现场）
@@ -197,7 +226,21 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
             $"节拍跟不上：已丢弃 {reported} 次触发（累计 {total} 次）", LogMsgLevel.Warning));
     }
 
-    /// <summary>把一帧的结果广播给面板。必须在 UI 线程调用。</summary>
+    /// <summary>
+    /// 把一帧的结果广播给面板。**必须在 UI 线程调用** ——
+    /// 消息是同步投递的，订阅者会在同一个线程上更新 ObservableCollection。
+    ///
+    /// <para>
+    /// 两条消息的作用不同：<see cref="InspectionResultMessage"/> 带全部产出（图、判定、耗时），
+    /// <see cref="ImageLinkStatusMessage"/> 只带一个 bool，用来点亮顶栏那个"平台"灯。
+    /// 后者单独发是因为它每帧都要更新，而前者订阅者多、开销大。
+    /// </para>
+    /// <para>
+    /// 下面那段存图告警在 <b>VM 模式下不会触发</b>：工作流返回的
+    /// <c>ImageError</c> 恒为 null（VM 存图、本程序只读）。它保留是给"将来由上位机接管存图"
+    /// 留的落点；这个分支目前只在测试里被覆盖过。
+    /// </para>
+    /// </summary>
     private static void Publish(InspectionRunResult result)
     {
         WeakReferenceMessenger.Default.Send(new InspectionResultMessage(result));
@@ -217,6 +260,14 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// 取消订阅、注销消息。
+    ///
+    /// <para>
+    /// 正常关闭时容器释放会调到它。注意 <c>UnregisterAll</c> 只清本对象作为**接收者**的登记，
+    /// 不影响别人 —— 这是 WeakReferenceMessenger 的语义，不是"清空全局消息"。
+    /// </para>
+    /// </summary>
     public void Dispose()
     {
         _trigger.Triggered -= OnTriggered;

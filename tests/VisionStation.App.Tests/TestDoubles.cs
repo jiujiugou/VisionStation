@@ -68,11 +68,24 @@ internal sealed class FakeInspectionRepository : IInspectionRepository
 {
     public int SaveCount { get; private set; }
 
+    /// <summary>
+    /// 每次入库的 <see cref="InspectionReport"/>（引用，不是副本）。
+    ///
+    /// 记引用而不是深拷贝：工作流会**先读图、再回写 report.ImagePath、最后入库**，
+    /// 断言"库里那条记录的路径指向实际显示的那张图"要看到的就是回写后的值。
+    /// 若记副本，考的是"入库那一刻的快照"，反而测不到回写。
+    /// </summary>
+    public List<InspectionReport> SavedReports { get; } = new();
+
+    /// <summary>最近一次入库的报告；一次都没入库时为 null。</summary>
+    public InspectionReport? LastSaved => SavedReports.Count == 0 ? null : SavedReports[^1];
+
     public Task EnsureCreatedAsync() => Task.CompletedTask;
 
     public Task SaveAsync(InspectionReport report)
     {
         SaveCount++;
+        SavedReports.Add(report);
         return Task.CompletedTask;
     }
 
@@ -193,12 +206,6 @@ internal sealed class FakeEngine : IInspectionEngine
 
     public int InspectCount { get; private set; }
 
-    /// <summary>重载被调用次数</summary>
-    public int ReloadCount { get; private set; }
-
-    /// <summary>重载返回的失败原因（null = 成功）</summary>
-    public string? ReloadProblem { get; set; }
-
     public string Name => "FakeEngine";
 
     public InspectionReport Inspect(InspectionRequest request)
@@ -209,52 +216,13 @@ internal sealed class FakeEngine : IInspectionEngine
             ?? InspectionReport.Failure(Name, "替身未配置报告", request.TriggerSource, request.ImagePath);
     }
 
-    public string? Reload()
-    {
-        ReloadCount++;
-        return ReloadProblem;
-    }
-
     public void Dispose() { }
 }
 
-/// <summary>
-/// 支持输出扫描的引擎替身（只有 VM 引擎才有这个能力）。
-/// 单独一个类而不是给 <see cref="FakeEngine"/> 加接口：
-/// "引擎不支持扫描"本身是一条要测的分支（ONNX 引擎就是这种情况）。
-/// </summary>
-internal sealed class FakeScanningEngine : IInspectionEngine, IOutputScanner
-{
-    public OutputScanResult Result { get; set; } = new(Array.Empty<ScannedModule>(), null);
-
-    /// <summary>最近一次扫描收到的模块名</summary>
-    public IReadOnlyList<string> LastScanNames { get; private set; } = Array.Empty<string>();
-
-    public string Name => "FakeVm";
-
-    public InspectionReport Inspect(InspectionRequest request)
-        => InspectionReport.Failure(Name, "替身不检测", request.TriggerSource, request.ImagePath);
-
-    public string? Reload() => null;
-
-    public OutputScanResult Scan(IReadOnlyList<string> moduleNames)
-    {
-        LastScanNames = moduleNames;
-        return Result;
-    }
-
-    public void Dispose() { }
-}
-
-/// <summary>测试用的路径与配方：数据目录落临时目录，避免污染 bin。</summary>
+/// <summary>测试用的配方：数据落临时目录的东西一律不碰真实配置。</summary>
 internal static class TestPaths
 {
-    public static AppPaths Create() => new(new AppOptions
-    {
-        DataRoot = Path.Combine(Path.GetTempPath(), "vs_test_" + Guid.NewGuid().ToString("N")[..8])
-    });
-
-    /// <summary>带一个模块声明的配方 —— 扫描命令要有模块名才做事</summary>
+    /// <summary>带一个模块声明的配方 —— 贴近产线实际形状（输出映射非空）</summary>
     public static RecipeConfig Recipe()
     {
         var recipe = new RecipeConfig { Name = "测试配方", Engine = EngineNames.Vm };
@@ -329,7 +297,7 @@ internal static class TestPages
             new ResultPanelViewModel(),
             new LogPanelViewModel(),
             new ControlPanelViewModel(trigger, new NoopDialog(),
-                engine ?? new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService()),
+                engine ?? new FakeEngine(), TestPaths.Recipe(), new FakeAuditService()),
             workflow ?? new FakeWorkflow(),
             trigger,
             shutdown ?? new ShutdownState(),
@@ -341,12 +309,16 @@ internal static class TestPages
     public static HistoryPageViewModel History(IInspectionRepository? repo = null)
         => new(repo ?? new FakeInspectionRepository());
 
-    /// <summary>图像来源页：设置文件指到临时目录，测试之间互不干扰、也不碰真实设置。</summary>
-    public static ImageSourcePageViewModel ImageSource()
+    /// <summary>
+    /// 图像来源页：设置文件指到临时目录，测试之间互不干扰、也不碰真实设置。
+    /// 审计替身可传入 —— 要断言"保存设置留下了 ParameterChange 流水"的用例需要拿到同一个实例。
+    /// </summary>
+    public static ImageSourcePageViewModel ImageSource(IAuditService? audit = null)
     {
         var path = Path.Combine(Path.GetTempPath(),
             "vs-imsrc-" + Guid.NewGuid().ToString("N")[..8] + ".json");
-        return new ImageSourcePageViewModel(new ImageSourceSettingsStore(path));
+        return new ImageSourcePageViewModel(new ImageSourceSettingsStore(path),
+            audit ?? new FakeAuditService());
     }
 }
 

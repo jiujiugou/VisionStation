@@ -23,29 +23,74 @@ using VisionStation.Storage;
 
 namespace VisionStation.App.Composition;
 
+/// <summary>
+/// 组合根与生命周期宿主：把"启动"和"关闭"这两个只能发生一次的过程，
+/// 写死成两条有序的直线，中间没有一个可注入的编排器。
+///
+/// <para>
+/// <b>一次进程只走这三步</b>：
+/// <list type="number">
+///   <item><see cref="Configure"/> —— 读配置、建容器、加载配方。纯装配，不碰硬件、不建表。</item>
+///   <item><see cref="InitializeAsync"/> —— 连设备、自检、建库、补统计、起 VM 监听、记启动审计。</item>
+///   <item><see cref="Show"/> —— 创建窗口并显示。</item>
+/// </list>
+/// 关闭走 <see cref="StopAsync"/> 的六步，顺序不能颠倒（见该方法注释）。
+/// </para>
+///
+/// <para>
+/// <b>为什么把顺序写死在类里，而不是做成"启动步骤列表"</b>：WPF 应用只有一个启动入口、
+/// 一个关闭入口。把六步拆成可替换的管道，唯一的受益者是测试用的 mock，
+/// 而代价是每次排查"到底卡在第几步"都要多跳两层。这里每一步都留一行带编号的日志，
+/// 日志本身就是验证手段。
+/// </para>
+///
+/// <para>
+/// <b>线程归属</b>：<see cref="Configure"/> 与 <see cref="InitializeAsync"/> 的入口在 UI 线程
+/// （WinUI 启动流程），<see cref="StopAsync"/> 也在 UI 线程被调用，但它内部把重活丢给线程池。
+/// 三个字段 <c>_stopped</c> / <c>_closing</c> / <c>_services</c> 的并发访问都由
+/// <see cref="Interlocked"/> 守住，不靠"反正只有 UI 线程会改"的假设。
+/// </para>
+/// </summary>
 public sealed class AppHost : IAsyncDisposable
 {
+    /// <summary>配方 JSON 的序列化选项。忽略大小写：现场手改配方时大小写很难保证一致。</summary>
     private static readonly JsonSerializerOptions RecipeJsonOptions =
         new() { PropertyNameCaseInsensitive = true };
 
+    /// <summary>测试注入的配置源；生产为 null，走 appsettings.json。</summary>
     private readonly IConfiguration? _configuration;
+
+    /// <summary>测试注入的额外注册（比如替换掉真实仓储）；生产为 null。</summary>
     private readonly Action<IServiceCollection>? _configureServices;
+
+    /// <summary>创建窗口的委托。生产 new MainWindow；测试给假窗口。</summary>
     private readonly Func<IServiceProvider, IAppWindow> _windowFactory;
 
     /// <summary>关闭收尾完成后通知看门狗"这是正常退出"。启动没走完时由 App 侧自行忽略。</summary>
     private readonly Action? _onCleanExit;
 
+    /// <summary>请求进程退出。生产是 <c>Application.Shutdown()</c>；测试传一个记录调用的委托。</summary>
     private readonly Action _requestShutdown;
 
-    /// <summary>关闭预算：在途帧 3s + 容器释放 4s 的余量。</summary>
+    /// <summary>关闭预算：在途帧 3s + 容器释放 4s 的余量。超时不是错误，只是要如实记成 timeout。</summary>
     private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(8);
 
+    /// <summary>容器。Configure 之后才非空；StopAsync 会把它释放掉（释放后不再置空，幂等靠 _stopped）。</summary>
     private ServiceProvider? _services;
+
+    /// <summary>路径解析结果。Configure 时建，早于容器 —— 日志目录都要靠它。</summary>
     private AppPaths? _paths;
+
+    /// <summary>主窗口。Show 之后才非空；关闭流程不碰它（关窗由 WPF + Shutdown 收尾）。</summary>
     private IAppWindow? _window;
+
+    /// <summary>1 = StopAsync 已经开始过。用 Interlocked 而不是 bool 字段：重复关窗会并发进来。</summary>
     private int _stopped;
+
+    /// <summary>1 = 本次关闭已被接管。见 <see cref="HandleWindowClosingAsync"/> 的 C6 契约。</summary>
     private int _closing;
 
+    /// <summary>无参构造：全部依赖走默认（appsettings.json + 真实窗口）。测试通常用 internal 那个。</summary>
     public AppHost()
         : this(null, null, null)
     {
@@ -57,6 +102,12 @@ public sealed class AppHost : IAsyncDisposable
     {
     }
 
+    /// <summary>
+    /// 测试/内部入口：所有外部依赖都可替换。
+    /// <paramref name="onCleanExit"/> 与 <paramref name="requestShutdown"/> 分开，
+    /// 是因为它们语义不同 —— 前者告诉看门狗"正常退出"，后者真的结束进程；
+    /// 启动失败时应该只做后者。
+    /// </summary>
     internal AppHost(
         IConfiguration? configuration,
         Action<IServiceCollection>? configureServices,
@@ -73,14 +124,35 @@ public sealed class AppHost : IAsyncDisposable
         _requestShutdown = requestShutdown ?? (() => System.Windows.Application.Current?.Shutdown());
     }
 
+    /// <summary>
+    /// 服务容器。**只在 Configure 之后可用**，未初始化时抛而不是返回 null ——
+    /// 拿到 null 的地方会写 <c>?.</c>，然后静默什么都不做，那是最难查的一类空引用。
+    /// </summary>
     public IServiceProvider Services => _services
         ?? throw new InvalidOperationException("AppHost 尚未 Configure");
 
+    /// <summary>路径解析结果。同样在 Configure 之后可用。</summary>
     public AppPaths Paths => _paths
         ?? throw new InvalidOperationException("AppHost 尚未 Configure");
 
+    /// <summary>
+    /// 本次启动的自检结果（原始数据）。界面不直接用它 —— 显示文案由
+    /// <see cref="HealthSummary.Describe"/> 生成，失败项已经在 InitializeAsync 里逐条记了日志。
+    /// </summary>
     public IReadOnlyList<HealthResult> HealthResults { get; private set; } = Array.Empty<HealthResult>();
 
+    /// <summary>
+    /// 第一步：装配。读配置 → 校验 → 建日志 → 建容器 → 加载配方 → 注册所有依赖。
+    ///
+    /// <para>
+    /// 这里**只做装配**：不连设备、不建数据库、不占端口。原因是失败要分层 ——
+    /// "配置写错了"和"PLC 连不上"是完全不同的两件事，混在一次调用里就分不清。
+    /// </para>
+    /// <para>
+    /// 重复调用会直接返回（<c>_services != null</c>），不是覆盖重建 ——
+    /// 重建会让旧容器里的后台线程变成孤儿。
+    /// </para>
+    /// </summary>
     /// <param name="dataRootOverride">
     /// 可写数据根的显式声明（启动参数 <c>--data-root=...</c>），空 = exe 目录（便携模式，W-15）。
     /// </param>
@@ -133,6 +205,26 @@ public sealed class AppHost : IAsyncDisposable
         _services = services.BuildServiceProvider();
     }
 
+    /// <summary>
+    /// 第二步：把设备与数据拉起来。<b>顺序是这张清单的全部价值</b>：
+    ///
+    /// <list type="number">
+    ///   <item>连设备 —— 必须早于自检，因为自检读的是 <c>DeviceManager.AllConnected</c>；</item>
+    ///   <item>自检 —— 失败只记日志，**不弹模态框**（会阻塞启动线程）；</item>
+    ///   <item>提前解析检测页 VM —— 它构造函数里订阅触发信号，不解析就没人订阅；</item>
+    ///   <item>建表 —— 必须早于起 VM 监听，否则第一帧结果来了没地方写；</item>
+    ///   <item>补今日良率基数 —— 重启后良率不该归零；读失败只记日志（宁可数字偏小）；</item>
+    ///   <item>初始化账号 —— 失败只记日志（最坏是没人能登录，不是起不来）；</item>
+    ///   <item>解析会话桥 —— 不解析就没人订阅会话事件；</item>
+    ///   <item>起 VM 监听 —— 配方引擎不是 Vm 时只记警告不起端口；</item>
+    ///   <item>记启动审计 —— 放最后，记下的才是"启动成功"而不是"开始尝试启动"。</item>
+    /// </list>
+    ///
+    /// <para>
+    /// 第 5~7 步统一用 try/catch 包住并只记 Error：这三件事失败都应该降级运行，
+    /// 而不是让产线连状态都看不见。**能降级的失败不要升级成启动失败**。
+    /// </para>
+    /// </summary>
     public async Task InitializeAsync(CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -249,6 +341,18 @@ public sealed class AppHost : IAsyncDisposable
             detail: $"引擎={loadedRecipe.Engine}；VmLink={(appOptions.VmLink.Enabled ? "开" : "关")}");
     }
 
+    /// <summary>
+    /// 第三步：创建并显示主窗口。
+    ///
+    /// <para>
+    /// 幂等（<c>_window != null</c> 直接返回）：重复调用只会在任务栏里多出第二个窗口，
+    /// 而它同样挂着 Closing 处理器，关闭时会走两遍收尾。
+    /// </para>
+    /// <para>
+    /// 窗口是从 <see cref="_windowFactory"/> 来的，不是从容器解析的 ——
+    /// 窗口不属于容器（容器只管 VM 与后台服务），这一点见 IAppWindow 的说明。
+    /// </para>
+    /// </summary>
     public void Show()
     {
         if (_window != null) return;

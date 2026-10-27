@@ -29,6 +29,11 @@ internal sealed class SessionBridge : IDisposable
     private readonly ILogger<SessionBridge>? _logger;
     private int _disposed;
 
+    /// <summary>
+    /// 必须在 UI 线程构造（<see cref="AppHost"/> 在启动阶段解析它时就在 UI 线程）。
+    /// 构造里就订阅会话事件 —— 也就是说，**没人解析它，就等于没人订阅**，
+    /// 这也是 AppHost 启动时显式取一次的原因。
+    /// </summary>
     public SessionBridge(
         ISessionService session,
         IAuditService audit,
@@ -46,6 +51,11 @@ internal sealed class SessionBridge : IDisposable
         _session.Changed += OnSessionChanged;
     }
 
+    /// <summary>
+    /// 会话变化（可能在后台线程触发）。已在 UI 线程就直接处理，否则投递过去 ——
+    /// 用 BeginInvoke 而不是 Invoke：会话变化的发起方（定时器）不该被 UI 卡住，
+    /// 而且这里没有任何"等结果"的需求。
+    /// </summary>
     private void OnSessionChanged(object? sender, SessionChangedEventArgs e)
     {
         if (_dispatcher.CheckAccess())
@@ -54,6 +64,11 @@ internal sealed class SessionBridge : IDisposable
             _dispatcher.BeginInvoke(new Action(() => Publish(e)));
     }
 
+    /// <summary>
+    /// UI 线程上：补审计（仅自动变化）+ 广播给界面。
+    ///
+    /// 两件事都包在 try 里：会话本身已经变了，通知发不出去不能反过来把会话改回去。
+    /// </summary>
     private void Publish(SessionChangedEventArgs e)
     {
         try

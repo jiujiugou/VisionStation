@@ -119,12 +119,19 @@ public partial class HistoryPageViewModel : ObservableObject
     /// <summary>预览图解码宽度。显示区不到 900px，按 2448 全解码是白烧 CPU 和内存。</summary>
     private const int PreviewDecodeWidth = 900;
 
+    /// <summary>
+    /// 引擎下拉的"不限"项。用常量而不是内联字符串：它同时出现在
+    /// 初始化、查询条件判断、刷新后回填三处，写三次字符串迟早对不上。
+    /// </summary>
     private const string AllEngines = "全部引擎";
 
+    /// <summary>仓储。本页只读（QueryAsync / CountAsync / ListEngineNamesAsync），不写。</summary>
     private readonly IInspectionRepository _repo;
 
+    /// <summary>当前列表。**整表替换**而不是增量更新 —— 一条历史记录永远不会变，列表变了就是重新查过。</summary>
     public ObservableCollection<HistoryRow> Rows { get; } = new();
 
+    /// <summary>时间范围下拉。默认"今天"（见构造函数）。</summary>
     public IReadOnlyList<TimeRangeOption> Ranges { get; } =
     [
         new("今天", 1),
@@ -133,6 +140,7 @@ public partial class HistoryPageViewModel : ObservableObject
         new("全部", null),
     ];
 
+    /// <summary>判定下拉。</summary>
     public IReadOnlyList<VerdictOption> Verdicts { get; } =
     [
         new("全部判定", null),
@@ -143,15 +151,19 @@ public partial class HistoryPageViewModel : ObservableObject
     /// <summary>引擎下拉。第一项固定是"全部引擎"，其余从库里动态取。</summary>
     public ObservableCollection<string> Engines { get; } = new() { AllEngines };
 
+    /// <summary>当前时间范围。null 理论上不会出现（构造函数已给默认值），但属性本身可空以便绑定。</summary>
     [ObservableProperty]
     private TimeRangeOption? _selectedRange;
 
+    /// <summary>当前判定筛选。null = 全部。</summary>
     [ObservableProperty]
     private VerdictOption? _selectedVerdict;
 
+    /// <summary>当前引擎筛选。<see cref="AllEngines"/> 表示不限。</summary>
     [ObservableProperty]
     private string _selectedEngine = AllEngines;
 
+    /// <summary>列表选中行。变化会触发右侧预览图异步加载（见 <see cref="OnSelectedRowChanged"/>）。</summary>
     [ObservableProperty]
     private HistoryRow? _selectedRow;
 
@@ -163,12 +175,23 @@ public partial class HistoryPageViewModel : ObservableObject
     [ObservableProperty]
     private string _previewHint = "选左边一条，这里显示当时那张图";
 
+    /// <summary>状态行：条数统计 / 查询失败原因，都在这里说。</summary>
     [ObservableProperty]
     private string _statusText = "正在加载…";
 
+    /// <summary>查询中（用来防重复点"查询"）。</summary>
     [ObservableProperty]
     private bool _isLoading;
 
+    /// <summary>
+    /// 构造：只设默认筛选，**不查库**。
+    ///
+    /// <para>
+    /// 查询由页面加载时触发（见 View 的 Loaded 事件）。在构造里查库会让
+    /// "解析这个 VM"变成一个耗时操作，而它是在导航服务的构造函数里被解析的 ——
+    /// 那会把整个启动拖慢，且失败点埋在最深处。
+    /// </para>
+    /// </summary>
     public HistoryPageViewModel(IInspectionRepository repo)
     {
         ArgumentNullException.ThrowIfNull(repo);
@@ -179,6 +202,19 @@ public partial class HistoryPageViewModel : ObservableObject
         SelectedVerdict = Verdicts[0];
     }
 
+    /// <summary>
+    /// 按当前筛选查一次列表。
+    ///
+    /// <para>
+    /// 一次查两条：<c>QueryAsync</c> 拿限制后的行，<c>CountAsync</c> 拿总条数。
+    /// 少了后者就分不清"这个范围真没记录"和"被 300 条上限截断了"——
+    /// 那两种情况的处理方式完全不同（换范围 vs 缩小范围）。
+    /// </para>
+    /// <para>
+    /// 失败时**清空列表并写原因**：留一张空表会被读成"这段时间没检测过"，
+    /// 那比报错更容易误导人。
+    /// </para>
+    /// </summary>
     [RelayCommand]
     private async Task RefreshAsync()
     {
@@ -230,7 +266,8 @@ public partial class HistoryPageViewModel : ObservableObject
     /// <summary>
     /// 引擎下拉从库里取。
     ///
-    /// 写死 "Onnx"/"Vm" 会在换引擎那天变成错的下拉，而写死的人那天已经不在项目上了。
+    /// 从库里实际出现过的引擎名来填，不写死具体值：换引擎那天硬编码的下拉就错了，
+    /// 而写死的人那天已经不在项目上了。
     /// 保留已选中的值：刷新列表不该把用户的筛选条件悄悄改回"全部"。
     /// </summary>
     private async Task LoadEngineOptionsAsync()
@@ -246,12 +283,28 @@ public partial class HistoryPageViewModel : ObservableObject
         SelectedEngine = Engines.Contains(current) ? current : AllEngines;
     }
 
+    /// <summary>
+    /// 选中行变化 → 异步加载预览图。
+    ///
+    /// <para>
+    /// 这里用 <c>_ =</c> 丢弃任务（fire-and-forget）而不是 await：属性 setter 不能异步，
+    /// 也不该阻塞 UI。异常由 <see cref="LoadPreviewAsync"/> 内部全部转成提示文字。
+    /// </para>
+    /// </summary>
     partial void OnSelectedRowChanged(HistoryRow? value)
     {
         // 不 await：属性变更不能阻塞 UI 线程。异常在方法内部全部吃掉，转成可见的提示文字。
         _ = LoadPreviewAsync(value);
     }
 
+    /// <summary>
+    /// 加载选中行的预览图。四种结果都有明确说法：没选、没路径、文件已不在、解码失败。
+    ///
+    /// <para>
+    /// "文件不存在"在本页是常态而不是故障：记录留 30 天，图片可能先被容量清理删掉。
+    /// 所以那句话写成"已被清理或路径不可达"，并带上原路径，让人自己能去核实。
+    /// </para>
+    /// </summary>
     private async Task LoadPreviewAsync(HistoryRow? row)
     {
         try

@@ -29,9 +29,16 @@ namespace VisionStation.App.ViewModels;
 /// </summary>
 public partial class TopBarViewModel : ObservableObject
 {
+    /// <summary>触发源。只用来判断"是不是 PLC"并读它的连接状态（<see cref="RefreshPlc"/>）。</summary>
     private readonly ITriggerSource _trigger;
+
+    /// <summary>审计。记三件事：模式切换、登出、以及被拒的模式切换。</summary>
     private readonly IAuditService _audit;
+
+    /// <summary>会话。本类是界面侧唯一读"当前账号 / 有效角色 / 权限"的地方。</summary>
     private readonly ISessionService _session;
+
+    /// <summary>弹登录窗。放抽象而不是直接 new 窗口，好让"没权限该弹登录"能被测。</summary>
     private readonly ILoginPrompt _loginPrompt;
 
     /// <summary>工位名。取自窗口标题的同一套语义，不放配置里 —— 现场改名字改这一个常量即可。</summary>
@@ -40,7 +47,10 @@ public partial class TopBarViewModel : ObservableObject
     /// <summary>当前配方名（来自 <see cref="RecipeConfig.Name"/>）</summary>
     public string RecipeName { get; }
 
-    /// <summary>当前引擎（Vm / Onnx）</summary>
+    /// <summary>
+    /// 当前引擎。运行时只可能是 <c>Vm</c>（ONNX 已于 2026-10-27 整条线删除），
+    /// 仍然读配方里的原值显示，便于和配方文件对照。
+    /// </summary>
     public string EngineText { get; }
 
     /// <summary>配方声明的画面尺寸；未声明时如实说明，不显示 0×0</summary>
@@ -79,6 +89,15 @@ public partial class TopBarViewModel : ObservableObject
     /// <summary>登录按钮文字：已登录时是"切换用户"</summary>
     public string LoginButtonText => IsAuthenticated ? "切换用户" : "登录";
 
+    /// <summary>
+    /// 构造：从配方取三个只读显示项，订阅三路消息，并用会话当前状态初始化用户区。
+    ///
+    /// <para>
+    /// 最后那次 <see cref="ApplySession"/> 是刻意的：窗口可能在"已登录"之后才被创建
+    /// （登录窗先于主窗弹出的场景），那时不会有 <see cref="SessionChangedMessage"/> 补发，
+    /// 只能自己去问一次。假定"未登录"会让顶栏和实际权限对不上。
+    /// </para>
+    /// </summary>
     public TopBarViewModel(
         RecipeConfig recipe,
         ITriggerSource trigger,
@@ -116,6 +135,15 @@ public partial class TopBarViewModel : ObservableObject
         RefreshPlc();
     }
 
+    /// <summary>
+    /// 会话变化后刷新用户区，并在权限不够时强制退出工程师模式。
+    ///
+    /// <para>
+    /// 后半段是这个方法存在的核心理由：**权限收回了，界面必须跟着收回**。
+    /// 只改文字不改可见性，就是"能看见就能点"的经典漏洞 ——
+    /// 超时降级之后，侧边栏还挂着工程师入口、控制面板还全开着。
+    /// </para>
+    /// </summary>
     private void ApplySession(SessionChangedMessage msg)
     {
         IsAuthenticated = _session.IsAuthenticated;
@@ -126,8 +154,8 @@ public partial class TopBarViewModel : ObservableObject
             : $"{user.EffectiveDisplayName} · {RolePermissions.Describe(_session.EffectiveRole)}";
 
         // 降级或登出后权限不够了：必须把工程师模式一起退掉。
-        // 不退的话侧栏还挂着相机页、控制面板还全开着 —— 权限收回了但界面没收回，
-        // 这正是"能看见就能点"的经典漏洞。
+        // 不退的话侧栏还挂着「图像来源」入口、控制面板维护区还全开着 ——
+        // 权限收回了但界面没收回，这正是"能看见就能点"的经典漏洞。
         if (IsEngineerMode && !_session.HasPermission(Permission.EnterEngineerMode))
             IsEngineerMode = false;
 
@@ -138,6 +166,14 @@ public partial class TopBarViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 模式变化的唯一出口：刷新文案 → 广播 <see cref="EngineerModeMessage"/> → 写审计。
+    ///
+    /// <para>
+    /// 审计放在这里而不是 <c>ToggleMode</c> 里，是因为**自动退出**（权限降级）也走这条路径。
+    /// 埋在命令里会漏掉"被系统退掉"这一半，而那一半恰恰是排障时最想看的。
+    /// </para>
+    /// </summary>
     partial void OnIsEngineerModeChanged(bool value)
     {
         OnPropertyChanged(nameof(ModeText));
@@ -152,6 +188,7 @@ public partial class TopBarViewModel : ObservableObject
             after: value ? "工程师模式" : "运行模式");
     }
 
+    /// <summary>登录状态变化 → 刷新"登录 / 切换用户"按钮文字。</summary>
     partial void OnIsAuthenticatedChanged(bool value)
         => OnPropertyChanged(nameof(LoginButtonText));
 
@@ -214,6 +251,20 @@ public partial class TopBarViewModel : ObservableObject
         _session.Logout("主动退出");
     }
 
+    /// <summary>
+    /// 刷新 PLC 灯。用 <c>is PlcTriggerSource</c> 判断而不是再注入一个 PLC 连接：
+    /// 触发源就是"这台机器有没有 PLC"的唯一真相，多一个依赖就多一处可能不一致。
+    ///
+    /// <para>
+    /// 调用时机是"每帧检测后"，不是定时器：PLC 连接状态只在收发时才会变，
+    /// 空闲时轮询它纯粹是多一次网络 IO。
+    /// </para>
+    /// <para>
+    /// 顺带广播 <see cref="PlcStatusMessage"/>，让状态栏那个 PLC 灯跟着变 ——
+    /// 否则它只是个永远灰着的装饰（这是真实发生过的：那个属性从来没有赋值点）。
+    /// 判断只在这里做一次，其余地方都是显示。
+    /// </para>
+    /// </summary>
     private void RefreshPlc()
     {
         if (_trigger is PlcTriggerSource plc)
@@ -226,5 +277,7 @@ public partial class TopBarViewModel : ObservableObject
             PlcOnline = false;
             PlcText = "PLC 未接入";
         }
+
+        WeakReferenceMessenger.Default.Send(new PlcStatusMessage(PlcOnline, PlcText));
     }
 }

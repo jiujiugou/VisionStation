@@ -19,7 +19,7 @@ public class AppOptionsTests
     {
         var options = AppOptionsBinder.Bind(Config(new Dictionary<string, string?>()));
 
-        Assert.Equal("All", options.Storage.Mode);
+        Assert.Equal("InspectedImages", options.Storage.ImageFolder);
         Assert.Equal(2000, options.Trigger.TimerIntervalMs);
         Assert.Equal(30, options.Housekeeping.KeepRecordsDays);
     }
@@ -30,22 +30,13 @@ public class AppOptionsTests
         var options = AppOptionsBinder.Bind(Config(new Dictionary<string, string?>
         {
             ["Trigger:TimerIntervalMs"] = "5000",
-            ["Storage:Mode"] = "NGOnly",
+            ["Storage:ImageFolder"] = "D:\\VMOut",
             ["Housekeeping:KeepRecordsDays"] = "7",
         }));
 
         Assert.Equal(5000, options.Trigger.TimerIntervalMs);
-        Assert.Equal("NGOnly", options.Storage.Mode);
+        Assert.Equal("D:\\VMOut", options.Storage.ImageFolder);
         Assert.Equal(7, options.Housekeeping.KeepRecordsDays);
-    }
-
-    [Fact]
-    public void Bind_存储模式不合法_报错()
-    {
-        var ex = Assert.Throws<AppOptionsValidationException>(() =>
-            AppOptionsBinder.Bind(Config(new Dictionary<string, string?> { ["Storage:Mode"] = "Everything" })));
-
-        Assert.Contains("Storage:Mode", ex.Message);
     }
 
     [Fact]

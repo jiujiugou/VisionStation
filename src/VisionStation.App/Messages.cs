@@ -39,8 +39,12 @@ public sealed class InspectionResultMessage : ValueChangedMessage<InspectionRunR
 
 /// <summary>
 /// 触发状态变化消息
+///
 /// 发送者：ControlPanelVM（自动模式切换 / 停止 / 急停时发出）
-/// 订阅者：SidebarVM（true=暗化，false=亮起）
+/// 订阅者：
+///   · SidebarVM     —— true = 暗化侧边栏（运行中不许乱点页面）；
+///   · VmInspectionDriver —— 记下"工位在不在跑"，决定断流该报 Error 还是 Info。
+///     这一条很关键：停机时没结果是正常的，不区分就会变成"一停机就报警"。
 /// </summary>
 public sealed class TriggerStateMessage : ValueChangedMessage<bool>
 {
@@ -56,6 +60,38 @@ public sealed class LogMessage : ValueChangedMessage<(string Text, LogMsgLevel L
 {
     public LogMessage(string text, LogMsgLevel level = LogMsgLevel.Info)
         : base((text, level)) { }
+}
+
+/// <summary>
+/// PLC 链路状态广播。
+///
+/// 发送者：TopBarVM（每帧检测后刷新，它是"这台机器有没有 PLC"的唯一判断点）
+/// 订阅者：StatusBarVM
+///
+/// <b>为什么由顶栏广播而不是让状态栏自己去问触发源</b>：
+/// 判断"是不是 PLC 触发源、连没连上"需要 <c>is PlcTriggerSource</c> + 读底层状态，
+/// 两处各写一份，早晚会有一处忘了改（这个项目已经出现过：状态栏的 PLC 灯从来没被赋值，
+/// 一直是灰的，而顶栏那个是真的）。真相源只留一个，其余的都是显示。
+/// </summary>
+/// <param name="Online">链路是否通</param>
+/// <param name="Text">给操作员看的一句话（"PLC 在线" / "PLC 离线" / "PLC 未接入"）</param>
+public sealed record PlcStatusMessage(bool Online, string Text);
+
+/// <summary>
+/// 清空界面显示消息（控制面板的「清空」按钮）。
+///
+/// 发送者：ControlPanelVM
+/// 订阅者：ResultPanelVM（结论 + 累计计数）、LogPanelVM（滚动列表）、ImagePanelVM（当前画面）
+///
+/// 为什么用消息而不是让控制面板直接调三个面板的 <c>Clear()</c>：
+/// 那样控制面板要认识三个同级 VM 的类型，加一块新面板就得回头改它。
+/// 消息让"谁想被清"由面板自己说了算，控制面板只管喊一嗓子。
+///
+/// <b>它不影响数据</b>：不删库、不重置今日良率基数。
+/// 清的是眼前看到的东西，账在库里的不动。
+/// </summary>
+public sealed class ClearAllMessage
+{
 }
 
 /// <summary>
@@ -112,8 +148,8 @@ public sealed record SessionChangedMessage(
 /// </summary>
 /// <param name="State">四态：未监听 / VM 没连上 / 正常 / 断流</param>
 /// <param name="Endpoint">监听地址，断线时操作员要照着它去核对 VM 里的 IP 端口</param>
-/// <param name="LastLineLocal">最后一条结果的本机时间；null = 本次启动以来从未收到</param>
-/// <param name="SinceLast">距最后一条结果多久；从未收到时为 null</param>
+/// <param name="LastLineLocal">最后一条结果的本机时间；null = 本轮连接以来从未收到（重连时会清零）</param>
+/// <param name="SinceLast">距最后一条结果多久；本轮连接还没收到结果时为 null</param>
 /// <param name="StallTimeout">断流阈值（文案里要说清"多少秒算断"，否则 N 秒是个没依据的数）</param>
 /// <param name="IsRunning">工位是否在运行中。停机时没结果不升级为告警，否则告警会变背景噪音</param>
 public sealed record VmLinkStatus(
@@ -133,6 +169,24 @@ public sealed class VmLinkStatusMessage : ValueChangedMessage<VmLinkStatus>
 {
     public VmLinkStatusMessage(VmLinkStatus status) : base(status) { }
 }
+
+/// <summary>
+/// VM 结果链路的收帧 / 丢帧累计（状态栏显示用）。
+///
+/// 发送者：VmInspectionDriver（1 秒一次链路检查里，**数值变化时才发**）
+/// 订阅者：StatusBarVM
+///
+/// <b>为什么需要它</b>：丢帧计数原来只落在日志里（每 5 帧一条 Warning），而操作员盯的是界面 ——
+/// 处理跟不上（磁盘慢、库锁、单帧变慢）时界面上一切正常，只有翻日志才知道漏了件。
+/// 丢帧 = 有一件没被判过，属于硬缺陷，必须待在常驻可见的地方。
+///
+/// <b>为什么由驱动广播而不是让状态栏去读 Driver</b>：和 <see cref="PlcStatusMessage"/> 同一条理由 ——
+/// 计数口径（哪些帧算"收到"）只留一处，显示方纯显示。状态栏拿得到 Driver 也意味着它得认识
+/// 一个设备驱动，以后驱动一改，界面跟着改。
+/// </summary>
+/// <param name="Received">累计到达的帧数（**含被丢弃的**，即"VM 推了多少"）</param>
+/// <param name="Dropped">累计丢弃的帧数（上一帧还没处理完）。丢帧率 = Dropped / Received</param>
+public sealed record VmThroughputMessage(int Received, int Dropped);
 
 /// <summary>
 /// 日志级别（全局共用）

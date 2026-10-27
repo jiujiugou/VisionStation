@@ -17,9 +17,16 @@ namespace VisionStation.App.ViewModels;
 /// </summary>
 public partial class LoginViewModel : ObservableObject
 {
+    /// <summary>账号服务。负责认证（含失败锁定计数）与改密，本类不自己比对密码。</summary>
     private readonly IUserService _users;
+
+    /// <summary>会话。只有认证成功后才会 <c>Start</c>；改密模式下刻意不碰它。</summary>
     private readonly ISessionService _session;
 
+    /// <summary>
+    /// 用户名。**会在界面上明文显示**，所以没有理由不进 VM；
+    /// 密码则相反，见类型注释。
+    /// </summary>
     [ObservableProperty]
     private string _userName = string.Empty;
 
@@ -42,17 +49,23 @@ public partial class LoginViewModel : ObservableObject
     /// <summary>验证通过后的账号；窗口据此判断登录是否真的成功了</summary>
     public UserAccount? AuthenticatedUser { get; private set; }
 
+    /// <summary>窗口标题里显示的工位名。与顶栏同源（同一个常量语义），改名字要两处一起改。</summary>
     public string StationName => "金属零件视觉检测工位";
 
     /// <summary>主按钮文字随模式变</summary>
     public string SubmitButtonText => IsChangePasswordMode ? "修改并进入" : "登录";
 
+    /// <summary>模式切换 → 主按钮文字跟着变（"登录" / "修改并进入"）。</summary>
     partial void OnIsChangePasswordModeChanged(bool value)
         => OnPropertyChanged(nameof(SubmitButtonText));
 
     /// <summary>窗口订阅它：参数为 true 表示已登录，可以关闭并继续</summary>
     public event EventHandler<bool>? Completed;
 
+    /// <summary>
+    /// 构造。这里**不读会话、不回填用户名** —— 每次登录都应该是干净的一张表单
+    /// （见 <c>WpfLoginPrompt</c> 用 Transient 注册）。
+    /// </summary>
     public LoginViewModel(IUserService users, ISessionService session)
     {
         _users = users;
@@ -87,6 +100,15 @@ public partial class LoginViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 登录模式：校验非空 → 交给账号服务认证 → 需要改密就切模式 → 否则建立会话。
+    ///
+    /// <para>
+    /// 注意"认证成功"与"登录完成"是两件事：<c>MustChangePassword</c> 为 true 时
+    /// 认证通过但不建会话，必须先改密。中间那个 <c>ChangePasswordHint</c>
+    /// 就是告诉用户"为什么要再填一次"。
+    /// </para>
+    /// </summary>
     private async Task SubmitLoginAsync(string password)
     {
         if (string.IsNullOrWhiteSpace(UserName))
@@ -117,6 +139,15 @@ public partial class LoginViewModel : ObservableObject
         Establish(result.User);
     }
 
+    /// <summary>
+    /// 改密模式：两次输入必须一致 → 调服务改密 → **用新密码重新认证一次**。
+    ///
+    /// <para>
+    /// 为什么要重新认证而不是直接用旧的对象：改密成功后账号对象的
+    /// <c>MustChangePassword</c> 已经变成 false，但手上这份是改密**之前**的快照。
+    /// 重新认证拿到的才是最新状态，也顺便验证了"新密码确实能用"。
+    /// </para>
+    /// </summary>
     private async Task SubmitChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword)
     {
         if (string.IsNullOrEmpty(newPassword))
@@ -151,6 +182,14 @@ public partial class LoginViewModel : ObservableObject
         Establish(result.User);
     }
 
+    /// <summary>
+    /// 认证通过后的唯一收口：记下账号 → 启动会话 → 通知窗口"成功"。
+    ///
+    /// <para>
+    /// 三步放在一起，是因为它们必须同时发生：只 Start 不通知窗口，用户会看到一个
+    /// 已经登录成功却关不掉的登录框；只通知窗口不 Start，进去之后没有任何权限。
+    /// </para>
+    /// </summary>
     private void Establish(UserAccount user)
     {
         AuthenticatedUser = user;

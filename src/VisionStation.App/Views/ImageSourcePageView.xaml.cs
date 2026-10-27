@@ -14,6 +14,14 @@ public partial class ImageSourcePageView
 {
     public ImageSourcePageView() => InitializeComponent();
 
+    /// <summary>
+    /// 打开"选择文件夹"对话框，选完把路径交回 VM。
+    ///
+    /// <para>
+    /// 这里只做选择，**不做校验也不保存**：VM 选完会立刻 Probe 一次（看目录里有没有图），
+    /// 是否落到磁盘要等用户点「保存」。这样"选错目录"可以直接再选，不会留下半保存的状态。
+    /// </para>
+    /// </summary>
     private void OnBrowseClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not ImageSourcePageViewModel viewModel) return;

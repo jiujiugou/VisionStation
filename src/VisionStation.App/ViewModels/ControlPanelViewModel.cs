@@ -1,11 +1,7 @@
-using System.Globalization;
-using System.IO;
-using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Abstractions;
-using VisionStation.App.Services;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
@@ -14,27 +10,48 @@ using VisionStation.Service.Audit;
 namespace VisionStation.App.ViewModels;
 
 /// <summary>
-/// 控制面板 ViewModel
+/// 控制面板 ViewModel —— 检测页底部那一排按钮的全部命令。
 ///
-/// 职责：
-///   1. 直接操控 ITriggerSource（开始/停止/自动/急停）、IInspectionEngine（重载/扫描）
-///   2. 不再通过 MainViewModel 中转——按钮点击 → 直接调硬件
-///   3. 状态变化通过 Messenger 广播（TriggerState、CameraStatus、Log）
+/// <para>
+/// <b>职责</b>：
+/// <list type="number">
+///   <item>直接操控 <see cref="ITriggerSource"/>（开始/停止/自动/急停），不经任何中间 VM 转发；</item>
+///   <item>状态变化通过 Messenger 广播（<see cref="TriggerStateMessage"/>、<see cref="LogMessage"/>）；</item>
+///   <item>凡是"改了设备行为"的动作都写一条审计（启动/停止/急停）。</item>
+/// </list>
+/// </para>
 ///
-/// 依赖：
-///   - ITriggerSource：触发信号源（Manual/Auto/将来PLC）
-///   - IInspectionEngine：引擎（调完 .sol 后重载、扫描输出）
+/// <para>
+/// <b>依赖</b>：<see cref="ITriggerSource"/> 有三种实现（手动 / 定时 / PLC 上升沿，
+/// 由组合根按配置选），本类只认接口，不关心是哪一种。
+/// </para>
 ///
-/// 这个 ViewModel 不订阅任何消息——它是命令的起点，不需要听别人的。
+/// <para>
+/// <b>为什么这里没有"重载流程"和"扫描输出"两个按钮了</b>（2026-10-27 删除）：
+/// 两个都建立在 VM SDK 上，而 SDK 已随相机层一起移除（改走 TCP 收结果）。
+/// "重载"的唯一实现 <c>VmExternalEngine.Reload()</c> 恒返回 null，界面却报"引擎已重载"——
+/// 一次假成功；"扫描"的 <c>IOutputScanner</c> 更是零实现，按钮点了只会提示不可用。
+/// 流程归 VM 客户端管，改完在 VM 里重跑，本程序没有可重载、可扫描的资源。
+/// 留着按钮比没有按钮更容易让人以为程序坏了。
+/// </para>
+///
+/// <para>
+/// <b>它不订阅任何业务消息</b>：它是命令的起点，不需要听别人。
+/// </para>
 /// </summary>
 public partial class ControlPanelViewModel : ObservableObject
 {
     // ── 依赖（由 DI 注入）──
     private readonly ITriggerSource _trigger;
     private readonly IDialogService _dialog;
+
+    /// <summary>引擎。用 <c>is IPushDrivenEngine</c> 判断能力，不看具体类型。</summary>
     private readonly IInspectionEngine _engine;
-    private readonly AppPaths _paths;
+
+    /// <summary>配方。只为审计里的配方名读它（"这班是谁在用哪份配方"）。</summary>
     private readonly RecipeConfig _recipe;
+
+    /// <summary>审计。只记"改变设备/判定行为"的动作，不记按钮点击。</summary>
     private readonly IAuditService _audit;
 
     /// <summary>
@@ -42,13 +59,6 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 只记"操作员按了启动"等于什么都没记。
     /// </summary>
     private string RecipeName => string.IsNullOrWhiteSpace(_recipe.Name) ? "未命名配方" : _recipe.Name;
-
-    /// <summary>扫描结果序列化选项（缓存复用：每次 new 会被 CA1869 判为热路径浪费）</summary>
-    private static readonly JsonSerializerOptions ScanJsonOptions = new()
-    {
-        WriteIndented = true,
-        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
 
     /// <summary>是否处于自动模式（按钮文字和颜色跟着变）</summary>
     [ObservableProperty]
@@ -58,43 +68,24 @@ public partial class ControlPanelViewModel : ObservableObject
     [ObservableProperty]
     private string _autoButtonText = "自动模式";
 
-    /// <summary>
-    /// 是否工程师模式。
-    ///
-    /// 它决定维护区里"重新连接 / 重载流程 / 扫描输出"这三项可不可见 ——
-    /// 这三件事都在改设备行为（换相机、换判定逻辑、读方案里的模块名），
-    /// 不该让操作员碰到。进入工程师模式本身已经过权限校验，所以这里只看模式。
-    /// </summary>
-    [ObservableProperty]
-    private bool _isEngineerMode;
-
     /// <summary>IsAutoMode 变化 → 自动更新按钮文字</summary>
     partial void OnIsAutoModeChanged(bool value)
     {
         AutoButtonText = value ? "自动运行中" : "自动模式";
     }
 
-    /// <summary>
-    /// 构造函数（由 DI 注入 Trigger 与 Engine）
-    /// </summary>
     public ControlPanelViewModel(
         ITriggerSource trigger,
         IDialogService dialog,
         IInspectionEngine engine,
-        AppPaths paths,
         RecipeConfig recipe,
         IAuditService audit)
     {
         _trigger = trigger;
         _dialog = dialog;
         _engine = engine;
-        _paths = paths;
         _recipe = recipe;
         _audit = audit;
-        // 维护区的可见性跟着模式走。顶栏切模式时广播，这里被动接收 ——
-        // 控制面板不主动问"现在什么模式"，避免和顶栏形成双向依赖。
-        WeakReferenceMessenger.Default.Register<ControlPanelViewModel, EngineerModeMessage>(this,
-            static (vm, msg) => vm.IsEngineerMode = msg.Value);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -177,147 +168,22 @@ public partial class ControlPanelViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 清空当前显示和统计数据
-    /// 注意：这里只发消息，具体的清空操作由各子 VM 自己处理
+    /// 清空当前显示和统计数据 —— 交接班时用。
+    ///
+    /// <para>
+    /// 只发一条 <see cref="ClearAllMessage"/>，具体清什么由各面板自己定：
+    /// 结果面板清当前结论与累计计数、日志面板清滚动列表、图像面板清当前画面。
+    /// 这样控制面板不必认识三个面板的类型，新增一块面板只要自己订阅即可。
+    /// </para>
+    /// <para>
+    /// <b>它不动任何数据</b>：库里的记录一条都不删，良率的今日基数也不重置。
+    /// 清的是"眼前看到的东西"，不是账。要删记录走历史页的保留期，那是另一条路。
+    /// </para>
     /// </summary>
     [RelayCommand]
     private void ClearAll()
     {
-        WeakReferenceMessenger.Default.Send(new LogMessage("已清空", LogMsgLevel.Info));
-    }
-
-    /// <summary>
-    /// 重新加载引擎资源 —— 在 VM 客户端改完 `.sol` 存盘后点这个，不用关程序。
-    ///
-    /// 先停触发再重载：重载期间进来的帧在引擎里会拿到 NG（实现自己保证），
-    /// 但让"正在自动运行"的状态跟着变，操作员才知道发生了什么。
-    /// </summary>
-    [RelayCommand]
-    private void ReloadEngine()
-    {
-        _trigger.Stop();
-        IsAutoMode = false;
-        WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
-
-        var problem = _engine.Reload();
-
-        // 引擎重载是"改了判定逻辑"的动作，必须留痕：换完 .sol 前后结论漂了，
-        // 得能查出是哪一分钟换的、换的是哪个引擎。
-        _audit.Record(AuditAction.EngineReload, _engine.Name,
-            result: problem is null ? AuditResult.Success : AuditResult.Failed,
-            detail: problem);
-
-        WeakReferenceMessenger.Default.Send(new LogMessage(
-            problem is null ? $"引擎已重载（{_engine.Name}）" : $"引擎重载失败：{problem}",
-            problem is null ? LogMsgLevel.Success : LogMsgLevel.Error));
-    }
-
-    /// <summary>
-    /// 扫描流程里实际存在的模块与输出，生成可直接粘进配方的 json 片段。
-    ///
-    /// 解决的问题：`vm.outputs` 靠人工抄模块名，抄错一个字符要到第一帧才报"找不到模块"。
-    /// 生成的是一份独立文件，而不是直接改配方 —— 自动改配置比抄错更危险。
-    /// </summary>
-    [RelayCommand]
-    private void ScanOutputs()
-    {
-        if (_engine is not IOutputScanner scanner)
-        {
-            WeakReferenceMessenger.Default.Send(new LogMessage(
-                $"当前引擎（{_engine.Name}）没有可扫描的模块输出，此功能只对 VM 流程有效",
-                LogMsgLevel.Warning));
-            return;
-        }
-
-        // 扫的是配方里已经声明的模块名 —— 目的是核对"这些名字对不对、有哪些输出"，
-        // 不是凭空发现模块（SDK 的 GetAllModuleList 只给 ID，拿不到名字）。
-        var moduleNames = _recipe.Vm.Outputs
-            .Select(o => o.Module)
-            .Where(m => !string.IsNullOrWhiteSpace(m))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-
-        if (moduleNames.Count == 0)
-        {
-            WeakReferenceMessenger.Default.Send(new LogMessage(
-                "配方里还没有任何模块名（vm.outputs），先在配方里填一个模块名再扫描",
-                LogMsgLevel.Warning));
-            return;
-        }
-
-        var scan = scanner.Scan(moduleNames);
-        if (scan.Error is not null)
-        {
-            WeakReferenceMessenger.Default.Send(new LogMessage(
-                $"扫描失败：{scan.Error}", LogMsgLevel.Error));
-            return;
-        }
-
-        try
-        {
-            var file = SaveScanResult(scan);
-            var total = scan.Modules.Sum(m => m.Outputs.Count);
-            var broken = scan.Modules.Count(m => m.Error is not null);
-
-            WeakReferenceMessenger.Default.Send(new LogMessage(
-                broken == 0
-                    ? $"扫描完成：{scan.Modules.Count} 个模块 / {total} 个输出 → {file}"
-                    : $"扫描完成：{scan.Modules.Count - broken}/{scan.Modules.Count} 个模块可用，"
-                      + $"{broken} 个找不到（详见 {file}）",
-                broken == 0 ? LogMsgLevel.Success : LogMsgLevel.Warning));
-        }
-        catch (Exception ex)
-        {
-            WeakReferenceMessenger.Default.Send(new LogMessage(
-                $"扫描结果写入失败：{ex.Message}", LogMsgLevel.Error));
-        }
-    }
-
-    /// <summary>把扫描结果写成 json 片段，放到配方目录旁边，供人工复制。</summary>
-    private string SaveScanResult(OutputScanResult scan)
-    {
-        var dir = Path.Combine(_paths.AssetRoot, "Config", "solutions");
-        Directory.CreateDirectory(dir);
-
-        var file = Path.Combine(dir, $"outputs-scan-{DateTime.Now:yyyyMMdd-HHmmss}.json");
-        File.WriteAllText(file, BuildScanJson(scan, _engine.Name));
-        return file;
-    }
-
-    /// <summary>
-    /// 生成扫描结果的 json 文本。
-    ///
-    /// 抽成静态纯函数：文件写入不好测，但"生成的内容对不对"必须能测 ——
-    /// ioKind 的推断错一项，配方就会拿错类型去取结果。
-    /// </summary>
-    internal static string BuildScanJson(OutputScanResult scan, string engineName)
-    {
-        var payload = new
-        {
-            scannedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-            engine = engineName,
-            note = "把 outputs 数组复制进配方（Config/recipes/*.json）的 vm.outputs；"
-                 + "label 改成业务名（如「外径」），ioKind 按实际类型核对",
-            outputs = scan.Modules
-                .SelectMany(m => m.Error is not null
-                    ? new[] { new { module = m.Name, label = "", role = "", io = "", ioKind = "",
-                                     metric = "", unit = "", error = (string?)m.Error } }
-                    : m.Outputs.Select(o => new
-                {
-                    module = m.Name,
-                    label = $"{m.Name}.{o.Name}",
-                    role = "",
-                    io = o.Name,
-                    ioKind = o.RuntimeType.Contains("Circle", StringComparison.OrdinalIgnoreCase)
-                        ? "Circle"
-                        : "Float",
-                    metric = "",
-                    unit = "",
-                    error = (string?)null
-                }))
-                .ToList()
-        };
-
-        return JsonSerializer.Serialize(payload, ScanJsonOptions);
+        WeakReferenceMessenger.Default.Send(new ClearAllMessage());
+        WeakReferenceMessenger.Default.Send(new LogMessage("显示已清空（记录不受影响）", LogMsgLevel.Info));
     }
 }

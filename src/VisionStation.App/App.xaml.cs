@@ -12,8 +12,31 @@ using VisionStation.Service;
 
 namespace VisionStation.App;
 
+/// <summary>
+/// WPF 应用入口。它只做四件事：装三个全局异常处理器、拉起看门狗、驱动
+/// <see cref="AppHost"/> 走完启动三步、退出时兜底收尾。
+///
+/// <para>
+/// <b>这里没有业务逻辑</b>。它刻意只保留"进程级"的东西：异常留痕、看门狗、退出信号。
+/// 任何一条搬进 AppHost 会更难测，任何一条搬进 ViewModel 会活不过窗口重建。
+/// </para>
+/// <para>
+/// <b>贯穿全文件的一条铁律：崩溃路径绝不弹模态框</b>。无人值守时一个 MessageBox
+/// 会卡住 Dispatcher，进程不退出，看门狗的 <c>WaitForExit</c> 永远等不到退出信号，
+/// 守护彻底失效。所有异常一律"写日志 + 非 0 退出"，交给看门狗重启。
+/// </para>
+/// </summary>
 public partial class App : Application
 {
+    /// <summary>
+    /// 容器。
+    ///
+    /// <para>
+    /// <b>这是全程序唯一的服务定位器</b>，只在崩溃路径与自检上报里用 ——
+    /// 那两处都没有可注入的上下文。业务代码不允许碰它：能注入就注入，
+    /// 用 <c>App.Services</c> 取依赖的地方一旦多起来，依赖关系就再也没法从构造函数读出来了。
+    /// </para>
+    /// </summary>
     public static IServiceProvider Services { get; private set; } = null!;
 
     /// <summary>崩溃留痕用：日志目录解析出来后写入，崩溃处理器据此落盘</summary>
@@ -48,6 +71,15 @@ public partial class App : Application
         return null;
     }
 
+    /// <summary>
+    /// 应用启动。只装异常处理器，然后 fire-and-forget 启动体。
+    ///
+    /// <para>
+    /// 三个处理器分工明确：UI 线程异常（留痕后交回运行时）、
+    /// 未观察的 Task 异常（非致命，标记已观察防终结器炸进程）、
+    /// 其他线程异常（进程即将终止，最后机会释放容器）。
+    /// </para>
+    /// </summary>
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -66,7 +98,7 @@ public partial class App : Application
             LogCrash("task", args.Exception);
             args.SetObserved();
         };
-        // 非 UI 线程未处理异常：进程即将终止，最后机会释放相机。
+        // 非 UI 线程未处理异常：进程即将终止，最后机会释放容器与设备。
         // 同样只记录、不弹窗 —— 该处理器运行在崩溃线程上，任何阻塞都会拖住 CLR 终止进程。
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
@@ -163,7 +195,26 @@ public partial class App : Application
             _shutdownSignal.Reset();
 
             var myExe = Process.GetCurrentProcess().MainModule?.FileName ?? "VisionStation.App.exe";
-            Process.Start(watchdogPath, $"{Environment.ProcessId} \"{myExe}\"");
+
+            // 把本进程收到的原始参数一并交给看门狗（`--` 之后全是主程序的参数）。
+            //
+            // 为什么必须传：看门狗崩溃重启时会把这段参数原样重放。不传的话，
+            // `--data-root D:\某盘` 这类参数会在重启后丢失，数据根回落成 exe 目录，
+            // 现场表现是"崩溃重启之后数据丢了"——数据其实在别处，但没人查得出来。
+            //
+            // 用 ArgumentList 而不是手拼字符串：含空格的路径由框架按 Windows 规则加引号，
+            // 手拼在 `"D:\My Data\VS\"` 这种以反斜杠结尾的路径上必然翻车。
+            var psi = new ProcessStartInfo(watchdogPath) { UseShellExecute = false };
+            psi.ArgumentList.Add(Environment.ProcessId.ToString());
+            psi.ArgumentList.Add(myExe);
+            psi.ArgumentList.Add("--");
+
+            // 跳过 argv[0]（本 exe 路径），它已经作为位置参数传给看门狗了
+            var argv = Environment.GetCommandLineArgs();
+            for (var i = 1; i < argv.Length; i++)
+                psi.ArgumentList.Add(argv[i]);
+
+            Process.Start(psi);
         }
         catch { /* 看门狗启动失败不影响主程序 */ }
     }

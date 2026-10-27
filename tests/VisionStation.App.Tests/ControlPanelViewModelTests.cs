@@ -1,4 +1,5 @@
-﻿using VisionStation.App.Abstractions;
+﻿using CommunityToolkit.Mvvm.Messaging;
+using VisionStation.App.Abstractions;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
@@ -14,16 +15,18 @@ namespace VisionStation.App.Tests;
 public class ControlPanelViewModelTests
 {
     /// <summary>
-    /// 急停取消必须什么都不做。
-    /// 如果取消也 Stop，操作员点“否”反而把产线停了，确认框就成了陷阱。
+    /// 急停取消必须什么都不做，包括不能留下审计。
+    /// 如果取消也 Stop，操作员点“否”反而把产线停了，确认框就成了陷阱；
+    /// 同理，取消却记一条"急停"会让审计页出现一次从未发生过的停机。
     /// </summary>
     [Fact]
     public async Task EmergencyStop_WhenCancelled_DoesNotStopTrigger()
     {
         var trigger = new FakeTrigger();
         var dialog = new FakeDialog { ConfirmResult = false };
+        var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
+            new FakeEngine(), TestPaths.Recipe(), audit)
         {
             IsAutoMode = true
         };
@@ -33,19 +36,28 @@ public class ControlPanelViewModelTests
         Assert.Equal(1, dialog.ConfirmCount);
         Assert.Equal(0, trigger.StopCount);
         Assert.True(vm.IsAutoMode);
+
+        // 没确认就没有动作，也就不该有流水 —— 否则审计里会出现"没人按过的急停"
+        Assert.Empty(audit.Entries);
     }
 
     /// <summary>
     /// 急停确认后只 Stop 一次，并退出自动模式。
     /// 旧实现是同步 MessageBox，测试无法覆盖取消/确认两条路径。
+    ///
+    /// <para>
+    /// 用例同时断言审计条目内容（F-13）：以前这里注入了 <see cref="FakeAuditService"/>
+    /// 却从不看它记了什么，"埋点漏写"这种错就测不出来。
+    /// </para>
     /// </summary>
     [Fact]
     public async Task EmergencyStop_WhenConfirmed_StopsTriggerOnce()
     {
         var trigger = new FakeTrigger();
         var dialog = new FakeDialog { ConfirmResult = true };
+        var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
+            new FakeEngine(), TestPaths.Recipe(), audit)
         {
             IsAutoMode = true
         };
@@ -55,103 +67,44 @@ public class ControlPanelViewModelTests
         Assert.Equal(1, dialog.ConfirmCount);
         Assert.Equal(1, trigger.StopCount);
         Assert.False(vm.IsAutoMode);
+
+        // 急停必须留下且只留下一条流水，对象名是配方（事后要能回答"这班用的是哪份配方"）。
+        // 注意断言的是 EStopPressed 而不是 EStopReset：本程序急停只是停触发源，
+        // 没有任何"复位"命令，写 EStopReset 会把一个不存在动作说成发生过。
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(AuditAction.EStopPressed, entry.Action);
+        Assert.Equal("测试配方", entry.Target);
+        Assert.Equal(AuditResult.Success, entry.Result);
+        Assert.False(string.IsNullOrWhiteSpace(entry.Detail));
     }
 
     /// <summary>
-    /// 重载必须先停触发、再退出自动模式。
-    /// 重载期间进来的帧在引擎里会拿到 NG，但"正在自动运行"这个状态如果不变，
-    /// 操作员会以为产线还在跑。
+    /// 清空要真的把消息发出去，且不能顺手删数据。
+    ///
+    /// 之前的实现只发一条"已清空"日志，没有任何面板订阅 —— 点了界面不变，
+    /// 是典型的"有按钮没功能"。现在它发 <c>ClearAllMessage</c>，
+    /// 各面板自己决定清什么；库里的记录与今日良率基数都不动。
     /// </summary>
     [Fact]
-    public void ReloadEngine_StopsTriggerAndClearsAutoMode()
+    public void ClearAll_BroadcastsMessage()
     {
-        var trigger = new FakeTrigger();
-        var engine = new FakeEngine();
-        var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
-            engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
+        var received = 0;
+        WeakReferenceMessenger.Default.Register<ClearAllMessage>(this, (_, _) => received++);
+
+        try
         {
-            IsAutoMode = true
-        };
+            var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
+                new FakeEngine(), TestPaths.Recipe(), new FakeAuditService());
 
-        vm.ReloadEngineCommand.Execute(null);
+            vm.ClearAllCommand.Execute(null);
 
-        Assert.Equal(1, trigger.StopCount);
-        Assert.False(vm.IsAutoMode);
-        Assert.Equal(1, engine.ReloadCount);
-    }
-
-    /// <summary>重载失败不能静默：必须把原因带出来（走查时靠日志定位"模块名改了"）。</summary>
-    [Fact]
-    public void ReloadEngine_WhenFailed_StillCallsEngineAndDoesNotThrow()
-    {
-        var engine = new FakeEngine { ReloadProblem = "方案里没有名为「流程1」的流程" };
-        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
-            engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
-
-        vm.ReloadEngineCommand.Execute(null);   // 不抛异常即为通过
-
-        Assert.Equal(1, engine.ReloadCount);
-    }
-
-    /// <summary>
-    /// 引擎不支持扫描时（ONNX）点扫描不能崩，也不能写文件。
-    /// 这是"可选能力用接口隔离"的目的：主接口不该被迫实现它。
-    /// </summary>
-    [Fact]
-    public void ScanOutputs_WhenEngineCannotScan_DoesNotThrow()
-    {
-        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
-
-        vm.ScanOutputsCommand.Execute(null);
-    }
-
-    /// <summary>
-    /// ioKind 必须按运行时类型推断：圆类型的输出用 Float 去取会抛异常。
-    /// </summary>
-    [Fact]
-    public void BuildScanJson_InfersIoKindFromRuntimeType()
-    {
-        var scan = new OutputScanResult(new[]
+            Assert.Equal(1, received);
+        }
+        finally
         {
-            new ScannedModule("圆查找1", new[]
-            {
-                new ScannedOutput("Radius", "VmIOCircle"),
-                new ScannedOutput("Score", "VmIOFloat")
-            }),
-            new ScannedModule("不存在的模块", Array.Empty<ScannedOutput>(), "流程「流程1」里没有名为「不存在的模块」的模块")
-        }, null);
-
-        var json = ControlPanelViewModel.BuildScanJson(scan, "VisionMaster");
-
-        Assert.Contains("\"module\": \"圆查找1\"", json);
-        Assert.Contains("\"io\": \"Radius\"", json);
-        Assert.Contains("\"ioKind\": \"Circle\"", json);
-        Assert.Contains("\"ioKind\": \"Float\"", json);
-        Assert.Contains("\"engine\": \"VisionMaster\"", json);
-        // 找不到的模块也要留在文件里，否则工程师不知道是漏配还是配错
-        Assert.Contains("不存在的模块", json);
-    }
-
-    /// <summary>
-    /// 扫描必须用配方里声明的模块名 —— 这是"核对配方对不对"的前提。
-    /// </summary>
-    [Fact]
-    public void ScanOutputs_PassesRecipeModuleNamesToEngine()
-    {
-        var engine = new FakeScanningEngine
-        {
-            Result = new OutputScanResult(new[]
-            {
-                new ScannedModule("圆查找1", new[] { new ScannedOutput("Radius", "VmIOCircle") })
-            }, null)
-        };
-        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
-            engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
-
-        vm.ScanOutputsCommand.Execute(null);
-
-        Assert.Equal(new[] { "圆查找1" }, engine.LastScanNames);
+            // 静态 Messenger 是进程级的：不反注册会让同进程的其他用例意外收到同一条消息
+            WeakReferenceMessenger.Default.UnregisterAll(this);
+        }
     }
 
     private sealed class FakeTrigger : ITriggerSource

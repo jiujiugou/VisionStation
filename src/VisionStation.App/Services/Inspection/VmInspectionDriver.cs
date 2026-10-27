@@ -43,8 +43,19 @@ public sealed class VmInspectionDriver : IDisposable
     /// <summary>1 = 正在处理一帧。VM 推得快时靠它串行化，避免并发写库。</summary>
     private int _busy;
 
+    /// <summary>累计丢弃帧数。UI 通过 <see cref="DroppedTotal"/> 读，驱动内部只增不减。</summary>
     private int _droppedTotal;
+
+    /// <summary>累计收到帧数（含被丢弃的那些 —— 它衡量的是"VM 推了多少"，不是"处理了多少"）。</summary>
     private int _receivedTotal;
+
+    /// <summary>
+    /// 上一次广播给状态栏的两个计数。-1 = 还没广播过（第一拍必定发一次，
+    /// 让界面从"--"变成"收 0 / 丢 0"，否则操作员分不清"没丢"和"这个格子是死的"）。
+    /// 只在链路检查的定时器线程上读写，不需要同步。
+    /// </summary>
+    private int _lastReportedReceived = -1;
+    private int _lastReportedDropped = -1;
 
     private bool _disposed;
 
@@ -103,7 +114,15 @@ public sealed class VmInspectionDriver : IDisposable
             TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
     }
 
-    /// <summary>停止监听。</summary>
+    /// <summary>
+    /// 停止监听。
+    ///
+    /// <para>
+    /// **不等在途帧**：这里只取消令牌、关监听、停定时器。正在处理的那一帧由
+    /// 关闭流程的第 3 步（<c>InFlightWorkMonitor.WhenIdleAsync</c>）统一等待。
+    /// 两处都等会让"最坏耗时"叠加，而关闭预算是固定的 8 秒。
+    /// </para>
+    /// </summary>
     public void Stop()
     {
         try { _cts.Cancel(); }
@@ -127,11 +146,16 @@ public sealed class VmInspectionDriver : IDisposable
     {
         try
         {
+            // 放在状态翻面的早退之前：计数变化与状态翻面是两件事，
+            // 链路一直 Healthy 的时候计数照样在涨，不能说"状态没变"就不报数。
+            PublishThroughputIfChanged();
+
             var nowUtc = DateTime.UtcNow;
             var lastLineUtc = _listener.LastLineUtc;
 
-            // 基准取"最后一条结果"，没有则取"本轮连接建立" ——
-            // 后者保证 VM 重连后的头几秒不会被误判成断流。
+            // 基准取"最后一条结果"，没有则取"本轮连接建立"。
+            // 重连时监听器会把 LastLineUtc 清零，所以这里能真正落到 ConnectedAtUtc：
+            // 首帧到达前以"这轮连接建立了多久"计时，不会拿上一轮的旧时间戳误报断流。
             var lastActivityUtc = lastLineUtc ?? _listener.ConnectedAtUtc;
 
             var stateNow = VmLinkMonitor.Evaluate(
@@ -166,6 +190,37 @@ public sealed class VmInspectionDriver : IDisposable
     }
 
     /// <summary>
+    /// 把"收了多少 / 丢了多少"广播给状态栏（每秒最多一次，且数值没变就不发）。
+    ///
+    /// <para>
+    /// <b>为什么要有这一步</b>：<see cref="DroppedTotal"/> 之前零消费者 —— 处理跟不上时
+    /// 只写一条日志（每 5 帧一次 Warning），而操作员看的是界面，界面一片正常。
+    /// 丢帧意味着"有一件没被判"，是硬缺陷，必须待在常驻可见的地方。
+    /// </para>
+    /// <para>
+    /// <b>为什么走消息而不是让状态栏拿 Driver 实例</b>：判断与采集都在驱动层做一次，
+    /// 其余都是显示 —— 和 <see cref="PlcStatusMessage"/> 当初掰正过的那个问题一样。
+    /// 真让状态栏去 Resolve 一个设备驱动，等于显示层认识业务流程，以后改驱动就要回头改界面。
+    /// </para>
+    /// <para>
+    /// <b>为什么只在变化时发</b>：产线正常时这两个数很久不动，每秒发一条等于让一个纯显示控件
+    /// 替我们制造无意义的属性通知和重绘。
+    /// </para>
+    /// </summary>
+    private void PublishThroughputIfChanged()
+    {
+        var received = Volatile.Read(ref _receivedTotal);
+        var dropped = Volatile.Read(ref _droppedTotal);
+
+        if (received == _lastReportedReceived && dropped == _lastReportedDropped) return;
+
+        _lastReportedReceived = received;
+        _lastReportedDropped = dropped;
+
+        SendToUi(() => WeakReferenceMessenger.Default.Send(new VmThroughputMessage(received, dropped)));
+    }
+
+    /// <summary>
     /// 状态翻面时的说法。
     ///
     /// 分级别是刻意的：**运行中断流是 Error，停机后没结果是 Info**。
@@ -192,16 +247,19 @@ public sealed class VmInspectionDriver : IDisposable
                 break;
 
             case VmLinkState.Stalled:
-                var since = FormatSince(status.SinceLast);
+                // SinceLast 为 null 只会出现在"连着但一个基准都拿不到"的兜底里
+                // （见 VmLinkMonitor.Evaluate 的 null 分支）—— 那时说不了"已 N 秒"，
+                // 硬拼 FormatSince 会拼出"已 从未收到结果，已经 没有收到…"这种句子。
+                var since = status.SinceLast is { } elapsed ? $"已 {FormatSince(elapsed)}" : "至今";
                 if (status.IsRunning)
                 {
-                    Error($"已 {since}没有收到 VM 结果（阈值 {threshold}）：检查 VisionMaster 是否在连续运行、"
+                    Error($"{since}没有收到 VM 结果（阈值 {threshold}）：检查 VisionMaster 是否在连续运行、"
                         + $"发送数据模块是否被执行、触发信号是否到位");
                 }
                 else
                 {
                     // 停机时没结果本来就是正常的，只记为信息，不改界面告警色
-                    Info($"已 {since}没有收到 VM 结果（工位未运行，可能是正常停机；阈值 {threshold}）");
+                    Info($"{since}没有收到 VM 结果（工位未运行，可能是正常停机；阈值 {threshold}）");
                 }
                 break;
         }
@@ -209,7 +267,8 @@ public sealed class VmInspectionDriver : IDisposable
 
     private static string FormatSince(TimeSpan? since)
     {
-        if (since is null) return "从未收到结果，已经 ";
+        // 恢复文案里可能拿不到间隔（例如从未收到过结果就恢复），这时只能说"不久"
+        if (since is null) return "不久";
         var s = since.Value;
         return s.TotalSeconds < 60
             ? $"{s.TotalSeconds:0.#} 秒"
@@ -240,6 +299,11 @@ public sealed class VmInspectionDriver : IDisposable
     /// <summary>一条结果到达（IO 线程）。</summary>
     private void OnLine(string line)
     {
+        // 先记"到达"、再判"处理得过来"：ReceivedTotal 的口径是"VM 推了多少"（见字段注释），
+        // 被丢弃的帧同样到达过。原来这句放在 busy 判断之后，等于把丢掉的帧从分母里也删了 ——
+        // 界面上的"收 100 / 丢 3"会读成 3‰，实际是 3%。
+        Interlocked.Increment(ref _receivedTotal);
+
         if (Volatile.Read(ref _busy) == 1)
         {
             // 上一帧还在写库。宁可丢弃并计数，也不要并发写同一个 SQLite 连接 ——
@@ -260,8 +324,6 @@ public sealed class VmInspectionDriver : IDisposable
         Interlocked.Exchange(ref _busy, 1);
         try
         {
-            Interlocked.Increment(ref _receivedTotal);
-
             // 解析失败也返回一份 NG 报告（带原因），所以这里不会因为格式问题静默丢帧
             var report = VmResultParser.Parse(line, triggerSourceFallback: "VM", outputs: _outputs);
 
@@ -284,7 +346,15 @@ public sealed class VmInspectionDriver : IDisposable
         }
     }
 
-    /// <summary>把一帧的结果广播给面板（UI 线程）。与自动模式走同一条消息。</summary>
+    /// <summary>
+    /// 把一帧的结果广播给面板（UI 线程）。与自动模式走同一条消息 ——
+    /// 对面板来说"结论从哪来"不重要，重要的是格式一样。
+    ///
+    /// <para>
+    /// 第二条 <see cref="ImageLinkStatusMessage"/> 带的是 <c>ImageLinkOnline</c>，
+    /// 在 VM 模式下恒为 true（能收到这一帧就说明平台在推），用来点亮顶栏那个灯。
+    /// </para>
+    /// </summary>
     private static void Publish(InspectionRunResult result)
     {
         WeakReferenceMessenger.Default.Send(new InspectionResultMessage(result));

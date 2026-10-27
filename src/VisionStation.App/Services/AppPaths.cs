@@ -23,14 +23,27 @@ public sealed class AppPaths
     public string DataRoot { get; }
 
     /// <summary>
-    /// 检测引擎资源（.sol 流程文件、ONNX 模型）的解析基准目录。
+    /// 资源解析基准目录（配方里 <c>.sol</c> 流程文件等相对路径都相对它）。
     ///
-    /// 用 exe 目录而不是 cwd：流程文件与模型随程序部署，和 exe 同生共死。
+    /// 用 exe 目录而不是 cwd：流程文件随程序部署，和 exe 同生共死。
     /// 配方里写相对路径时都相对它解析（RecipeConfig.ResolveAsset）。
+    ///
+    /// <para>
+    /// 注意：本程序不加载任何模型权重（2026-10-27 起 ONNX 整条线已删除），
+    /// 这个目录只服务配方与配置文件。
+    /// </para>
     /// </summary>
     public string AssetRoot { get; }
 
-    /// <summary>检测结果图片存储目录</summary>
+    /// <summary>
+    /// 检测结果图片目录。
+    ///
+    /// <para>
+    /// <b>当前不生效</b>：图片由 VM 存盘，本程序只按报文里的路径去读，不写这里。
+    /// 保留是因为 <c>Storage:ImageFolder</c> 仍是合法配置项（见 <c>StorageOptions</c> 的说明），
+    /// 且清理服务会扫这个目录做保留期删除 —— 若哪天平台改为不存图，这里就是落点。
+    /// </para>
+    /// </summary>
     public string StorageFolder { get; }
 
     /// <summary>SQLite 数据库文件路径</summary>
@@ -56,6 +69,19 @@ public sealed class AppPaths
     /// </summary>
     public string RecipeFolder => Path.GetDirectoryName(RecipePath) ?? DataRoot;
 
+    /// <summary>
+    /// 构造时把配置里的**相对路径全部一次性解析成绝对路径**。
+    ///
+    /// <para>
+    /// 这是本类最重要的约定：构造之后，程序里任何一个消费者拿到的都是绝对路径，
+    /// 不需要（也不允许）再去拼 <c>AppContext.BaseDirectory</c>。
+    /// 否则路径基准会散落在十几处，改一处漏一处。
+    /// </para>
+    /// <para>
+    /// 只解析、不创建目录：创建目录是消费方的事（日志 sink、数据库、存图各自建）。
+    /// 构造里做 I/O 会让"启动"和"建目录失败"缠在一起，失败原因更难分层。
+    /// </para>
+    /// </summary>
     public AppPaths(AppOptions options)
     {
         DataRoot      = options.DataRoot;
@@ -65,6 +91,8 @@ public sealed class AppPaths
         LogFolder     = ResolveOutput(options.Logging.LogFolder, "Logs");
         RecipePath    = ResolveRecipe(options.Recipe.Path);
 
+        // 图像来源设置固定放在 <数据根>\Config\image-source.json，不开放配置键：
+        // 它是"这台机器的现场设置"，位置不该再被配置一次。
         ImageSourceSettingsPath = ResolveOutput(string.Empty, @"Config\image-source.json");
     }
 
@@ -87,6 +115,7 @@ public sealed class AppPaths
         return GetFullPath(Environment.CurrentDirectory, rel);
     }
 
+    /// <summary>拼绝对路径。写成一行工具方法是为了让上面两处的"基于谁解析"一眼可见。</summary>
     private static string GetFullPath(string baseDir, string rel)
         => Path.GetFullPath(Path.Combine(baseDir, rel));
 }

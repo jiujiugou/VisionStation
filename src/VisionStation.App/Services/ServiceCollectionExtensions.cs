@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using VisionStation.App.Abstractions;
@@ -23,7 +25,22 @@ using VisionStation.Storage;
 namespace VisionStation.App;
 
 /// <summary>
-/// DI 扩展方法 —— 按模块分组注册，App.xaml.cs 一行调用一个
+/// DI 扩展方法 —— 按模块分组注册，<c>AppHost.Configure</c> 一行调用一个。
+///
+/// <para>
+/// 读这个文件只需要盯三件事：
+/// <list type="number">
+///   <item>每个类型注册成 Singleton 还是 Transient —— 也就是"它活多久"；</item>
+///   <item>lambda 工厂里 <c>new</c> 出来的对象**谁负责 Dispose** ——
+///         注册成 Singleton 的会被容器释放，工厂里自己 new 又没交给容器的要自己管；</item>
+///   <item>哪些注册是"只装配、不干活" —— 端口、设备连接、订阅都发生在
+///         <see cref="Composition.AppHost.InitializeAsync"/>，不在注册时。</item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>这里不注册任何 View（Window / UserControl）</b>：视图由 <c>App.xaml</c> 的 DataTemplate
+/// 按 VM 类型创建。容器管可视树的生命周期，等于把"谁关窗口"这件事交给 DI，是收不回来的。
+/// </para>
 /// </summary>
 public static class ServiceCollectionExtensions
 {
@@ -34,6 +51,7 @@ public static class ServiceCollectionExtensions
     /// 现在只造一个 <see cref="IInspectionEngine"/>，而且只有 VM 一条路 ——
     /// 判定逻辑在 VM 流程里，组合根不持有任何算法参数和模型路径。
     /// </summary>
+    /// <param name="recipe">已加载的配方。引擎类型由它的 <c>engine</c> 字段决定，非法值直接抛。</param>
     public static IServiceCollection AddDetection(this IServiceCollection services,
         RecipeConfig recipe)
     {
@@ -50,6 +68,11 @@ public static class ServiceCollectionExtensions
     /// 只在配方引擎是 Vm、且 appsettings 里 VmLink:Enabled=true 时才真正 Start() ——
     /// 见 <see cref="Composition.AppHost.InitializeAsync"/>。注册本身无副作用（不占端口）。
     /// </summary>
+    /// <remarks>
+    /// 三个参数都来自配置/配方：<c>BindAddress</c>、<c>Port</c>（这台机器）、
+    /// <c>StallTimeoutSeconds</c>（这条产线）、<c>RecipeConfig.Vm.Outputs</c>（这个产品）。
+    /// 其中断流阈值是业务参数，代码里没有默认值可猜，必须由配置给出。
+    /// </remarks>
     public static IServiceCollection AddVmLink(this IServiceCollection services, AppOptions options)
     {
         services.AddSingleton(sp => new VmInspectionDriver(
@@ -64,7 +87,16 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>注册 Devices 层：触发源、设备管理器</summary>
+    /// <summary>
+    /// 注册 Devices 层：触发源、PLC 连接、设备管理器。
+    ///
+    /// <para>
+    /// 三个判断都在这里做完，上层不再关心：
+    /// PLC 开没开、走 TCP 还是 RTU、触发源该用 PLC 还是定时器。
+    /// </para>
+    /// </summary>
+    /// <param name="appPaths">设备层当前不用，保留以统一签名（设备若要读资源目录会用到）</param>
+    /// <param name="options">PLC 段与定时器间隔</param>
     public static IServiceCollection AddDevices(this IServiceCollection services,
         AppPaths appPaths, AppOptions options)
     {
@@ -118,7 +150,21 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>注册 Storage 层：数据库、图片存储</summary>
+    /// <summary>
+    /// 注册 Storage 层：三个仓储，共用一个 SQLite 文件。
+    ///
+    /// <para>
+    /// 图片存储（<c>ImageStoreService</c>）**已于 2026-10-27 整体删除**，连同 <c>CameraFrame</c>
+    /// 与其 7 条单测一起。原委：相机层删除后本程序不再写图 —— 图由 VM 存盘、
+    /// 我们只按报文路径去读 —— 那个服务已经没有任何生产调用者，留着只会让人
+    /// 以为"存图策略"还在生效（`Storage:Mode` 也是同一批删掉的）。
+    /// </para>
+    /// </summary>
+    /// <param name="appPaths">只用来取 <c>DbPath</c>（已解析成绝对路径）</param>
+    /// <param name="options">
+    /// 当前实现未使用，保留是为了和其它 <c>Add*</c> 扩展方法保持一致的签名形状，
+    /// 将来若把连接串/超时配置化，改动只落在这里而不必改调用点。
+    /// </param>
     public static IServiceCollection AddStorage(this IServiceCollection services,
         AppPaths appPaths, AppOptions options)
     {
@@ -141,7 +187,16 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>注册 Service 层：健康检查、后台管家</summary>
+    /// <summary>
+    /// 注册 Service 层的服务：健康检查、后台管家、会话/账号/审计、工作流、配方存储。
+    ///
+    /// <para>
+    /// 这里的顺序不是随便排的，几处 <c>new</c> 依赖前面的单例已经注册好
+    /// （例如审计要读会话、账号服务要写审计）。改顺序前先看每个 lambda 里取了什么。
+    /// </para>
+    /// </summary>
+    /// <param name="appPaths">管家要的图片目录、健康检查要的库路径与资源根</param>
+    /// <param name="options">管家阈值</param>
     public static IServiceCollection AddAppServices(this IServiceCollection services,
         AppPaths appPaths, AppOptions options)
     {
@@ -157,7 +212,11 @@ public static class ServiceCollectionExtensions
                 appPaths.DbPath,
                 appPaths.StorageFolder,
                 recipe,
-                appPaths.AssetRoot);
+                appPaths.AssetRoot,
+                // F-49：第 4 项「运行时缺失」原本恒 null（这个参数没人传，等于那半个分支永远走不到）。
+                // 现在传真实的探测结果：VM 是"推送驱动"的引擎，它的运行时就是结果推送链路的入口，
+                // 入口立不起来 = 这一趟跑下来永远不会有一条结果。探测失败返回原因字符串，正常返回 null。
+                engineRuntimeProblem: ProbeEngineRuntime(recipe, options));
         });
 
         // 管家服务 2026-10-19 迁入 Service 层（VisionStation.Service.Housekeeping）——
@@ -229,6 +288,72 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// 第 4 项「运行时缺失」的探测（F-49）：VM 推送链路的入口能不能立起来。
+    ///
+    /// <para>
+    /// <b>为什么探的不是"本机装没装 VisionMaster"</b>：本程序不加载任何海康 SDK
+    /// （见 <c>VmExternalEngine</c> 与《引擎集成-说明》），检测跑在 VM 进程里、结果用 TCP 推过来。
+    /// 所以"本机没装 VM"对这条进程不构成故障 —— 照着那个说法造一条探测，只会得到
+    /// 一条永远绿的假检查（本项目原则：假绿灯比没有更糟）。
+    /// 这个进程真正的运行时前置是**推送入口**：链路没开、或端口占不住，
+    /// 就永远收不到一条结果，而界面上只会表现为"一直没东西"。
+    /// </para>
+    ///
+    /// <para>
+    /// 两条失败路径各自对应的现场问题：
+    /// <list type="bullet">
+    ///   <item><c>VmLink:Enabled=false</c> 且配方引擎是 Vm —— 监听根本不会起
+    ///         （<c>AppHost.InitializeAsync</c> 只在启用时才 Start），本次运行零结果。
+    ///         这种反方向的错配原本**连一句警告都没有**（只记了"启用了但引擎不是 Vm"那一种）。</item>
+    ///   <item>入口地址/端口占不住 —— 多半是上一个实例没退干净，或别的软件占了端口。
+    ///         <c>VmInspectionDriver.Start()</c> 也会抛，但那是自检之后的事；
+    ///         提前一屏报出来，现场不用翻日志才知道是端口问题。</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>绑定方式与真实监听保持一致</b>（<c>IPAddress.Parse</c> + <c>TcpListener</c>，
+    /// 不额外设 <c>ExclusiveAddressUse</c>），否则探测结论会和随后 <c>VmResultListener.Start()</c>
+    /// 的真实行为对不上：探到"能绑"却绑不上是误绿，反过来是误红。
+    /// 试绑完立刻释放；释放到真正 Start 之间的窗口里 VM 若正好来连会失败一次 ——
+    /// VM 侧本来就是重连设计，可接受。
+    /// </para>
+    ///
+    /// <para>
+    /// 异常一律翻成一句人话返回，绝不外抛：这段跑在 DI 工厂里，抛出去会让 <c>IHealthChecker</c>
+    /// 整个解析失败，自检一条结果都拿不到。
+    /// </para>
+    /// </summary>
+    /// <returns>运行时不可用的原因；null = 正常</returns>
+    private static string? ProbeEngineRuntime(RecipeConfig recipe, AppOptions options)
+    {
+        // 只有 Vm 这一条引擎路线（写别的引擎名在建引擎时就抛，根本走不到自检）。
+        if (!string.Equals(recipe.Engine, EngineNames.Vm, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (!options.VmLink.Enabled)
+            return "结果推送链路未启用（VmLink:Enabled=false），本次运行收不到任何检测结果";
+
+        var address = options.VmLink.BindAddress;
+        var port = options.VmLink.Port;
+        TcpListener? probe = null;
+        try
+        {
+            probe = new TcpListener(IPAddress.Parse(address), port);
+            probe.Start();
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return $"结果推送入口 {address}:{port} 无法监听（{ex.GetType().Name}: {ex.Message}）";
+        }
+        finally
+        {
+            try { probe?.Stop(); } catch { /* 释放失败不改变结论 */ }
+        }
+    }
+
+    /// <summary>
     /// 注册 ViewModels（S3b 起不再注册任何 View —— 视图由 App.xaml 的 DataTemplate 创建，
     /// 容器里出现 Window / UserControl 就是错误：那等于让 DI 去管可视树的生命周期）。
     ///
@@ -238,6 +363,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddViews(this IServiceCollection services)
     {
+        // 唯一允许弹 MessageBox 的地方。VM 通过 IDialogService 表达"要确认"，不直接碰 WPF。
         services.AddSingleton<IDialogService, WpfDialogService>();
         services.AddSingleton<SidebarViewModel>();
         services.AddSingleton<ImagePanelViewModel>();
@@ -267,7 +393,8 @@ public static class ServiceCollectionExtensions
         // 它不是"工程师后台"，是操作员发现 NG 后自己回看那一件的地方。
         services.AddSingleton<HistoryPageViewModel>();
 
-        // 导航：路由表在 NavigationService 里写死两页，不查容器、不建工厂。
+        // 导航：路由表在 NavigationService 里写死四页（检测 / 图像来源 / 历史 / 审计），
+        // 不查容器、不建工厂。
         services.AddSingleton<INavigationService, NavigationService>();
         services.AddSingleton<ShellViewModel>();
 

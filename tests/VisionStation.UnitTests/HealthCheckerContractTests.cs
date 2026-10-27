@@ -43,17 +43,6 @@ public class RecipeValidationTests
     }
 
     [Fact]
-    public void R101_OnnxWithoutModel_MustFail()
-    {
-        var recipe = new RecipeConfig { Name = "缺模型", Engine = EngineNames.Onnx };
-        recipe.Onnx.ModelPath = "";
-
-        var r = Check(recipe);
-
-        Assert.False(r.OK, $"ONNX 配方没写模型路径仍判有效（F-101）。Detail={r.Detail}");
-    }
-
-    [Fact]
     public void R101_VmWithoutOutputs_MustFail()
     {
         // 有 .sol、有流程名，但一项输出都没配 —— 流程会跑，结论一条都没有。
@@ -69,7 +58,14 @@ public class RecipeValidationTests
     [Fact]
     public void R101_ValidRecipe_MustPass()
     {
-        var recipe = new RecipeConfig { Name = "正常配方", Engine = EngineNames.Onnx };
+        // VM 配方的四项必填：流程文件、流程名、图像源模块、至少一条输出映射。
+        // 少任何一项都会被 R101_VmWithoutOutputs_MustFail 那一类用例拦下，
+        // 所以这条"正例"必须把它们都配齐，否则它测的是反例。
+        var recipe = new RecipeConfig { Name = "正常配方", Engine = EngineNames.Vm };
+        recipe.Vm.SolutionPath = @"Config\recipes\default.json";
+        recipe.Vm.Procedure = "流程1";
+        recipe.Vm.ImageSourceModule = "图像源1";
+        recipe.Vm.Outputs.Add(new VmOutputMapping { Module = "模块1", Label = "值1" });
 
         var r = Check(recipe);
 
@@ -118,12 +114,12 @@ public class DbAvailabilityTests
 /// <summary>
 /// R-103 / F-103：引擎资源自检。
 ///
-/// 检查对象从「模板文件」换成「引擎资源」（.sol 或 ONNX 模型）：
+/// 检查对象从「模板文件」换成「引擎资源」（VM 的 .sol 流程文件）：
 /// 模板是自研 PresenceTool 的输入，随工具链一起移除；
-/// 现在引擎的输入是流程文件/模型，缺了同样跑不起来，同样必须在启动期就报。
+/// 现在引擎的输入是流程文件，缺了同样跑不起来，同样必须在启动期就报。
 ///
-/// 刻意没保留「改了扩展名的文本文件」那条：.sol 是压缩包、.onnx 是 protobuf，
-/// 想在不加载它们的前提下判断"是不是真的能跑"只能靠猜，猜错比不查更糟。
+/// 刻意没保留「改了扩展名的文本文件」那条：.sol 是压缩包，
+/// 想在不加载它的前提下判断"是不是真的能跑"只能靠猜，猜错比不查更糟。
 /// 这一条改由运行期兜底：引擎加载失败会返回 NG 并把异常原文带出来。
 /// </summary>
 public class EngineAssetTests

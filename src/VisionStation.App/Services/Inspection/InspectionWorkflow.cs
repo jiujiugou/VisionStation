@@ -21,8 +21,12 @@ namespace VisionStation.App.Services.Inspection;
 /// </summary>
 public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 {
+    /// <summary>引擎。本类只用它的 <c>Name</c> 和"是不是推驱动"两个信息，从不调它去检测。</summary>
     private readonly IInspectionEngine _engine;
+
+    /// <summary>仓储。每帧保存一次，失败会抛（由调用方决定记日志还是中断）。</summary>
     private readonly IInspectionRepository _repo;
+
     private readonly ILogger<InspectionWorkflow> _logger;
 
     /// <summary>
@@ -51,6 +55,15 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     /// </summary>
     private const int DisplayMaxWidth = 1280;
 
+    /// <summary>
+    /// 构造。两个可选依赖（PLC 回写、图像来源设置）用默认参数而不是重载：
+    /// 它们缺席是合法状态（没接 PLC / 没配兜底目录），不是配置错误。
+    /// </summary>
+    /// <param name="engine">引擎（判定已由它给出，本类不改结论）</param>
+    /// <param name="repo">检测记录仓储</param>
+    /// <param name="logger">日志</param>
+    /// <param name="plcWriter">PLC 回写；null = 未启用 PLC</param>
+    /// <param name="imageSourceSettings">图像来源设置；null = 只用报文路径</param>
     public InspectionWorkflow(
         IInspectionEngine engine,
         IInspectionRepository repo,
@@ -98,6 +111,21 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         return Task.Run(() => AcceptExternalCoreAsync(report, ct), CancellationToken.None);
     }
 
+    /// <summary>
+    /// 推送帧的实际处理。**顺序是这张清单的全部内容**：
+    ///
+    /// <list type="number">
+    ///   <item>解析图像路径（报文优先，界面设置兜底）—— 纯计算，不读盘；</item>
+    ///   <item>读图、标注、缩放到上屏宽度 —— 失败只记原因，**不影响判定入库**；</item>
+    ///   <item>入库 —— 唯一可能抛的一步，抛了由上层记 Error；</item>
+    ///   <item>回写 PLC —— 放在入库之后，避免"PLC 放行了库里却没记录"。</item>
+    /// </list>
+    ///
+    /// <para>
+    /// 整体跑在线程池上（<see cref="AcceptExternalAsync"/> 用 <c>Task.Run</c> 包起来），
+    /// 因为 OpenCV 解码与标注是同步 CPU 活，直接放在接收回调里会卡住 TCP 读取线程。
+    /// </para>
+    /// </summary>
     private async Task<InspectionRunResult?> AcceptExternalCoreAsync(InspectionReport report, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -250,6 +278,15 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
             report.IsOk ? new Scalar(0, 180, 0) : new Scalar(0, 0, 220), 3);
     }
 
+    /// <summary>
+    /// 注销消息订阅。
+    ///
+    /// <para>
+    /// 本类目前其实**没有订阅任何消息**（<c>UnregisterAll</c> 是改造前的遗留）。
+    /// 保留它是因为容器会在关闭时调 Dispose，删掉这个实现就要跟着改注册方式；
+    /// 而且它无害 —— UnregisterAll 对没注册过的对象是空操作。
+    /// </para>
+    /// </summary>
     public void Dispose()
         => WeakReferenceMessenger.Default.UnregisterAll(this);
 }

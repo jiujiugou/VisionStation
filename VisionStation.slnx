@@ -2,12 +2,10 @@
   <Project Path="src/VisionStation.App/VisionStation.App.csproj" />
   <Project Path="src/VisionStation.Core/VisionStation.Core.csproj" />
   <Project Path="src/VisionStation.Devices/VisionStation.Devices.csproj" />
-  <Project Path="src/VisionStation.Engines.Onnx/VisionStation.Engines.Onnx.csproj" />
   <Project Path="src/VisionStation.Engines.Vm/VisionStation.Engines.Vm.csproj" />
   <Project Path="src/VisionStation.Service/VisionStation.Service.csproj" />
   <Project Path="src/VisionStation.Storage/VisionStation.Storage.csproj" />
   <Project Path="tests/VisionStation.UnitTests/VisionStation.UnitTests.csproj" />
   <Project Path="tests/VisionStation.App.Tests/VisionStation.App.Tests.csproj" />
   <Project Path="src/VisionStation.Watchdog/VisionStation.Watchdog.csproj" />
-  <Project Path="tools/GoldenSetRunner/GoldenSetRunner.csproj" />
 </Solution>

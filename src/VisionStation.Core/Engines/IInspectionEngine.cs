@@ -4,21 +4,46 @@ using VisionStation.Core.Models;
 namespace VisionStation.Core.Engines;
 
 /// <summary>
-/// 检测引擎 —— 本系统唯一的"大脑"抽象。
+/// 检测引擎 —— 全系统唯一一条"判定"接缝：上层只认这个接口，不认具体实现。
 ///
-/// 为什么这里要一个接口（而不是像自研 Pipeline 时代那样直接 new 具体类）：
-///   系统里**确实存在两个引擎**，而且必须能按产品切换：
-///     · <c>Vm</c>   —— 海康 VisionMaster 流程（.sol），定位/测量/传统缺陷都在平台里配
-///     · <c>Onnx</c> —— ONNX YOLO 缺陷检测，无平台授权时的兜底
-///   两个实现都要活到进程结束、都由配方选择，这是真实的替换点，不是为 mock 造的接口。
+/// <para>
+/// <b>定位</b>：它夹在 <c>InspectionWorkflow</c>（消费结论）与具体引擎（产出结论）之间。
+/// 运行时只有 <c>VmExternalEngine</c> 一个实现，而它并不真的检测 ——
+/// 它占住这个位置是为了让"判定权在 VisionMaster 那边"这件事变成一个类型，
+/// 而不是散落在各处 if 里的口头约定。真正的 <see cref="InspectionReport"/>
+/// 由 VM 推来的报文经 <c>VmResultParser</c> 翻译出来，不经过 <see cref="Inspect"/>。
+/// </para>
 ///
-/// 边界约定（比接口本身更重要）：
-///   1. 引擎**不做采图**。运行时帧由平台推送（VM 存盘 + 报文带路径），
-///      离线跑批由 GoldenSetRunner 直接读文件 —— 引擎只吃已经拿到的图。
-///   2. 引擎**不写界面、不写库**。只把结论装进 <see cref="InspectionReport"/>。
-///   3. 引擎**不抛异常给调用方**。平台没授权、模型缺失、流程文件损坏，
-///      都属于"现场一定会发生"的事，必须以 NG + 明确原因返回，并由调用方记 ERROR。
-///      抛异常会让一帧检测变成一次崩溃，而产线要的是"这一件没判出来，别把线停了还查不到原因"。
+/// <para>
+/// <b>为什么会有这个接口</b>（历史）：曾经确实存在两个实现，
+/// <c>Vm</c>（海康流程）与 <c>Onnx</c>（YOLO 兜底），按配方切换是真需求，不是为 mock 造的缝。
+/// 2026-10-27 起 ONNX 整条线删除（引擎、离线跑批工具、模型、数据集、相关测试），
+/// 于是实现只剩一个 —— 接口留着，是因为"换引擎"的语义还在（配方里有 engine 字段），
+/// 而且 <see cref="IPushDrivenEngine"/> 这条能力判定需要一个挂点。
+/// </para>
+///
+/// <para>
+/// <b>归属与线程</b>：<c>InspectionEngineFactory</c> 按配方 new 一次，注册为单例，活到进程结束；
+/// 被工作流、图像面板、控制面板共享。VM 模式下 <see cref="Inspect"/> 在正常运行期间
+/// 一次都不会被调用：自动循环走的是 <c>InspectionWorkflow.RunOnceAsync</c>，
+/// 它在相机层删除后已经<b>无条件返回 null</b>；界面上点"开始检测"则由控制面板用
+/// <see cref="IPushDrivenEngine"/> 提前拦下并说明原因。两条路都不进 <see cref="Inspect"/>。
+/// </para>
+///
+/// <para>
+/// <b>边界约定 —— 三条"不"，比接口签名本身更重要</b>：
+/// <list type="number">
+///   <item>引擎<b>不采图</b>。相机由 VisionMaster 独占，运行时根本没有帧流到这一层；
+///         引擎只吃"已经拿到的图"。</item>
+///   <item>引擎<b>不写界面、不写库</b>。只把结论装进 <see cref="InspectionReport"/>。
+///         落账、上屏、回 PLC 全在工作流；两处都写就会出现"界面显示了图、库里那条记录的
+///         ImagePath 却是空"的两份真相，事后没法判断哪份对。</item>
+///   <item>引擎<b>不抛异常给调用方</b>。平台没授权、流程文件损坏、报文格式不对，
+///         都属于"现场一定会发生"的事，必须以 NG + 明确原因返回，由调用方记 ERROR。
+///         抛出去的后果不是"程序崩了"而是"这一帧没结论"——它只会留下一条 Error 日志，
+///         既不判也不入库，现场看到的是"这件产品凭空消失"，比一条 NG 难查得多。</item>
+/// </list>
+/// </para>
 /// </summary>
 public interface IInspectionEngine : IDisposable
 {
@@ -27,86 +52,63 @@ public interface IInspectionEngine : IDisposable
 
     /// <summary>
     /// 执行一次检测。
+    ///
+    /// <para>
+    /// <b>前置条件</b>：<paramref name="request"/> 非空，且 <c>Image</c> 的所有权仍归调用方。
+    /// 实现只能读它，<b>不得 Dispose</b> —— 调用方可能还要拿同一张图做标注与上屏，
+    /// 引擎把它释放掉会表现为"偶发 ObjectDisposedException"，且只在有图时才复现。
+    /// </para>
+    /// <para>
+    /// <b>副作用</b>：无。不写库、不存图、不动 UI、不改 <paramref name="request"/>。
+    /// 这条约束是为了让"同一帧被调两次"不会产生两条记录。
+    /// </para>
+    /// <para>
+    /// <b>线程</b>：在调用方线程同步执行（VM 推送路径上是收包线程，离线跑批是主线程），
+    /// 实现自己保证并发安全；不做 async 是因为引擎调用是 CPU 密集且必须串行。
+    /// </para>
     /// </summary>
     /// <param name="request">一帧图像及其上下文</param>
     /// <returns>
-    /// 必定非空。失败时返回 <c>IsOk = false</c> 且带原因的 <see cref="InspectionReport"/>；
-    /// <see cref="InspectionReport.Results"/> 为空同样按 NG 处理（没检 ≠ 合格）。
+    /// 必定非空。失败时返回 <c>IsOk = false</c> 且原因写在 <c>ResultKeys.Engine</c>
+    /// 这一项里的 <see cref="InspectionReport"/>（用 <see cref="InspectionReport.Failure"/> 造）；
+    /// <see cref="InspectionReport.Results"/> 为空同样按 NG 处理 —— 没检 ≠ 合格。
     /// </returns>
     InspectionReport Inspect(InspectionRequest request);
 
-    /// <summary>
-    /// 重新加载引擎资源（`.sol` 流程 / ONNX 模型）。
-    ///
-    /// 为什么必须有：调流程是二次开发的日常 —— 工程师在 VM 客户端改一个公差、存盘，
-    /// 回到本程序必须能立刻看到效果。没有它，每改一次就要关程序重开，
-    /// 而重启要走完整个自检与设备初始化，改十次就是十遍。
-    ///
-    /// 约定：
-    ///   1. 实现必须自己保证并发安全（重载期间有帧进来，应得到 NG 而不是崩溃）；
-    ///   2. 重载失败不得让引擎进入"看起来能用"的状态 —— 后续帧必须继续返回 NG + 原因；
-    ///   3. 返回 null 表示重载成功；否则返回可直接展示给工程师的失败原因（不抛异常）。
-    /// </summary>
-    string? Reload();
 }
-
-/// <summary>
-/// 可选能力：扫描引擎资源里**实际存在**的输出项。
-///
-/// 为什么单独一个接口而不是塞进 <see cref="IInspectionEngine"/>：
-/// 只有 VM 流程有"可枚举的模块与输出"这个概念（ONNX 的输出是固定的 DefectCount 那几项）。
-/// 塞进主接口会让 ONNX 引擎被迫实现一个它没有意义的方法。
-///
-/// 解决的问题：配方里的 `vm.outputs` 现在要人工抄模块名和输出名，
-/// 抄错一个字符的后果是"找不到模块「圆查找1」"，而且要到第一帧才报。
-/// 有了扫描，一次生成本地文件，复制粘贴即可。
-/// </summary>
-public interface IOutputScanner
-{
-    /// <summary>
-    /// 扫描指定模块的输出项。
-    ///
-    /// 为什么按名字扫、不做"列出全部模块"：
-    /// SDK 的 `GetAllModuleList` 只返回模块 ID 与流程 ID（`ModuInfo` 里没有名字），
-    /// 拿不到模块名就没法写进配方。而配方里本来就声明了模块名 ——
-    /// 用它去核对"这个名字对不对、这个模块有哪些输出"才是真正要解决的问题。
-    /// </summary>
-    /// <param name="moduleNames">要扫描的模块名（来自配方的 vm.outputs[].module）</param>
-    OutputScanResult Scan(IReadOnlyList<string> moduleNames);
-}
-
-/// <summary>扫描结果。失败时 <see cref="Error"/> 非空，<see cref="Modules"/> 为空。</summary>
-public sealed record OutputScanResult(
-    IReadOnlyList<ScannedModule> Modules,
-    string? Error)
-{
-    /// <summary>失败结果</summary>
-    public static OutputScanResult Failed(string error) => new(Array.Empty<ScannedModule>(), error);
-}
-
-/// <summary>一个模块及其输出项</summary>
-/// <param name="Name">模块名（写成配方里的 vm.outputs[].module）</param>
-/// <param name="Outputs">该模块的输出项</param>
-/// <param name="Error">该模块扫描失败的原因（如 .sol 里没有这个模块名）</param>
-public sealed record ScannedModule(
-    string Name,
-    IReadOnlyList<ScannedOutput> Outputs,
-    string? Error = null);
-
-/// <summary>一个输出项</summary>
-/// <param name="Name">输出名（写成配方里的 vm.outputs[].io）</param>
-/// <param name="RuntimeType">运行时类型名（VmIOFloat / VmIOCircle …），用于提示 ioKind</param>
-public sealed record ScannedOutput(string Name, string RuntimeType);
 
 /// <summary>
 /// 标记：判定由**外部系统主动推送**，本引擎不响应"给图 → 出报告"。
 ///
-/// 有它的原因：TCP 中转模式下 VisionMaster 自己采图、自己判定、把结果推过来，
-/// 上位机的自动循环若照旧每 2 秒调一次 <see cref="IInspectionEngine.Inspect"/>，
-/// 就会往数据库里灌一堆"VM 模式下不支持主动检测"的假 NG。
-/// 那种记录比不记录更糟 —— 事后统计良率会把它算成不良品。
+/// <para>
+/// <b>有它的原因</b>：TCP 中转模式下 VisionMaster 自己采图、自己判定、把结果推过来，
+/// 方向是反的。而上位机的自动循环并不知道这件事，它仍会按节拍（2 秒）调一次
+/// <see cref="IInspectionEngine.Inspect"/>。
+/// </para>
 ///
-/// 所以工作流在跑主动检测前先问一句：这个引擎是不是推驱动的？是就直接跳过，不入库。
+/// <para>
+/// <b>不跳的后果（这是这个空接口存在的全部价值）</b>：<c>VmExternalEngine.Inspect</c>
+/// 会如实返回一份"VM 模式不支持主动检测"的 NG 报告，工作流再把它入库 ——
+/// 于是产线每 2 秒多一条假 NG，一天就是几万条。良率统计直接失真，
+/// 而且这些记录长得和真 NG 一模一样，事后没法从库里区分。
+/// 所以上层在调主动检测<b>之前</b>必须先问一句"这个引擎是不是推驱动"。
+/// </para>
+///
+/// <para>
+/// <b>现状（别把它当成已在生效的开关）</b>：这个标记现在只被两处界面用到 ——
+/// <c>ControlPanelViewModel.StartDetection</c>（点按钮时直接说明"由 VM 执行、本按钮不发起检测"）
+/// 和 <c>ImagePanelViewModel</c>（提示文案）。
+/// 真正让自动循环不入库的是 <c>InspectionWorkflow.RunOnceAsync</c>：相机层删除后它
+/// <b>无条件</b>返回 null，并不检查这个接口。也就是说"跳过"目前是硬编码的，
+/// 这个标记守的是"再来一个新的推驱动引擎时，界面别去假装触发它"。
+/// 若将来恢复"按引擎类型决定要不要主动检测"，判断点必须落在这里。
+/// </para>
+///
+/// <para>
+/// <b>为什么是空接口而不是一个 bool 属性</b>：能力标记不需要状态，也不需要实现方提供值。
+/// 空接口让"是不是推驱动"由类型本身回答，编译期就确定，不会出现"属性忘了实现、默认 false"
+/// 那种要看运行结果才知道的错。
+/// </para>
 /// </summary>
 public interface IPushDrivenEngine
 {
@@ -115,9 +117,20 @@ public interface IPushDrivenEngine
 /// <summary>
 /// 一次检测的输入。
 ///
+/// <para>
 /// 只有三样东西：图、触发来源、图路径。刻意不放 ROI / 标定参数 ——
-/// 这些已经归引擎自己所有（VM 在 .sol 里、ONNX 在整图上），
+/// 这些已经归引擎自己所有（VM 在 .sol 里），
 /// 从调用方再传一遍等于让两个地方都能改同一件事，早晚对不上。
+/// </para>
+///
+/// <para>
+/// <b>现状</b>：这是"主动检测"那条路的入参，而 VM 模式下那条路已经被
+/// <c>InspectionWorkflow.RunOnceAsync</c> 无条件短路（相机归 VM 后，主动检测整条路都没了），
+/// 所以 <c>src/</c> 里<b>没有生产代码构造它</b>，全仓也没有第二个构造点
+/// （曾经唯一的构造方 <c>tools/GoldenSetRunner</c> 已于 2026-10-27 随 ONNX 一起删除）。
+/// 不要在它上面加新的业务字段 —— 要加就加到上游（报文 / 配方），
+/// 否则等于给一条运行时走不到的路加功能。
+/// </para>
 /// </summary>
 public sealed class InspectionRequest
 {
@@ -127,6 +140,9 @@ public sealed class InspectionRequest
     /// <summary>触发来源：Manual / Timer / PLC</summary>
     public string TriggerSource { get; init; } = "Manual";
 
-    /// <summary>原图路径（File 相机下有值，用于追溯与 VM 喂图）</summary>
+    /// <summary>
+    /// 原图路径（可为空）。相机层删除后，这里只可能由离线跑批或测试填值 ——
+    /// 运行时的图在 VM 那边，路径是随报文过来的，不经过这个字段。
+    /// </summary>
     public string ImagePath { get; init; } = "";
 }

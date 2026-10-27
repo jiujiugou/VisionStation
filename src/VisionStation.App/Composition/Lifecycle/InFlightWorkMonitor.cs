@@ -19,6 +19,7 @@ public sealed class InFlightWorkMonitor
     private int _count;
     private TaskCompletionSource? _idle;
 
+    /// <summary>当前在途件数。只用于日志与排查，关闭判断请用 <see cref="WhenIdleAsync"/>。</summary>
     public int Count => Volatile.Read(ref _count);
 
     /// <summary>登记一件在途工作。返回的租约必须 Dispose，否则关闭会等到超时。</summary>
@@ -48,6 +49,11 @@ public sealed class InFlightWorkMonitor
         return WaitAsync(idleTask, timeout, ct);
     }
 
+    /// <summary>
+    /// 真正的等待。只吞 <see cref="TimeoutException"/>：
+    /// 取消令牌触发的 <see cref="OperationCanceledException"/> 要往上抛，
+    /// 否则"关闭超时"和"关闭被取消"会被混成同一种结果。
+    /// </summary>
     private static async Task<bool> WaitAsync(Task idleTask, TimeSpan timeout, CancellationToken ct)
     {
         try
@@ -61,6 +67,11 @@ public sealed class InFlightWorkMonitor
         }
     }
 
+    /// <summary>
+    /// 释放一件在途工作。计数归零时把等待者唤醒 ——
+    /// 唤醒必须在锁外做：<c>TrySetResult</c> 会同步跑等待者的续体，
+    /// 在锁内调用等于拿着锁去执行别人的代码。
+    /// </summary>
     private void Release()
     {
         TaskCompletionSource? toComplete = null;

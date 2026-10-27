@@ -19,9 +19,17 @@ namespace VisionStation.App.ViewModels;
 public partial class ShellViewModel : ObservableObject
 {
     private readonly INavigationService _navigation;
+
+    /// <summary>
+    /// 上一帧正在显示的页面。字段本身不参与界面逻辑，只为"离开某页时收尾"留一个句柄
+    /// （页面级编辑态在 ROI 编辑器移除后已不存在）。当前写法下它等价于 <see cref="CurrentPage"/>。
+    /// </summary>
     private object? _shownPage;
 
+    /// <summary>侧边栏（导航按钮 + 角色可见性）。跨页常驻。</summary>
     public SidebarViewModel Sidebar { get; }
+
+    /// <summary>状态栏（用户 / 角色 / 平台灯 / 时间）。跨页常驻。</summary>
     public StatusBarViewModel StatusBar { get; }
 
     /// <summary>
@@ -30,10 +38,20 @@ public partial class ShellViewModel : ObservableObject
     /// </summary>
     public TopBarViewModel TopBar { get; }
 
+    /// <summary>
+    /// 当前页 VM，XAML 里绑到 ContentControl.Content。
+    /// 这里是**转发**而不是副本：真正的状态归 <see cref="INavigationService"/>，
+    /// 外壳只在它变化时补发一次 PropertyChanged（见 <see cref="OnNavigationChanged"/>）。
+    /// </summary>
     public object? CurrentPage => _navigation.CurrentPage;
 
+    /// <summary>当前路由名，侧边栏据此高亮。同样是转发。</summary>
     public string CurrentRoute => _navigation.CurrentRoute;
 
+    /// <summary>
+    /// 全部依赖都是常驻单例，构造里不做任何 I/O、不订阅业务消息 ——
+    /// 外壳只负责"把三块常驻区域和一个页面容器拼起来"。
+    /// </summary>
     public ShellViewModel(
         SidebarViewModel sidebar,
         StatusBarViewModel statusBar,
@@ -46,9 +64,18 @@ public partial class ShellViewModel : ObservableObject
         _navigation = navigation;
 
         _shownPage = navigation.CurrentPage;
+        // 弱引用不适用在这里：事件源是单例服务，订阅者是单例 VM，两者同生共死，
+        // 用普通事件即可（用 WeakEventManager 只会让"谁还活着"更难判断）。
         _navigation.PropertyChanged += OnNavigationChanged;
     }
 
+    /// <summary>
+    /// 把导航服务的变更翻译成外壳自己的 PropertyChanged。
+    /// <para>
+    /// 只转发两个属性：CurrentPage / CurrentRoute。导航服务的其他属性（将来若有）
+    /// 不经过外壳，避免外壳变成一个"什么都知道"的中转站。
+    /// </para>
+    /// </summary>
     private void OnNavigationChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(INavigationService.CurrentRoute))

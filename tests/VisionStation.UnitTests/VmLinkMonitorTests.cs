@@ -43,10 +43,42 @@ public class VmLinkMonitorTests
     }
 
     [Fact]
-    public void 刚连上还没有任何活动_算正常_不误报断流()
+    public void 重连后首帧到达前_以本次连接的时刻为基准_不判断流()
     {
-        // 这条是重连场景的护栏：VM 每次重连后的头几秒都没有"最后结果时间"，
-        // 如果把 null 当成"很久以前"，每次重连都会闪一次假告警。
+        // 场景：VM 断开 5 分钟后重连，重连 3 秒还没有第一帧。
+        // 基准必须是"这次连接建立了多久"，而不是上一轮连接的最后结果时刻 ——
+        // 监听器在重连时会把 LastLineUtc 清零（见 VmResultListener.HandleClientAsync），
+        // 调用方的 `LastLineUtc ?? ConnectedAtUtc` 这时才真的落到 ConnectedAtUtc 上。
+        var reconnectAt = Now.AddSeconds(-3);
+
+        var state = VmLinkMonitor.Evaluate(
+            isListening: true,
+            isClientConnected: true,
+            lastActivityUtc: reconnectAt,
+            nowUtc: Now,
+            stallTimeout: Timeout);
+
+        Assert.Equal(VmLinkState.Healthy, state);
+
+        // 反证：同一条链路，如果把上一轮的时间戳（断开前 5 分钟）当基准，这一刻就是断流。
+        // 这正是"重连时必须清 LastLineUtc"要消掉的那次误报（运行中会记一条 Error）。
+        var withStaleTimestamp = VmLinkMonitor.Evaluate(
+            isListening: true,
+            isClientConnected: true,
+            lastActivityUtc: Now.AddMinutes(-5),
+            nowUtc: Now,
+            stallTimeout: Timeout);
+
+        Assert.Equal(VmLinkState.Stalled, withStaleTimestamp);
+    }
+
+    [Fact]
+    public void 连着却拿不到任何时间基准_不能算健康()
+    {
+        // 连着 = VM 那头确实建立了 TCP 连接，但基准一个都拿不到（既没有结果时刻，
+        // 也没有连接建立时刻）。这时"最近有结果"是无法证明的 ——
+        // 返回 Healthy 等于替一条没有任何证据的链路担保"它刚推过"，界面会一直亮绿灯。
+        // 四态里只有 Stalled（连着但没结果）是诚实的说法。
         var state = VmLinkMonitor.Evaluate(
             isListening: true,
             isClientConnected: true,
@@ -54,7 +86,7 @@ public class VmLinkMonitorTests
             nowUtc: Now,
             stallTimeout: Timeout);
 
-        Assert.Equal(VmLinkState.Healthy, state);
+        Assert.Equal(VmLinkState.Stalled, state);
     }
 
     [Fact]

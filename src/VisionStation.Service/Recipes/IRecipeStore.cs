@@ -6,14 +6,17 @@ namespace VisionStation.Service.Recipes;
 /// 配方列表项 —— 只带"选配方时要看的"信息，不加载完整配方。
 ///
 /// 为什么单独一个 record：配方页要列 10 份配方时，没必要把每份的 ROI、工具、参数全反序列化一遍。
+///
+/// 归属：纯数据快照，每次 <c>ListAsync</c> 现算一遍，不缓存 ——
+/// 缓存会让"手工改了文件但列表没变"变成一个新的排查方向。
 /// </summary>
 /// <param name="Name">配方自报的名字（可能和文件名不同，比如中文名）</param>
 /// <param name="FileName">磁盘上的文件名（含 .json），切换时用它做标识</param>
 /// <param name="Width">配方声明的画面宽，0 = 未声明</param>
 /// <param name="Height">配方声明的画面高，0 = 未声明</param>
-/// <param name="UpdatedAt">最近保存时间</param>
-/// <param name="ToolCount">启用的工具数量（让人一眼看出这份配方跑几个工具）</param>
-/// <param name="IsActive">是否是当前激活的那份</param>
+/// <param name="UpdatedAt">最近保存时间（由 <c>SaveAsync</c> 盖章，可为空 = 从没通过本程序保存过）</param>
+/// <param name="Engine">配方声明的引擎名（运行时只支持 Vm；这里如实展示文件的说法，不做过滤）</param>
+/// <param name="IsActive">是否是当前激活的那份（由 .active 指针推出）</param>
 public sealed record RecipeSummary(
     string Name,
     string FileName,
@@ -30,6 +33,16 @@ public sealed record RecipeSummary(
 /// 所以存储层必须能列出多份、加载指定一份、记住当前用哪一份。
 ///
 /// 仍然只负责持久化：加载时的"坏文件兜底"由组合根处理，避免兜底逻辑复制两份。
+///
+/// <para>
+/// <b>边界</b>：实现方不读配置文件 —— 目录由组合根（<c>AppPaths.RecipeFolder</c>）解析好传进来。
+/// "磁盘 → 默认路径 → 程序集内嵌资源"这三级的兜底也不在本接口里，
+/// 而在 <c>AppHost.LoadRecipe</c>；本接口只承诺"目录里这一份读得到就读，读不到说读不到"。
+/// </para>
+/// <para>
+/// <b>归属</b>：DI 单例，活到进程结束；调用以 UI 线程为主（配方页命令）。
+/// 实现方不持有跨调用的可变状态（没有缓存），所以并发调用不需要额外协调。
+/// </para>
 /// </summary>
 public interface IRecipeStore
 {

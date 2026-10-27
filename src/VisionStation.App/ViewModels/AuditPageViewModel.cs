@@ -10,6 +10,10 @@ namespace VisionStation.App.ViewModels;
 /// <summary>审计动作的中文名。界面与导出共用一份，避免两处各写一套对不上。</summary>
 internal static class AuditActionText
 {
+    /// <summary>
+    /// 枚举 → 中文。新增枚举值忘了加文案时退回英文名 ——
+    /// 显示 <c>RecipeSwitch</c> 虽然难看，但比显示空白强：空白会让人以为数据坏了。
+    /// </summary>
     public static string Of(AuditAction action) => action switch
     {
         AuditAction.AppStart => "程序启动",
@@ -34,6 +38,7 @@ internal static class AuditActionText
         _ => action.ToString(),
     };
 
+    /// <summary>结果 → 中文。与 <see cref="Of"/> 同样的回落策略。</summary>
     public static string ResultOf(AuditResult result) => result switch
     {
         AuditResult.Success => "成功",
@@ -81,6 +86,7 @@ public sealed record AuditRow(
     bool IsDenied,
     string Detail)
 {
+    /// <summary>从库里的实体投影成一行。空字段统一显示"—"，不让表格出现空洞。</summary>
     public static AuditRow From(AuditEntry e) => new(
         e.Timestamp.ToString("MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
         e.UserName,
@@ -125,10 +131,13 @@ public partial class AuditPageViewModel : ObservableObject
     /// <summary>单次最多取多少条。再多就该缩范围，而不是往下翻几千行</summary>
     private const int MaxRows = 500;
 
+    /// <summary>审计服务。本页只查不写（写发生在各个业务动作里）。</summary>
     private readonly IAuditService _audit;
 
+    /// <summary>当前列表。整表替换，不增量更新。</summary>
     public ObservableCollection<AuditRow> Rows { get; } = new();
 
+    /// <summary>时间范围下拉，默认"今天"。</summary>
     public IReadOnlyList<AuditRange> Ranges { get; } =
     [
         new("今天", 1),
@@ -137,11 +146,14 @@ public partial class AuditPageViewModel : ObservableObject
         new("全部", null),
     ];
 
+    /// <summary>动作下拉。第一项"全部动作"，其余按枚举定义顺序生成（见 <see cref="BuildActions"/>）。</summary>
     public IReadOnlyList<AuditActionOption> Actions { get; }
 
+    /// <summary>当前时间范围。</summary>
     [ObservableProperty]
     private AuditRange? _selectedRange;
 
+    /// <summary>当前动作筛选。Value 为 null = 全部。</summary>
     [ObservableProperty]
     private AuditActionOption? _selectedAction;
 
@@ -153,9 +165,13 @@ public partial class AuditPageViewModel : ObservableObject
     [ObservableProperty]
     private string _statusText = "正在加载…";
 
+    /// <summary>查询中（防重复点）。</summary>
     [ObservableProperty]
     private bool _isLoading;
 
+    /// <summary>
+    /// 构造：设默认筛选，**不查库**（查询由页面加载时触发，理由同历史页）。
+    /// </summary>
     public AuditPageViewModel(IAuditService audit)
     {
         _audit = audit;
@@ -165,6 +181,10 @@ public partial class AuditPageViewModel : ObservableObject
         SelectedAction = Actions[0];
     }
 
+    /// <summary>
+    /// 生成动作下拉。**按枚举定义顺序**而不是字母序：那个顺序本身有语义
+    /// （程序生命周期 → 运行操作 → 会话 → 账号管理），排乱了反而更难找。
+    /// </summary>
     private static IReadOnlyList<AuditActionOption> BuildActions()
     {
         var options = new List<AuditActionOption> { new("全部动作", null) };
@@ -177,6 +197,19 @@ public partial class AuditPageViewModel : ObservableObject
         return options;
     }
 
+    /// <summary>
+    /// 按当前筛选查一次。
+    ///
+    /// <para>
+    /// 审计服务只给"最近 N 条"，没有总数接口，所以这里用
+    /// <c>&gt;= MaxRows</c> 提示"还有更多"—— 这是个**下界判断**，不是精确总数。
+    /// 要精确总数得给仓储加 Count，目前不值得为一条提示加一个方法。
+    /// </para>
+    /// <para>
+    /// 查询失败要说出来：静默留一张空表，会被误读成"这段时间没有操作"，
+    /// 而那正好是审计最不能出现的结论。
+    /// </para>
+    /// </summary>
     [RelayCommand]
     private async Task RefreshAsync()
     {

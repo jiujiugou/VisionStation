@@ -3,6 +3,14 @@ using VisionStation.App.ViewModels;
 
 namespace VisionStation.App.Views;
 
+/// <summary>
+/// 审计页视图。code-behind 只有一件事：**首次显示时触发一次查询**。
+///
+/// <para>
+/// 理由与历史页完全相同（VM 是单例、构造阶段不该查库、整班没人看这页），
+/// 两页刻意用同一套写法：改一处时另一处不会因为"写法不同"而被漏掉。
+/// </para>
+/// </summary>
 public partial class AuditPageView : UserControl
 {
     public AuditPageView()

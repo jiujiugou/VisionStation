@@ -25,6 +25,24 @@ public enum SerialStopBits
 
 /// <summary>
 /// Modbus RTU（串口）连接的薄封装，与 <see cref="ModbusTcpPlc"/> 一一对应。
+///
+/// <para>
+/// <b>定位</b>：现场主流传输（串口直连 PLC）。上层只有两个消费者 ——
+/// <see cref="PlcTriggerSource"/>（100ms 轮询、写心跳）与 <c>PlcResultWriter</c>（后台线程回写 OK/NG），
+/// 两者拿到的是**同一个实例**。本类不关心寄存器是干什么用的，只负责"一次完整的读写往返"。
+/// </para>
+///
+/// <para>
+/// <b>归属</b>：组合根在 <c>AddDevices</c> 里按 <c>Plc:Transport=Rtu</c> new 出来，DI 单例，活到进程结束；
+/// 释放由容器负责（<see cref="Dispose"/> → <see cref="Disconnect"/>）。**不要把它换成 transient** ——
+/// 每次解析都开一次串口，第二个实例会直接打不开（串口独占）。
+/// </para>
+///
+/// <para>
+/// <b>失败行为</b>：除 <see cref="Connect"/> 内部接住的 <see cref="System.IO.IOException"/> 外，
+/// 读写一律**不抛**：失败返回 null/false 并填 <see cref="LastError"/>，
+/// 让轮询循环按失败继续重试。抛异常在这里没有意义 —— 调用方除了记日志也做不了别的。
+/// </para>
 /// </summary>
 /// <remarks>
 /// 为什么用 Hsl 的 ModbusRtu 而不是自己拼帧：帧头、CRC16、3.5 字符间隔、
@@ -43,6 +61,21 @@ public enum SerialStopBits
 ///   3. 9600bps 下一笔 8 字节请求 + 7 字节响应约 15ms，100ms 轮询留足余量；
 ///      但串口卡住时不会像 TCP 那样立刻返回 RST，所以超时必须短（默认 500ms，
 ///      不是 TCP 那边的 2000ms）—— 否则一次卡顿会让后面几帧判定都排队过期。
+///
+/// <para>
+/// <b>验证记录（可复现，别只信注释）</b>：com0com 虚拟串口对 COM3↔COM4 +
+/// <c>scripts/rtu_slave.py</c>（RTU 从站 + 汇川 ST 逻辑模拟）+ <c>tools/RtuProbe</c>，33 项全过；
+/// 生产形态 2 路并发 100 笔 335ms 零失败；极端 30 路并发零失败但耗时 21.5s
+/// （Windows 时间片下 30 个阻塞线程抢锁的代价，生产只有 2 个线程，不涉及）。
+/// 跑法与完整数据见 <c>docs/产线闭环-说明.md</c> §8。
+/// </para>
+///
+/// <para>
+/// <b><see cref="_sync"/> 是实例锁而不是静态锁</b>：锁要保护的是"这一个串口对象"的字节流；
+/// 用静态锁会把两块互不相干的串口卡绑在一起，一块卡住另一块也停。
+/// 代价是同一进程里两个 <see cref="ModbusRtuPlc"/> 指向同一个 COM 口时锁不住彼此 ——
+/// 但那种配置本身就打不开第二个口，会先在 <see cref="Connect"/> 失败。
+/// </para>
 /// </remarks>
 public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
 {
@@ -93,7 +126,14 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
             stopBits == SerialStopBits.Two ? StopBits.Two : StopBits.One, ToPortsParity(parity));
     }
 
-    /// <summary>打开串口。失败不抛异常，返回 false 并填 LastError——调用方（轮询循环）按失败继续重试。</summary>
+    /// <summary>
+    /// 打开串口。失败不抛异常，返回 false 并填 LastError——调用方（轮询循环）按失败继续重试。
+    ///
+    /// <para>
+    /// 副作用：成功时才真正打开 COM 口；失败不留半开资源，只留 <see cref="LastError"/>。
+    /// 轮询线程每个周期都会在断线时重试它，所以它必须是"失败无害"的。
+    /// </para>
+    /// </summary>
     public bool Connect()
     {
         // 串口被占用时 Hsl 会抛 IOException（不是返回 OperateResult），这里必须接住：
@@ -122,6 +162,10 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
         }
     }
 
+    /// <summary>
+    /// 关闭串口。幂等；关闭失败也照样把状态置为断开（没有补救动作，如实反映即可）。
+    /// 运行期基本不会被调用 —— 串口断了由 <see cref="Connect"/> 在轮询里重开。
+    /// </summary>
     public void Disconnect()
     {
         lock (_sync)
@@ -132,7 +176,15 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
         }
     }
 
-    /// <summary>读一个 16 位寄存器（保持寄存器 4x）。失败返回 null 并填 LastError。</summary>
+    /// <summary>
+    /// 读一个 16 位寄存器（保持寄存器 4x）。失败返回 null 并填 LastError。
+    ///
+    /// <para>
+    /// 区域检查在取锁**之前**做：它不碰 IO，先挡掉非法点位可以少占一次锁窗口。
+    /// 代价是这个分支写 <see cref="LastError"/> 时没有锁保护 —— 可能与另一线程的
+    /// 写入交错。影响仅限于错误文案可能被后一笔覆盖，不会影响数据正确性。
+    /// </para>
+    /// </summary>
     public short? ReadShort(PlcAddress address)
     {
         if (address.Area != ModbusArea.HoldingRegister)
@@ -147,7 +199,15 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
         }
     }
 
-    /// <summary>读一个位（线圈 0x / 离散输入 1x）。失败返回 null 并填 LastError。</summary>
+    /// <summary>
+    /// 读一个位（线圈 0x / 离散输入 1x）。失败返回 null 并填 LastError。
+    ///
+    /// <para>
+    /// 用何种功能码由 <see cref="ModbusArea"/> 决定：0x 走 ReadCoil，1x 走 ReadDiscrete。
+    /// 其余区域（保持/输入寄存器）在这里是**明确的错误**而不是"读第 0 位" ——
+    /// 按位读寄存器在 Modbus 里要用另一套语义，混用会读到一个看似合理的假值。
+    /// </para>
+    /// </summary>
     public bool? ReadBit(PlcAddress address)
     {
         lock (_sync)
@@ -162,7 +222,15 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
         }
     }
 
-    /// <summary>写一个 16 位寄存器（保持寄存器 4x）。成功返回 true。</summary>
+    /// <summary>
+    /// 写一个 16 位寄存器（保持寄存器 4x）。成功返回 true。
+    ///
+    /// <para>
+    /// <b>调用方是结果回写线程</b>，最坏要排在当前这笔轮询读之后（一个 ReceiveTimeOut，默认 500ms）。
+    /// 这是串口独占的必然代价，不是可以优化的排队 —— 想缩短只能降轮询频率或提高波特率。
+    /// 回写方（<c>PlcResultWriter</c>）因此用队列 + 后台线程，不在这条路径上等。
+    /// </para>
+    /// </summary>
     public bool WriteShort(PlcAddress address, short value)
     {
         if (address.Area != ModbusArea.HoldingRegister)
@@ -192,6 +260,24 @@ public sealed class ModbusRtuPlc : IPlcConnection, IDisposable
         }
     }
 
+    /// <summary>
+    /// 收敛一笔读写的状态：统一决定 <see cref="IsConnected"/> 与 <see cref="LastError"/>。
+    ///
+    /// <para>
+    /// <b>成功分支必须把 IsConnected 置回 true</b>，这不是可有可无的整洁：
+    /// <see cref="IsConnected"/> 的语义是"最近一笔是否成功"，只要有一笔失败就转 false；
+    /// 若不在这里恢复，一笔偶发失败之后它会**永久停在 false**，
+    /// 状态栏一直显示"PLC 离线"而后面每笔其实都通 —— 状态栏骗人比失败本身更糟。
+    /// （2026-10-25 并发实测时就踩过：IsConnected 被并发线程踩成 false 后没拉回来，
+    ///   探针里表现为"通信全对、状态全错"。）
+    /// </para>
+    ///
+    /// <para>
+    /// <b>调用约束</b>：只在持有 <see cref="_sync"/> 的路径里调用，因此对状态的写入是串行的。
+    /// 返回值原样带回 <paramref name="valueOnSuccess"/>，失败时是 null/false ——
+    /// 调用方不需要（也不应该）再判一次 <c>IsSuccess</c>。
+    /// </para>
+    /// </summary>
     private T Settle<T>(OperateResult r, T valueOnSuccess)
     {
         if (r.IsSuccess)

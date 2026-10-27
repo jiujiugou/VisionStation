@@ -9,6 +9,13 @@ namespace VisionStation.App.Composition;
 // 全部是纯数据 record：解析与校验集中在 AppOptionsBinder，消费方只读不猜。
 // 键名与 appsettings.json 的段名一一对应；默认值也只在这里出现一次。
 
+/// <summary>
+/// 定时触发间隔（毫秒）。只在"自动循环"这条轴上生效。
+/// <para>
+/// VM 模式下它基本没用：检测由平台推送驱动，本程序不采图。留着是因为
+/// <c>InspectionPageViewModel</c> 的自动循环仍按这个节拍转，用来做心跳与超时判断。
+/// </para>
+/// </summary>
 public sealed record TriggerOptions(int TimerIntervalMs);
 
 /// <summary>PLC 传输方式。串口（RTU）是现场主流，TCP 保留给走网关/交换机的场合。</summary>
@@ -41,10 +48,26 @@ public sealed record PlcOptions(bool Enabled, string Ip, int Port, byte Station,
     SerialStopBits StopBits = SerialStopBits.One,
     int SerialTimeoutMs = 500);
 
-public sealed record StorageOptions(string Mode, string ImageFolder, string DbPath);
+/// <summary>
+/// 存储段。
+/// <para>
+/// 2026-10-27 删掉了原来的 <c>Mode</c>（All / NGOnly / Sampling）：
+/// 它只被 <c>ImageStoreService</c> 读取，而那个服务随相机层一起删了
+/// —— 本程序不再写图，图由 VisionMaster 存盘，我们只按报文路径去读。
+/// 留着一个没人读的"存图策略"配置，比没有更容易误导人以为它还在生效。
+/// </para>
+/// </summary>
+/// <param name="ImageFolder">
+/// 图片目录（相对数据根）。**本程序不往这里写图**，但后台管家按它做过期清理 ——
+/// 想让清理真正管到 VM 的图，就把这项指到平台存图目录（指哪儿清哪儿，不做猜测）。
+/// </param>
+/// <param name="DbPath">SQLite 文件（相对数据根）</param>
+public sealed record StorageOptions(string ImageFolder, string DbPath);
 
+/// <summary>配方文件路径（相对数据根）。这是"兜底候选"，实际优先读 <c>.active</c> 指针指向的那份。</summary>
 public sealed record RecipeOptions(string Path);
 
+/// <summary>日志目录（相对数据根）。Serilog 按天滚动，保留 30 份。</summary>
 public sealed record LoggingOptions(string LogFolder);
 
 /// <summary>
@@ -64,10 +87,19 @@ public sealed record VmLinkOptions(bool Enabled, int Port, string BindAddress, i
 /// </summary>
 public sealed record AppOptions
 {
+    /// <summary>自动循环节拍。默认 2 秒：比人工看屏的反应还慢一档，够用且不吃 CPU。</summary>
     public TriggerOptions Trigger { get; init; } = new(2000);
+
+    /// <summary>PLC 段。默认全部关闭 —— 没有 PLC 的机器不该因为缺配置起不来。</summary>
     public PlcOptions Plc { get; init; } = new(false, "127.0.0.1", 502, 1, "D100", "D101", "D102", 100);
-    public StorageOptions Storage { get; init; } = new("All", "InspectedImages", "visionstation.db");
+
+    /// <summary>存储段（<see cref="StorageOptions.ImageFolder"/> 只用于后台管家的过期清理）。</summary>
+    public StorageOptions Storage { get; init; } = new("InspectedImages", "visionstation.db");
+
+    /// <summary>兜底配方路径。</summary>
     public RecipeOptions Recipe { get; init; } = new(@"Config\recipes\default.json");
+
+    /// <summary>日志目录。</summary>
     public LoggingOptions Logging { get; init; } = new("Logs");
 
     /// <summary>
@@ -101,6 +133,21 @@ public sealed record AppOptions
 /// </summary>
 public static class AppOptionsBinder
 {
+    /// <summary>
+    /// 读配置 → 校验 → 产出不可变的 <see cref="AppOptions"/>。
+    ///
+    /// <para>
+    /// 流程刻意做成"先收集全部错误、最后一次性抛出"：现场改配置常常一次改好几项，
+    /// 报一个错、改一处、再启动、再报下一个，来回开机是纯浪费。
+    /// </para>
+    /// <para>
+    /// 抛 <see cref="AppOptionsValidationException"/> 而不是返回 null：
+    /// 调用方（<c>AppHost.Configure</c>）没有任何合理的降级动作，
+    /// 让他被迫写 if 判断只会掩盖问题。
+    /// </para>
+    /// </summary>
+    /// <param name="config">已加载的配置（appsettings.json）</param>
+    /// <param name="dataRootOverride">启动参数 <c>--data-root=</c> 的值；空 = 用 exe 目录</param>
     public static AppOptions Bind(IConfiguration config, string? dataRootOverride = null)
     {
         var errors = new List<string>();
@@ -113,13 +160,8 @@ public static class AppOptionsBinder
         var plc = ReadPlc(config, errors);
 
         var storage = new StorageOptions(
-            Mode: Read(config, "Storage:Mode", "All"),
             ImageFolder: Read(config, "Storage:ImageFolder", "InspectedImages"),
             DbPath: Read(config, "Storage:DbPath", "visionstation.db"));
-
-        var allowedStorageModes = new[] { "All", "NGOnly", "Sampling" };
-        if (!allowedStorageModes.Contains(storage.Mode, StringComparer.OrdinalIgnoreCase))
-            errors.Add($"Storage:Mode = \"{storage.Mode}\" 不合法，可选值：{string.Join(", ", allowedStorageModes)}");
 
         var recipe = new RecipeOptions(
             Read(config, "Recipe:Path", @"Config\recipes\default.json"));
@@ -249,6 +291,7 @@ public static class AppOptionsBinder
         return defaultValue;
     }
 
+    /// <summary>读 0~255 的字节值（Modbus 从站地址）。超范围由 <c>TryParse</c> 自己失败，这里不额外判断。</summary>
     private static byte ReadByte(IConfiguration config, string key, byte defaultValue, List<string> errors)
     {
         var value = config[key];
@@ -258,6 +301,14 @@ public static class AppOptionsBinder
         return defaultValue;
     }
 
+    /// <summary>
+    /// 管家阈值段。默认值取自 <see cref="HousekeepingOptions.Default"/>，
+    /// 而不是在这里再抄一份数字 —— 抄两份的下场是有一份忘了改。
+    /// </summary>
+    /// <remarks>
+    /// <c>MaxImageFolderMB</c> 在配置里是"兆字节"（人能填），在 record 里是"字节"（代码好用）：
+    /// 读进来乘 1024*1024，存下去除回去。这个换算是这里唯一需要小心的地方。
+    /// </remarks>
     private static HousekeepingOptions ReadHousekeeping(IConfiguration config, List<string> errors)
     {
         var d = HousekeepingOptions.Default;
@@ -292,12 +343,18 @@ public static class AppOptionsBinder
         }
     }
 
+    /// <summary>
+    /// 字符串项。只在"缺项或全空白"时用默认值 —— 也就是说，配了空字符串等于没配。
+    /// 顺带 Trim：现场手工编辑 appsettings 时极易带上首尾空格（复制粘贴 IP 尤其常见），
+    /// 而带空格的 "127.0.0.1 " 会让 Socket 连接直接失败且报错信息看不出问题。
+    /// </summary>
     private static string Read(IConfiguration config, string key, string defaultValue)
     {
         var value = config[key];
         return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
     }
 
+    /// <summary>布尔项。只认 true/false（不认 1/0），写错了当配置错误报出来。</summary>
     private static bool ReadBool(IConfiguration config, string key, bool defaultValue, List<string> errors)
     {
         var value = config[key];
@@ -307,6 +364,7 @@ public static class AppOptionsBinder
         return defaultValue;
     }
 
+    /// <summary>整数项。解析失败记一条带键名的错误，并返回默认值让后续校验继续跑（一次报全）。</summary>
     private static int ReadInt(IConfiguration config, string key, int defaultValue, List<string> errors)
     {
         var value = config[key];
@@ -316,6 +374,7 @@ public static class AppOptionsBinder
         return defaultValue;
     }
 
+    /// <summary>长整数项。只有图片目录上限（字节数）需要它 —— int 装不下几 GB。</summary>
     private static long ReadLong(IConfiguration config, string key, long defaultValue, List<string> errors)
     {
         var value = config[key];
@@ -332,6 +391,10 @@ public static class AppOptionsBinder
 /// </summary>
 public sealed class AppOptionsValidationException : Exception
 {
+    /// <summary>
+    /// 全部校验错误（不是第一条）。启动日志与 crash.log 会把它们逐条打印，
+    /// 现场一次就能改完。
+    /// </summary>
     public IReadOnlyList<string> Errors { get; }
 
     public AppOptionsValidationException(IReadOnlyList<string> errors)

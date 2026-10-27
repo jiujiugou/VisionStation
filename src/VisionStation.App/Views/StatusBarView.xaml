@@ -35,6 +35,23 @@
                     <Run Text="Cycle " Foreground="#888" />
                     <Run Text="{Binding CycleTime}" Foreground="#CCC" />
                 </TextBlock>
+
+                <!-- VM 收帧 / 丢帧。放在吞吐量这一组（FPS / Cycle 之后）而不是右组 OK/NG 旁边：
+                     它衡量的是"平台推了多少、我们漏了多少"，是 OK/NG 的上游 ——
+                     上游漏了，下游的良率本身就是假数。丢过帧整格转红（只靠 HasVmDrops 触发，
+                     不让 XAML 去解析数字串）；丢 0 时保持普通的灰白，避免日常就是一片红。 -->
+                <TextBlock Text="{Binding VmFrameStats}" FontSize="11" Margin="14,0,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="#CCC" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasVmDrops}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource StatusNgOnDark}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
 
             <!-- 右侧组 -->

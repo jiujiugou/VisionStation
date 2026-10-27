@@ -58,11 +58,21 @@ public sealed record PlcOptions(bool Enabled, string Ip, int Port, byte Station,
 /// </para>
 /// </summary>
 /// <param name="ImageFolder">
-/// 图片目录（相对数据根）。**本程序不往这里写图**，但后台管家按它做过期清理 ——
-/// 想让清理真正管到 VM 的图，就把这项指到平台存图目录（指哪儿清哪儿，不做猜测）。
+/// 图片目录（相对数据根）。**默认不配置 = 后台管家不管图片**。
+///
+/// <para>
+/// 为什么默认关掉（2026-10-27，F-31）：图的生命周期已经整个归 VisionMaster ——
+/// 它自己存、自己按「输出图像」模块里的数量/容量上限删。上位机再按目录扫一遍，
+/// 等于两个进程各按自己的时钟删同一个目录，谁也不知道对方删了什么。
+/// 而且自检会往这个目录写 <c>.write_test</c> 探针，指过去就是往别人的目录里写文件。
+/// </para>
+/// <para>
+/// 保留这个键是留一个口子：<b>只有当明确要让上位机代管某个图片目录时</b>才填，
+/// 填了就是"指哪儿清哪儿"，不做任何猜测。生产部署（图归 VM）应当保持为空。
+/// </para>
 /// </param>
 /// <param name="DbPath">SQLite 文件（相对数据根）</param>
-public sealed record StorageOptions(string ImageFolder, string DbPath);
+public sealed record StorageOptions(string? ImageFolder, string DbPath);
 
 /// <summary>配方文件路径（相对数据根）。这是"兜底候选"，实际优先读 <c>.active</c> 指针指向的那份。</summary>
 public sealed record RecipeOptions(string Path);
@@ -93,8 +103,11 @@ public sealed record AppOptions
     /// <summary>PLC 段。默认全部关闭 —— 没有 PLC 的机器不该因为缺配置起不来。</summary>
     public PlcOptions Plc { get; init; } = new(false, "127.0.0.1", 502, 1, "D100", "D101", "D102", 100);
 
-    /// <summary>存储段（<see cref="StorageOptions.ImageFolder"/> 只用于后台管家的过期清理）。</summary>
-    public StorageOptions Storage { get; init; } = new("InspectedImages", "visionstation.db");
+    /// <summary>
+    /// 存储段。<see cref="StorageOptions.ImageFolder"/> 为 null = 后台管家不管图片
+    /// （图的生命周期归 VisionMaster，见该字段说明）。
+    /// </summary>
+    public StorageOptions Storage { get; init; } = new(null, "visionstation.db");
 
     /// <summary>兜底配方路径。</summary>
     public RecipeOptions Recipe { get; init; } = new(@"Config\recipes\default.json");
@@ -160,7 +173,10 @@ public static class AppOptionsBinder
         var plc = ReadPlc(config, errors);
 
         var storage = new StorageOptions(
-            ImageFolder: Read(config, "Storage:ImageFolder", "InspectedImages"),
+            // 空/缺省 = null = 后台管家不管图片（默认如此，图由 VM 存、VM 删）。
+            // 这里刻意不给默认目录：给一个默认值，清理就会去扫一个永远空着的目录，
+            // 每小时打一条"清理完成 0MB"，看起来在工作、实际什么也没管。
+            ImageFolder: ReadOptional(config, "Storage:ImageFolder"),
             DbPath: Read(config, "Storage:DbPath", "visionstation.db"));
 
         var recipe = new RecipeOptions(
@@ -352,6 +368,20 @@ public static class AppOptionsBinder
     {
         var value = config[key];
         return string.IsNullOrWhiteSpace(value) ? defaultValue : value.Trim();
+    }
+
+    /// <summary>
+    /// 可选项：缺省或空白 → <c>null</c>，**不填默认值**。
+    ///
+    /// 与 <see cref="Read"/> 的区别是语义：<c>Read</c> 回答"没配时用什么"，
+    /// 本方法回答"用户到底配了没有"。有些项的"没配"本身就是一个有意义的取值 ——
+    /// 例如 <c>Storage:ImageFolder</c> 没配 = 后台管家不管图片（图归 VM 存删）。
+    /// 用 <c>Read</c> 给它填一个默认目录，会把"没启用"伪装成"已启用但目录是空的"。
+    /// </summary>
+    private static string? ReadOptional(IConfiguration config, string key)
+    {
+        var value = config[key];
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     /// <summary>布尔项。只认 true/false（不认 1/0），写错了当配置错误报出来。</summary>

@@ -36,15 +36,19 @@ public sealed class AppPaths
     public string AssetRoot { get; }
 
     /// <summary>
-    /// 检测结果图片目录。
+    /// 检测结果图片目录。**默认 <c>null</c> = 没有配置**。
     ///
     /// <para>
-    /// <b>当前不生效</b>：图片由 VM 存盘，本程序只按报文里的路径去读，不写这里。
-    /// 保留是因为 <c>Storage:ImageFolder</c> 仍是合法配置项（见 <c>StorageOptions</c> 的说明），
-    /// 且清理服务会扫这个目录做保留期删除 —— 若哪天平台改为不存图，这里就是落点。
+    /// 本程序不写图（图由 VisionMaster 存），配了它只意味着"后台管家替某个目录做保留期清理"。
+    /// 默认不配，是因为图的生命周期整个归平台：平台按自己的数量/容量上限删，
+    /// 上位机再按目录扫一遍就是两个进程删同一个目录。
+    /// </para>
+    /// <para>
+    /// 保留这个可选项是留口子：确实需要上位机代管时填 <c>Storage:ImageFolder</c>，
+    /// 填了就"指哪儿清哪儿"。生产部署应保持为空。
     /// </para>
     /// </summary>
-    public string StorageFolder { get; }
+    public string? StorageFolder { get; }
 
     /// <summary>SQLite 数据库文件路径</summary>
     public string DbPath { get; }
@@ -86,7 +90,12 @@ public sealed class AppPaths
     {
         DataRoot      = options.DataRoot;
         AssetRoot     = AppContext.BaseDirectory;
-        StorageFolder = ResolveOutput(options.Storage.ImageFolder, "InspectedImages");
+        StorageFolder = string.IsNullOrWhiteSpace(options.Storage.ImageFolder)
+            // 没配就是没配：**不要**在这里回落成 "<数据根>\InspectedImages"。
+            // 回落的后果是后台管家每小时扫一个永远空的目录并报"清理完成 0MB"，
+            // 看起来在管图、实际什么也没管（2026-10-27 F-31 的成因）。
+            ? null
+            : ResolveOutput(options.Storage.ImageFolder, "InspectedImages");
         DbPath        = ResolveOutput(options.Storage.DbPath, "visionstation.db");
         LogFolder     = ResolveOutput(options.Logging.LogFolder, "Logs");
         RecipePath    = ResolveRecipe(options.Recipe.Path);

@@ -133,21 +133,26 @@ public class HousekeepingService : IHousekeepingService
     private readonly IInspectionRepository _repo;
 
     /// <summary>
-    /// 要清理的图片目录 = <c>AppPaths.StorageFolder</c>（<c>Storage:ImageFolder</c> 的解析结果，
-    /// 默认 <c>&lt;数据根&gt;/InspectedImages</c>）。
+    /// 要清理的图片目录；<b>null = 不清理图片</b>（默认，也是生产部署应有的状态）。
     ///
     /// <para>
-    /// <b>现状：这是遗留配置，当前没有生产写入方。</b>相机层删除后图片由 VisionMaster
-    /// 存在它自己的输出目录，本程序只按报文路径去读、不往这里写。
-    /// 也就是说本类默认清理的是一个（几乎）永远空的目录。
+    /// 来自 <c>Storage:ImageFolder</c>（<c>AppPaths.StorageFolder</c> 的解析结果）。
+    /// 未配置时为 null —— 图由 VisionMaster 存盘，且它按「输出图像」模块自带的数量/容量
+    /// 上限自行清理，上位机不该再按目录扫一遍。
     /// </para>
     /// <para>
-    /// 想让它真正管到 VM 的图，得把 <c>Storage:ImageFolder</c> 指到 VM 的输出目录 ——
-    /// 代码不做任何"猜平台目录"的动作，也不区分这两种情况，指哪儿清哪儿。
-    /// 指错目录的后果是本类会把那个目录里超过保留期的文件全删掉，所以改这项配置要看清。
+    /// <b>为什么默认不启用</b>（2026-10-27 F-31）：相机层删除后本程序不写图，
+    /// 但这个服务仍在扫 <c>&lt;数据根&gt;\InspectedImages</c>，而那个目录永远是空的，
+    /// 于是每小时打一条"图片清理完成，当前占用 0MB" —— 假成功比缺功能更糟：
+    /// 真有一天盘满了，所有人都会拿这句话证明"清理在跑"，然后往错的方向查。
+    /// </para>
+    /// <para>
+    /// <b>填了就是"指哪儿清哪儿"</b>：不做任何"猜平台目录"的动作，也不区分文件是谁写的。
+    /// 所以不要把生产环境指向 VM 的输出目录 —— 那会让两个进程删同一批文件，
+    /// 而且自检会往那个目录写 <c>.write_test</c> 探针。
     /// </para>
     /// </summary>
-    private readonly string _imageFolder;
+    private readonly string? _imageFolder;
 
     /// <summary>日志。可空：单测里不验证日志时不必造。</summary>
     private readonly ILogger<HousekeepingService>? _logger;
@@ -185,8 +190,12 @@ public class HousekeepingService : IHousekeepingService
     /// 失败行为：阈值非法会在 <see cref="HousekeepingOptions"/> 构造时就抛（启动期失败），
     /// 走到这里时参数已经可信。
     /// </summary>
+    /// <param name="imageFolder">
+    /// 要代管清理的图片目录；<b>null = 不清理图片</b>（默认）。只有明确要上位机接管某个
+    /// 图片目录时才传值 —— 生产上图由 VisionMaster 存、VisionMaster 删。
+    /// </param>
     public HousekeepingService(IInspectionRepository repo,
-        string imageFolder,
+        string? imageFolder,
         HousekeepingOptions options,
         ILogger<HousekeepingService>? logger = null)
     {
@@ -209,11 +218,23 @@ public class HousekeepingService : IHousekeepingService
         _dbTimer.AutoReset = true;
         _dbTimer.Start();
 
-        _logger?.LogInformation(
-            "[管家] 已启动 - 内存检查:每{MemS}s 上限:{MemMax}MB | 数据库清理:每{DBS}s 保留:{KeepDays}天 | 图片保留:{ImgDays}天 上限:{ImgMax}MB",
-            options.MemoryCheckIntervalMs / 1000, _maxMemoryMb,
-            options.DatabaseCleanIntervalMs / 1000, _keepRecordsDays,
-            _imageRetentionDays, _maxImageFolderBytes / 1024 / 1024);
+        // 图片清理是否启用必须打在启动日志第一行：
+        // 没启用却只字不提，事后查"图为什么没被清"要从配置文件和代码两头猜。
+        if (string.IsNullOrWhiteSpace(_imageFolder))
+        {
+            _logger?.LogInformation(
+                "[管家] 已启动 - 内存检查:每{MemS}s 上限:{MemMax}MB | 数据库清理:每{DBS}s 保留:{KeepDays}天 | 图片清理:未启用（图由 VisionMaster 存删）",
+                options.MemoryCheckIntervalMs / 1000, _maxMemoryMb,
+                options.DatabaseCleanIntervalMs / 1000, _keepRecordsDays);
+        }
+        else
+        {
+            _logger?.LogInformation(
+                "[管家] 已启动 - 内存检查:每{MemS}s 上限:{MemMax}MB | 数据库清理:每{DBS}s 保留:{KeepDays}天 | 图片清理:{Folder} 保留:{ImgDays}天 上限:{ImgMax}MB",
+                options.MemoryCheckIntervalMs / 1000, _maxMemoryMb,
+                options.DatabaseCleanIntervalMs / 1000, _keepRecordsDays,
+                _imageFolder, _imageRetentionDays, _maxImageFolderBytes / 1024 / 1024);
+        }
     }
 
     /// <summary>
@@ -312,7 +333,8 @@ public class HousekeepingService : IHousekeepingService
     }
 
     /// <summary>
-    /// 删过期图片 + 超出容量上限时删最旧的。
+    /// 删过期图片 + 超出容量上限时删最旧的。**只在 <c>Storage:ImageFolder</c> 配了才跑**，
+    /// 默认不配 → 直接返回，一条日志都不打（不打"清理完成 0MB"那种假成功日志）。
     ///
     /// 三条约束：
     ///   1) 两遍扫描：先删过期，只对「活着的文件」统计容量——
@@ -323,7 +345,15 @@ public class HousekeepingService : IHousekeepingService
     /// </summary>
     private void CleanupImages()
     {
-        if (!Directory.Exists(_imageFolder)) return;
+        // 取到局部变量再判空：字段的可空状态不会被编译器跟踪，
+        // 用局部变量才能让后面两处 Directory.* 调用干净地通过可空分析。
+        var folder = _imageFolder;
+
+        // 未配置 = 上位机不管图片。这里必须静默返回：
+        // 打一条"图片清理完成"就变成假成功（看起来在管、实际什么都没管）。
+        if (string.IsNullOrWhiteSpace(folder)) return;
+
+        if (!Directory.Exists(folder)) return;
 
         var cutoff = DateTime.Now.AddDays(-_imageRetentionDays);
         var live = new List<(string Path, DateTime LastWrite, long Size)>();
@@ -332,7 +362,7 @@ public class HousekeepingService : IHousekeepingService
 
         try
         {
-            foreach (var file in Directory.EnumerateFiles(_imageFolder, "*.*", SearchOption.AllDirectories))
+            foreach (var file in Directory.EnumerateFiles(folder, "*.*", SearchOption.AllDirectories))
             {
                 if (file.EndsWith(".write_test") || file.EndsWith(".db_write_test")) continue;
 

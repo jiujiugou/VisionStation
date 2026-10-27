@@ -210,7 +210,11 @@ public static class ServiceCollectionExtensions
             return new HealthChecker(
                 sp.GetRequiredService<DeviceManager>(),
                 appPaths.DbPath,
-                appPaths.StorageFolder,
+                // 「存储路径」这项探的其实是"数据根可写"（写探针文件 → 删掉）——
+                // 那个失败会连带毁掉日志、数据库和配方保存。图片目录已默认不配置
+                // （图归 VM 存删，2026-10-27 F-31），所以回落成数据根本身，
+                // 否则空路径会让这项自检永远报"无法创建目录"。
+                appPaths.StorageFolder ?? appPaths.DataRoot,
                 recipe,
                 appPaths.AssetRoot,
                 // F-49：第 4 项「运行时缺失」原本恒 null（这个参数没人传，等于那半个分支永远走不到）。
@@ -221,6 +225,7 @@ public static class ServiceCollectionExtensions
 
         // 管家服务 2026-10-19 迁入 Service 层（VisionStation.Service.Housekeeping）——
         // 运维逻辑不住 UI 层。阈值在这里从 appsettings.json 解析，Service 层只收明确参数。
+        // 图片目录可能为 null（默认就是）：那表示上位机不代管图片，图由 VisionMaster 存删。
         services.AddSingleton<IHousekeepingService>(sp => new HousekeepingService(
             sp.GetRequiredService<IInspectionRepository>(),
             appPaths.StorageFolder,

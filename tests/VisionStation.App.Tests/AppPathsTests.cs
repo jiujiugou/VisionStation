@@ -48,7 +48,10 @@ public class AppPathsTests : IDisposable
 
         Assert.StartsWith(_dataRoot, paths.DbPath, StringComparison.OrdinalIgnoreCase);
         Assert.StartsWith(_dataRoot, paths.LogFolder, StringComparison.OrdinalIgnoreCase);
-        Assert.StartsWith(_dataRoot, paths.StorageFolder, StringComparison.OrdinalIgnoreCase);
+        // F-31（2026-10-27 拍板）：ImageFolder 默认未配置 → StorageFolder 为 null，
+        // 不再默认落成 "<数据根>\InspectedImages"。显式配置的落点归数据根由
+        // 「绝对路径配置_原样使用」等用例覆盖。
+        Assert.Null(paths.StorageFolder);
     }
 
     [Fact]

@@ -19,7 +19,10 @@ public class AppOptionsTests
     {
         var options = AppOptionsBinder.Bind(Config(new Dictionary<string, string?>()));
 
-        Assert.Equal("InspectedImages", options.Storage.ImageFolder);
+        // F-31（2026-10-27 拍板）：图的生命周期归 VisionMaster，
+        // ImageFolder 默认不再是 "InspectedImages" 而是 null —— 未配置 = 管家不管图片。
+        // 给默认目录的后果是清理每小时扫一个永远空着的目录还报"清理完成 0MB"。
+        Assert.Null(options.Storage.ImageFolder);
         Assert.Equal(2000, options.Trigger.TimerIntervalMs);
         Assert.Equal(30, options.Housekeeping.KeepRecordsDays);
     }

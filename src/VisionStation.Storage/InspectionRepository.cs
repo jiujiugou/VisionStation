@@ -11,7 +11,7 @@ namespace VisionStation.Storage;
 /// 历史查询条件。**全部可选**，空对象等于"最近 200 条"。
 ///
 /// 为什么不直接暴露 IQueryable 给界面：那样 EF 的查询构造就会长到 ViewModel 里，
-/// 换一种存储就得改界面。这里只有六个字段，够用且能单测。
+/// 换一种存储就得改界面。这里只有七个字段，够用且能单测。
 ///
 /// <para>
 /// <b>这是取检测记录的唯一出口</b>：仓储里原先那个不带任何筛选的 <c>GetRecentAsync</c>
@@ -25,6 +25,16 @@ namespace VisionStation.Storage;
 /// <param name="Until">结束时刻（不含）。null = 到现在</param>
 /// <param name="IsOk">true=只要 OK，false=只要 NG，null=全部</param>
 /// <param name="EngineName">引擎名精确匹配。null/空 = 全部</param>
+/// <param name="Sn">
+/// 产品序列号精确匹配。null/空 = 全部。
+///
+/// <para>
+/// <b>为什么是精确匹配而不是模糊</b>：条码是"这一件"的唯一标识，客户拿着实物来查时
+/// 一定是一整串完整条码，不存在"记得一半"的场景。用 LIKE 反而会带来两个副作用 ——
+/// 条码里的 <c>%</c> / <c>_</c> 需要转义（不转就是通配符），以及"输了一半就查到三条、
+/// 不知道该看哪条"。要按前缀找的时候，让调用方自己拼，不要在这一层放宽语义。
+/// </para>
+/// </param>
 /// <param name="Take">最多返回多少条。上限由调用方控制（历史页固定传 300，再多就该缩范围）</param>
 /// <param name="Skip">跳过多少条。当前没有翻页 UI，生产调用方一律不填（默认 0）</param>
 public sealed record InspectionQuery(
@@ -32,6 +42,7 @@ public sealed record InspectionQuery(
     DateTime? Until = null,
     bool? IsOk = null,
     string? EngineName = null,
+    string? Sn = null,
     int Take = 200,
     int Skip = 0);
 
@@ -300,6 +311,7 @@ public class InspectionRepository : IInspectionRepository
             TriggerSource = report.TriggerSource,
             ImagePath = report.ImagePath,
             EngineName = report.Engine,
+            Sn = report.Sn ?? string.Empty,
 
             // ── 定位 / 有无 ──
             PresenceOk = p.IsOk,
@@ -470,6 +482,15 @@ public class InspectionRepository : IInspectionRepository
         {
             var engine = query.EngineName.Trim();
             source = source.Where(r => r.EngineName == engine);
+        }
+
+        // SN 也在这里 Trim：界面输入框里粘条码时常带空格/换行，
+        // 不裁的话"看起来输入了却查不到"，而库里的值是当初 Trim 过的（见 VmResultParser.ToReport），
+        // 两边不裁就会永久对不上。
+        if (!string.IsNullOrWhiteSpace(query.Sn))
+        {
+            var sn = query.Sn.Trim();
+            source = source.Where(r => r.Sn == sn);
         }
 
         return source;

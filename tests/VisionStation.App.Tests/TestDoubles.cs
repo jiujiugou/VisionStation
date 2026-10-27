@@ -102,6 +102,54 @@ internal sealed class FakeInspectionRepository : IInspectionRepository
     public Task<List<string>> ListEngineNamesAsync() => Task.FromResult(new List<string>());
 }
 
+/// <summary>
+/// 会**记住查询条件**的仓储替身，给历史页这类"只负责把条件传下去"的 VM 用。
+///
+/// <para>
+/// 为什么不用 <see cref="FakeInspectionRepository"/>：那个替身永远返回空列表、也不记条件，
+/// 适合"只关心入了几次库"的用例。历史页要验的恰恰是"用户输的条码有没有真的变成查询条件" ——
+/// 这只有把条件留下来才能断言。
+/// </para>
+/// <para>
+/// 返回的 <see cref="Rows"/> 由用例自己填：不填就是空库，正好测"查不到"那几条分支。
+/// </para>
+/// </summary>
+internal sealed class RecordingInspectionRepository : IInspectionRepository
+{
+    /// <summary>最近一次 QueryAsync 的条件；一次都没查过时为 null。</summary>
+    public InspectionQuery? LastQuery { get; private set; }
+
+    /// <summary>最近一次 CountAsync 的条件。与 <see cref="LastQuery"/> 分开记，用来验"两次查询用同一套条件"。</summary>
+    public InspectionQuery? LastCountQuery { get; private set; }
+
+    /// <summary>查询要返回的记录（用例自己填）。</summary>
+    public List<InspectionRecord> Rows { get; } = new();
+
+    public Task EnsureCreatedAsync() => Task.CompletedTask;
+
+    public Task SaveAsync(InspectionReport report) => Task.CompletedTask;
+
+    public Task<(int OkCount, int NgCount)> GetStatisticsAsync(DateTime? since = null) =>
+        Task.FromResult((0, 0));
+
+    public Task<int> DeleteOlderThanAsync(DateTime cutoff) => Task.FromResult(0);
+
+    public Task<List<InspectionRecord>> QueryAsync(InspectionQuery query)
+    {
+        LastQuery = query;
+        // 这里不做筛选：验的是"条件传下去了没"，筛选逻辑在仓储实现里另有测试。
+        return Task.FromResult(Rows.ToList());
+    }
+
+    public Task<int> CountAsync(InspectionQuery query)
+    {
+        LastCountQuery = query;
+        return Task.FromResult(Rows.Count);
+    }
+
+    public Task<List<string>> ListEngineNamesAsync() => Task.FromResult(new List<string>());
+}
+
 /// <summary>可观察的 IDisposable：记录是否被释放、在哪条线程上释放。</summary>
 internal sealed class FakeDisposable : IDisposable
 {

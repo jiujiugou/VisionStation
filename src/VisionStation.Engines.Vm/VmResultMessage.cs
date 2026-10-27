@@ -34,9 +34,11 @@ namespace VisionStation.Engines.Vm;
 /// </para>
 ///
 /// <para>
-/// <b>已知缺口</b>：<see cref="Sn"/> 能收，但 <c>ToReport</c> 不往下传，
-/// <c>InspectionReport</c> / <c>InspectionRecord</c> 都没有序列号字段 ——
-/// 要接 MES 追溯，得先加字段 + 迁移库，不是"配一下就有"。
+/// <b>SN 的位置</b>：<see cref="Sn"/> 会被 <c>ToReport</c> 裁掉首尾空白后写进
+/// <c>InspectionReport.Sn</c>，再落到检测记录的 <c>Sn</c> 列，历史页可按键值精确查。
+/// 但分隔符格式<b>带不了它</b>（没有字段名、没有预留槽位），要用 SN 追溯就得让 VM 发 JSON，
+/// 也就是「发送数据」模块绑 <c>"sn":"[扫码结果]"</c> 这一项（或走全局脚本，
+/// 模板见 <c>docs/vm/全局脚本-发送结果.cs</c>）。
 /// </para>
 /// </summary>
 public sealed class VmResultMessage
@@ -65,7 +67,10 @@ public sealed class VmResultMessage
     /// </summary>
     public DateTimeOffset? Timestamp { get; set; }
 
-    /// <summary>产品序列号（追溯用）。VM 里从扫码模块取，没有就留空。**当前不会被写入报告**，见类注释。</summary>
+    /// <summary>
+    /// 产品序列号（追溯用）。VM 里从扫码模块取，没有就留空。
+    /// 会原样（裁掉首尾空白后）写进报告的 <c>Sn</c>，再入库、可在历史页按键值查。
+    /// </summary>
     public string? Sn { get; set; }
 
     /// <summary>各检测项。为空时只看 <see cref="Verdict"/>。</summary>

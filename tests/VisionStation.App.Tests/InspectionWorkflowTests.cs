@@ -239,6 +239,36 @@ public class InspectionWorkflowTests
     }
 
     /// <summary>
+    /// 条码从 VM 报文原文一路进到入库报告（F-32）。
+    ///
+    /// <para>
+    /// 唯一一条从"报文原文"开始的用例：解析 → 工作流 → 入库。
+    /// 这么写是因为 SN 最容易丢在翻译那一步 —— 报文里有、DTO 里有，
+    /// 但 <c>ToReport</c> 没往下抄，而后面每一步看起来都正常，
+    /// 库里只是多了一列空串。从报告对象开始测就永远发现不了。
+    /// </para>
+    /// <para>
+    /// 判定不受影响：SN 只存不用，这条同时钉住"加了追溯字段没有改变结论"。
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task 推送一帧_条码从报文一路进到入库的报告()
+    {
+        var repo = new FakeInspectionRepository();
+        using var workflow = new InspectionWorkflow(
+            new FakeEngine(), repo, NullLogger<InspectionWorkflow>.Instance);
+
+        // 报文里带 SN 和总判定，没给图 —— 没图不影响入库（结论与"有没有图"解耦）
+        var report = Engines.Vm.VmResultParser.Parse("""{"sn":"A001-2026","verdict":"OK"}""");
+
+        var result = await workflow.AcceptExternalAsync(report, CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("A001-2026", Assert.Single(repo.SavedReports).Sn);
+        Assert.Equal("OK", result!.Report.OverallVerdict);
+    }
+
+    /// <summary>
     /// 标注真的画在了图上。
     ///
     /// 这是 <c>DrawAnnotations</c> 唯一的证据：它画在缩放到上屏宽度**之前**，

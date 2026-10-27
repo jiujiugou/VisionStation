@@ -176,7 +176,14 @@ public partial class ResultPanelViewModel : ObservableObject
         var report = result.Report;
 
         TimestampText = report.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-        TriggerInfoText = $"触发: {report.TriggerSource}";
+
+        // 有 SN 就跟着触发来源一起显示：操作员要核对"屏幕上这一件"和"手里这一件"是不是同一个。
+        // 没有就不留尾巴（不写 "SN: (空)"）—— 大多数工位没装扫码枪，
+        // 每帧挂一个"SN: 无"只会变成噪音。
+        TriggerInfoText = string.IsNullOrEmpty(report.Sn)
+            ? $"触发: {report.TriggerSource}"
+            : $"触发: {report.TriggerSource} · SN: {report.Sn}";
+
         LastCycleText = $"{result.CycleMs} ms";
 
         Rows.Clear();

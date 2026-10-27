@@ -199,4 +199,39 @@ public class StorageLayerTests
         Assert.Equal(160, ok + ng);
         Assert.Equal(0, ng);
     }
+
+    // ── R-S07：老库没有 Sn 列也要能升上来（F-32 的落库前提）──────────
+    [Fact]
+    public async Task R_S07_OldTableWithoutSnColumn_GetsUpgradedAndQueryable()
+    {
+        var dbPath = Path.Combine(NewRoot(), "s07.db");
+
+        var v1 = new InspectionRepository(dbPath);
+        await v1.EnsureCreatedAsync();
+        await v1.SaveAsync(MakeReport("加条码之前"));
+
+        // 模拟「上一版代码建的库」：那一版还没有 Sn 列。
+        // Sn 没有索引、不是主键，满足 SQLite DROP COLUMN 的限制（同 R-S03 的手法）。
+        ExecSql(dbPath, "ALTER TABLE \"InspectionRecords\" DROP COLUMN \"Sn\";");
+        Assert.DoesNotContain("Sn", ReadColumns(dbPath));
+
+        var v2 = new InspectionRepository(dbPath);
+        await v2.EnsureCreatedAsync();          // 必须自动补列，否则老库第一次写入就抛 no such column
+
+        Assert.Contains("Sn", ReadColumns(dbPath));
+
+        var old = await v2.QueryAsync(new InspectionQuery(Take: 10));
+        Assert.Single(old);                      // 旧数据没被清掉
+        // 补列默认空串：「那一版没有这个字段」，不是「那一件真的没扫到码」。
+        // 两者在库里长得一样，这是加列必然的代价 —— 所以不要拿 Sn 为空推断"当时没扫码"。
+        Assert.Equal("", old[0].Sn);
+
+        // 补列之后带条码的帧能写、也能按条码查回来
+        var withSn = MakeReport("带条码");
+        withSn.Sn = "A001";
+        await v2.SaveAsync(withSn);
+
+        var hit = await v2.QueryAsync(new InspectionQuery(Sn: "A001"));
+        Assert.Equal("A001", Assert.Single(hit).Sn);
+    }
 }

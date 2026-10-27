@@ -20,6 +20,10 @@
     <ProjectReference Include="..\..\src\VisionStation.App\VisionStation.App.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Core\VisionStation.Core.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Devices\VisionStation.Devices.csproj" />
+    <!-- 直接引用引擎工程，是为了能写"从 VM 报文原文开始"的端到端用例：
+         解析 → 工作流 → 入库。少了这条引用，就只能从报告对象开始测，
+         而"报文里的字段有没有被丢在翻译那一步"正是最容易出问题的地方。 -->
+    <ProjectReference Include="..\..\src\VisionStation.Engines.Vm\VisionStation.Engines.Vm.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Service\VisionStation.Service.csproj" />
   </ItemGroup>
 

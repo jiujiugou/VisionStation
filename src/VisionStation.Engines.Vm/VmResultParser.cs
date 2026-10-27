@@ -431,8 +431,8 @@ public static class VmResultParser
     /// <para>
     /// <b>已知边界</b>：items 里 label 重复时后一条覆盖前一条（<c>SetToolResult</c> 是索引赋值），
     /// 本方法不去重也不报错 —— 分隔符格式靠配方校验拦重名，JSON 格式靠 VM 侧自己保证。
-    /// 另外 <c>message.Sn</c> 目前<b>不往下传</b>（报告里没有序列号字段），
-    /// 所以报文带了 SN 也不会进库。
+    /// 另外 <c>message.Sn</c> 会原样（裁掉首尾空白后）写进报告的 <c>Sn</c>，
+    /// 但**只有 JSON 报文带得到它**：分隔符格式没有字段名，没有给 SN 留槽位。
     /// </para>
     /// </summary>
     public static InspectionReport ToReport(VmResultMessage message, string engine = "VisionMaster",
@@ -449,6 +449,11 @@ public static class VmResultParser
         // null 归一成空串：下游会拿它去拼路径/写库，null 在那里是另一套分支
         var imagePath = message.ImagePath ?? "";
 
+        // SN 同理归一成空串，并且 **Trim**：VM 侧扫码模块的字符串常带尾部空格或换行
+        // （格式串里粘过来的），不裁掉的话按条码查历史会查不到 —— 界面上看到的和存下来的
+        // 差一个看不见的空格，是最难自查的一类问题。
+        var sn = message.Sn?.Trim() ?? "";
+
         var report = new InspectionReport
         {
             // 有 VM 的时间就用 VM 的（它才是判定时刻），没有才退回本机收到的时间。
@@ -456,6 +461,7 @@ public static class VmResultParser
             Timestamp = message.Timestamp?.LocalDateTime ?? DateTime.Now,
             TriggerSource = trigger,
             ImagePath = imagePath,
+            Sn = sn,
             Engine = engine,
         };
 
@@ -484,7 +490,7 @@ public static class VmResultParser
             {
                 return InspectionReport.Failure(engine,
                     "VM 结果既没有检测项（items）也没有总判定（verdict），这一件没有任何结论",
-                    trigger, imagePath);
+                    trigger, imagePath, sn);
             }
 
             report.SetToolResult(DefaultVerdictLabel, new ToolResult

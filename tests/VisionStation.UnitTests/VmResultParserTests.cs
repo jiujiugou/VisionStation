@@ -299,4 +299,50 @@ public class VmResultParserTests
         Assert.Equal("OK", VmResultParser.Parse("1").OverallVerdict);
         Assert.Equal("NG", VmResultParser.Parse("0").OverallVerdict);
     }
+
+    // ── 产品条码（SN）────────────────────────────────────────────
+    // 它不参与判定，但决定"这一件"事后能不能被单独找回来：
+    // 客户拿着实物来问"这件为什么放行"时，没有 SN 就只能靠时间猜。
+
+    [Fact]
+    public void 报文带SN_原样进报告并裁掉首尾空白()
+    {
+        // 尾部空格是真实情况：VM 里格式串是手工粘的，扫码结果常带一个空格或换行。
+        // 不裁掉的话，历史页按条码查会永久查不到 —— 界面上看到的值和存下来的值差一个看不见的字符。
+        var report = VmResultParser.Parse("""{"sn":"  A001-2026  ","verdict":"OK"}""");
+
+        Assert.Equal("A001-2026", report.Sn);
+        Assert.Equal("OK", report.OverallVerdict);
+    }
+
+    [Fact]
+    public void 报文不带SN_落空串而不是null()
+    {
+        var report = VmResultParser.Parse("""{"verdict":"OK"}""");
+
+        // 空串而不是 null：下游写库、拼日志都少一套分支
+        Assert.Equal("", report.Sn);
+    }
+
+    [Fact]
+    public void 没有判定的失败报告也要带上SN()
+    {
+        // 报文给了 SN 却没给判定：这一件没判出来，但必须知道是哪一件 ——
+        // 操作员可以照着 SN 去补检，而不是在整批里捞。
+        var report = VmResultParser.Parse("""{"sn":"B002"}""");
+
+        Assert.Equal("NG", report.OverallVerdict);
+        Assert.Equal("B002", report.Sn);
+    }
+
+    [Fact]
+    public void 分隔符格式带不了SN_落空串()
+    {
+        // 分隔符没有字段名，值按 vm.outputs 位置落位，没有给 SN 留槽位。
+        // 这条用例是"要用 SN 就得让 VM 发 JSON"的书面证据，别指望改配方就能有。
+        var report = VmResultParser.Parse("OK;12.3");
+
+        Assert.Equal("", report.Sn);
+        Assert.Equal("OK", report.OverallVerdict);
+    }
 }

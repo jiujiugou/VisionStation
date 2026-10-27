@@ -27,6 +27,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -51,12 +52,25 @@
                           SelectedItem="{Binding SelectedEngine}"
                           ToolTip="按产出该记录的引擎过滤（换引擎前后对比用）" />
 
-                <Button Grid.Column="4" Content="查询" Width="62" Height="26"
+                <!--
+                    条码查询：扫码枪扫完会自动补一个回车，所以这里绑 Enter → 查询。
+                    少了这个绑定，操作员每次都要扫完再点一下鼠标，产线上没人愿意这么干。
+                -->
+                <TextBox Grid.Column="4" Width="150" Height="26" Margin="8,0,0,0"
+                         VerticalContentAlignment="Center" FontSize="11.5"
+                         Text="{Binding SnFilter, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="输入/扫描完整条码后回车。精确匹配；只有 JSON 报文才带 SN">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Return" Command="{Binding RefreshCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
+
+                <Button Grid.Column="5" Content="查询" Width="62" Height="26"
                         Margin="8,0,0,0" FontSize="11.5"
                         Style="{StaticResource MinorButton}"
                         Command="{Binding RefreshCommand}" />
 
-                <TextBlock Grid.Column="6" VerticalAlignment="Center"
+                <TextBlock Grid.Column="7" VerticalAlignment="Center"
                            FontSize="11" Foreground="{StaticResource TextMuted}"
                            Text="选中一条可看当时的图" />
             </Grid>
@@ -84,19 +98,21 @@
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="52" />
-                                <ColumnDefinition Width="96" />
-                                <ColumnDefinition Width="62" />
+                                <ColumnDefinition Width="48" />
+                                <ColumnDefinition Width="132" />
+                                <ColumnDefinition Width="88" />
+                                <ColumnDefinition Width="56" />
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="44" />
+                                <ColumnDefinition Width="40" />
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0" Text="时间" FontSize="11" Foreground="{StaticResource TextMuted}" />
                             <TextBlock Grid.Column="1" Text="判定" FontSize="11" Foreground="{StaticResource TextMuted}" />
-                            <TextBlock Grid.Column="2" Text="引擎" FontSize="11" Foreground="{StaticResource TextMuted}" />
-                            <TextBlock Grid.Column="3" Text="触发" FontSize="11" Foreground="{StaticResource TextMuted}" />
-                            <TextBlock Grid.Column="4" Text="尺寸偏差" FontSize="11" Foreground="{StaticResource TextMuted}" />
-                            <TextBlock Grid.Column="5" Text="图" FontSize="11" Foreground="{StaticResource TextMuted}"
+                            <TextBlock Grid.Column="2" Text="条码" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="3" Text="引擎" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="4" Text="触发" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="5" Text="尺寸偏差" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                            <TextBlock Grid.Column="6" Text="图" FontSize="11" Foreground="{StaticResource TextMuted}"
                                        HorizontalAlignment="Center" />
                         </Grid>
                     </Border>
@@ -139,11 +155,12 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="104" />
-                                        <ColumnDefinition Width="52" />
-                                        <ColumnDefinition Width="96" />
-                                        <ColumnDefinition Width="62" />
+                                        <ColumnDefinition Width="48" />
+                                        <ColumnDefinition Width="132" />
+                                        <ColumnDefinition Width="88" />
+                                        <ColumnDefinition Width="56" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="44" />
+                                        <ColumnDefinition Width="40" />
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="0" Text="{Binding TimeText}"
@@ -167,25 +184,33 @@
                                         </TextBlock.Style>
                                     </TextBlock>
 
-                                    <TextBlock Grid.Column="2" Text="{Binding EngineName}"
+                                    <!-- 条码：追溯的锚点。等宽字体 + 省略号，长条码完整值在悬浮提示里 -->
+                                    <TextBlock Grid.Column="2" Text="{Binding Sn}"
+                                               FontFamily="Consolas" FontSize="11"
+                                               TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource TextSecondary}"
+                                               VerticalAlignment="Center"
+                                               ToolTip="{Binding Sn}" />
+
+                                    <TextBlock Grid.Column="3" Text="{Binding EngineName}"
                                                FontSize="11" TextTrimming="CharacterEllipsis"
                                                Foreground="{StaticResource TextSecondary}"
                                                VerticalAlignment="Center"
                                                ToolTip="{Binding EngineName}" />
 
-                                    <TextBlock Grid.Column="3" Text="{Binding TriggerSource}"
+                                    <TextBlock Grid.Column="4" Text="{Binding TriggerSource}"
                                                FontSize="11"
                                                Foreground="{StaticResource TextMuted}"
                                                VerticalAlignment="Center" />
 
-                                    <TextBlock Grid.Column="4" Text="{Binding DimensionDetail}"
+                                    <TextBlock Grid.Column="5" Text="{Binding DimensionDetail}"
                                                FontSize="11" TextTrimming="CharacterEllipsis"
                                                Foreground="{StaticResource TextSecondary}"
                                                VerticalAlignment="Center"
                                                ToolTip="{Binding DetailText}" />
 
                                     <!-- 有没有图：点开才发现图被清掉是常见坑，先标出来 -->
-                                    <TextBlock Grid.Column="5" Text="有"
+                                    <TextBlock Grid.Column="6" Text="有"
                                                FontSize="10.5" HorizontalAlignment="Center"
                                                Foreground="{StaticResource TextMuted}"
                                                VerticalAlignment="Center">
@@ -262,6 +287,13 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
+
+                        <!-- 条码放标题行：这是追溯时最先要抄下来/报出去的那串字符 -->
+                        <TextBlock Text="{Binding SelectedRow.Sn}" Margin="12,0,0,0"
+                                   FontSize="11.5" FontFamily="Consolas"
+                                   Foreground="{StaticResource TextSecondary}"
+                                   VerticalAlignment="Center"
+                                   ToolTip="本条记录的产品条码；— 表示这一帧没带 SN" />
                     </StackPanel>
 
                     <!-- 图像区：Image 与提示文字叠在一起。

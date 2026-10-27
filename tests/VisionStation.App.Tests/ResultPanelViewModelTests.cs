@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.Messaging;
+using VisionStation.App.Services.Inspection;
 using VisionStation.App.ViewModels;
 
 namespace VisionStation.App.Tests;
@@ -68,5 +69,28 @@ public class ResultPanelViewModelTests
             new InspectionResultMessage(TestResults.Frame(ok: true, "Presence")));
 
         Assert.Single(vm.Rows);
+    }
+
+    /// <summary>
+    /// 有 SN 时跟着触发来源一起显示 —— 操作员要核对"屏幕上这一件"和"手里这一件"是不是同一个。
+    /// 没有 SN 时不能留一个 "SN: 无" 的尾巴：大多数工位没装扫码枪，每帧挂一句空话只是噪音。
+    /// </summary>
+    [Theory]
+    [InlineData("A001", true)]
+    [InlineData("", false)]
+    public void 条码有则显示_无则不留尾巴(string sn, bool shouldShow)
+    {
+        var report = TestResults.Report(ok: true, "Presence");
+        report.Sn = sn;
+        var frame = new InspectionRunResult(
+            report, TestResults.Bitmap(), TestResults.Bitmap(),
+            CycleMs: 12, ImageSaved: true, ImageError: null,
+            ConsecutiveImageFailures: 0, ImageLinkOnline: true);
+
+        var vm = new ResultPanelViewModel();
+        WeakReferenceMessenger.Default.Send(new InspectionResultMessage(frame));
+
+        Assert.Equal(shouldShow, vm.TriggerInfoText.Contains("SN", StringComparison.Ordinal));
+        if (shouldShow) Assert.Contains(sn, vm.TriggerInfoText, StringComparison.Ordinal);
     }
 }

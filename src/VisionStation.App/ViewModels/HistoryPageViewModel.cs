@@ -42,6 +42,7 @@ public sealed record VerdictOption(string Name, bool? IsOk)
 /// <param name="IsOk">是否合格（视图据此标色）</param>
 /// <param name="EngineName">产出这条记录的引擎；换引擎前后对比就看它</param>
 /// <param name="TriggerSource">Manual / Timer / PLC / VM</param>
+/// <param name="Sn">产品条码；空串表示这一帧没带（VM 没配扫码或用了分隔符格式）</param>
 /// <param name="ImagePath">VM 或本程序存的图；可能已被清理，选中时再判存在性</param>
 /// <param name="HasImageHint">列表上标一下"有图/无图"，免得点开才发现</param>
 /// <param name="PresenceDetail">定位类结论摘要</param>
@@ -54,6 +55,7 @@ public sealed record HistoryRow(
     bool IsOk,
     string EngineName,
     string TriggerSource,
+    string Sn,
     string ImagePath,
     bool HasImageHint,
     string PresenceDetail,
@@ -67,6 +69,9 @@ public sealed record HistoryRow(
         string.Equals(r.OverallVerdict, "OK", StringComparison.Ordinal),
         string.IsNullOrWhiteSpace(r.EngineName) ? "—" : r.EngineName,
         string.IsNullOrWhiteSpace(r.TriggerSource) ? "—" : r.TriggerSource,
+        // 没条码时显示 "—" 而不是空：空着看起来像"这一列还没做完"，
+        // 破了折号明确表示"这一帧就是没有"。
+        string.IsNullOrWhiteSpace(r.Sn) ? "—" : r.Sn,
         r.ImagePath,
         !string.IsNullOrWhiteSpace(r.ImagePath) && File.Exists(r.ImagePath),
         r.PresenceDetail,
@@ -163,6 +168,23 @@ public partial class HistoryPageViewModel : ObservableObject
     [ObservableProperty]
     private string _selectedEngine = AllEngines;
 
+    /// <summary>
+    /// 产品条码筛选（精确匹配）。空 = 不限。
+    ///
+    /// <para>
+    /// 为什么做成输入框而不是下拉：条码是无限集合，没法做成选项。
+    /// 输入框的代价是"要按一下查询"，但历史页本来就要按查询才刷新，
+    /// 不额外增加操作步骤。
+    /// </para>
+    /// <para>
+    /// 不在这里 Trim、也不在 setter 里做处理：裁剪统一放在仓储的
+    /// <c>ApplyFilter</c>，否则"界面裁一遍、仓储再裁一遍"迟早有一处忘了裁，
+    /// 而那种不一致只会表现为"偶发查不到"。
+    /// </para>
+    /// </summary>
+    [ObservableProperty]
+    private string _snFilter = string.Empty;
+
     /// <summary>列表选中行。变化会触发右侧预览图异步加载（见 <see cref="OnSelectedRowChanged"/>）。</summary>
     [ObservableProperty]
     private HistoryRow? _selectedRow;
@@ -231,6 +253,7 @@ public partial class HistoryPageViewModel : ObservableObject
                 Since: SelectedRange?.Since(),
                 IsOk: SelectedVerdict?.IsOk,
                 EngineName: SelectedEngine == AllEngines ? null : SelectedEngine,
+                Sn: string.IsNullOrWhiteSpace(SnFilter) ? null : SnFilter,
                 Take: MaxRows);
 
             var rows = await _repo.QueryAsync(query);
@@ -242,6 +265,11 @@ public partial class HistoryPageViewModel : ObservableObject
 
             StatusText = rows.Count switch
             {
+                // 带条码查询查不到时，必须说清是"查不到"而不是"这段时间没检测过" ——
+                // 条码查不到通常只有两个原因：条码不完整、或者那一帧根本没带 SN（分隔符格式）。
+                // 不点明这一句，操作员会以为记录丢了，然后去翻库。
+                0 when !string.IsNullOrWhiteSpace(SnFilter) =>
+                    $"没有条码为「{SnFilter.Trim()}」的记录（需完整一致；只有 JSON 报文才带 SN）",
                 0 => "这个范围内没有记录",
                 _ when total > rows.Count => $"显示最近 {rows.Count} 条（共 {total} 条，缩小范围可看更早的）",
                 _ => $"共 {total} 条",

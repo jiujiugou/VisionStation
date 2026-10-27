@@ -72,6 +72,25 @@ public class InspectionReport
     public string TriggerSource { get; set; } = string.Empty;
 
     /// <summary>
+    /// 产品序列号 / 条码（VM 侧扫码模块给的，追溯用）。**允许为空**。
+    ///
+    /// <para>
+    /// <b>为什么要有它</b>：没有 SN 时，"这一件 NG" 只能定位到某个时间点，
+    /// 客户拿着实物回来问"这件为什么放行了"，只能靠时间猜。
+    /// 有了 SN，历史页可以直接按条码查到那一条，这是接 MES 追溯的最小前提。
+    /// </para>
+    /// <para>
+    /// <b>它不参与任何判定</b>：只存不用。空串和"没扫码"是同一件事，
+    /// 所以不区分 null 与空串 —— 下游拼 SQL、拼日志的地方少一套分支。
+    /// </para>
+    /// <para>
+    /// <b>只有 JSON 报文能带</b>：分隔符格式没有字段名，值按 <c>vm.outputs</c> 位置落位，
+    /// 没有给 SN 留槽位（硬塞一个会让后面所有值错位）。所以要用 SN 就得走 JSON 格式。
+    /// </para>
+    /// </summary>
+    public string Sn { get; set; } = string.Empty;
+
+    /// <summary>
     /// 被检测的原图路径。**允许为空**：VM 没配存图、或只发了目录时就是空的。
     ///
     /// <para>
@@ -193,14 +212,19 @@ public class InspectionReport
     /// <param name="reason">给人看的原因（会直接出现在界面日志里）</param>
     /// <param name="triggerSource">触发来源</param>
     /// <param name="imagePath">原图路径</param>
+    /// <param name="sn">
+    /// 产品序列号（可选）。失败报告也要能带 SN：报文里给了 SN、只是没给判定时，
+    /// "哪一件没判出来"比"有一件没判出来"有用得多 —— 操作员可以照着 SN 去补检。
+    /// </param>
     public static InspectionReport Failure(string engine, string reason,
-        string triggerSource = "Manual", string imagePath = "")
+        string triggerSource = "Manual", string imagePath = "", string sn = "")
     {
         var report = new InspectionReport
         {
             Timestamp = DateTime.Now,
             TriggerSource = triggerSource,
             ImagePath = imagePath,
+            Sn = sn,
             Engine = engine
         };
         report.SetToolResult(ResultKeys.Engine, ToolResult.Ng(reason));

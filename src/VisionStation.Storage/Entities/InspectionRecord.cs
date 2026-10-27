@@ -72,6 +72,26 @@ public class InspectionRecord
     [MaxLength(40)]
     public string EngineName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 产品序列号 / 条码（VM 侧扫码模块给的）。**默认空串**，不是可空列。
+    ///
+    /// <para>
+    /// <b>用途只有一个：查。</b>操作员或客户拿着实物来问"这件为什么放行"时，
+    /// 按条码定位到具体一条记录。没有它就只能靠时间猜，一件一件翻。
+    /// </para>
+    /// <para>
+    /// 空串表示"这一帧没带 SN"（VM 没配扫码，或用了分隔符格式）。
+    /// 大量空串是正常状态：不装扫码枪的工位永远不会有值。
+    /// </para>
+    /// <para>
+    /// <b>故意不建索引</b>：一天几十条的量级下，全表扫和索引的差别小于一次界面刷新的抖动；
+    /// 而绝大多数行的 Sn 是空串，索引的选择性极差，白白放大写入成本。
+    /// 产量真涨到需要索引时，先看 <c>Sn</c> 的填充率再决定（空串占九成的索引是负资产）。
+    /// </para>
+    /// </summary>
+    [MaxLength(64)]
+    public string Sn { get; set; } = string.Empty;
+
     // ── 以下三组是「定位 / 测量 / 缺陷」的投影列，沿用旧列名 ──
     // 旧列名（Presence/Dimension/Defect）来自自研工具链时代，改名要重建表，
     // 而完整结论本来就在 ToolResultsJson 里 —— 不值得为改名做一次迁移。

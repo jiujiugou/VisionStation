@@ -101,6 +101,14 @@ public partial class SidebarViewModel : ObservableObject
                 // 工程师真正要调的是图像来源（平台存图目录）—— 那是配置，操作员不该碰。
                 engineerOnly: true),
             new NavItem(
+                route: NavigationService.RecipeRoute,
+                label: "配方",
+                // 文档图标：换型时选配方
+                geometry: "M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 7V3.5L18.5 9H13z",
+                // 换型是技术员及以上的活：操作员只管启停。
+                // 配方选错 = 整批全判错，这类错误不该由按按钮的人承担。
+                requiredPermission: Permission.SwitchRecipe),
+            new NavItem(
                 route: NavigationService.HistoryRoute,
                 label: "历史",
                 geometry: "M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z",
@@ -114,6 +122,13 @@ public partial class SidebarViewModel : ObservableObject
                 // 只给管理员：工程师能改参数，但不该能查审计 ——
                 // 否则等于让他确认自己的脚印有没有被记下来
                 requiredPermission: Permission.ViewAudit),
+            new NavItem(
+                route: NavigationService.UsersRoute,
+                label: "用户",
+                // 双人图标：账号管理
+                geometry: "M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 3-1.34 3-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5C15 14.17 10.33 13 8 13zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z",
+                // 管账号 = 管人，管理员专属：工程师能改参数，但不该能造账号
+                requiredPermission: Permission.ManageUsers),
         };
 
         _allItems = TopItems.Concat(BottomItems).ToArray();

@@ -11,7 +11,7 @@ namespace VisionStation.Core.Models;
 ///
 /// <para>
 /// <b>数值按十位分段</b>：0~1 程序生命周期，10~13 设备操作，20~23 配置变更，
-/// 30~34 会话，40~42 账号管理。查库时按段位筛就能分出"人的操作"和"系统的动作"。
+/// 30~34 会话，40~45 账号管理。查库时按段位筛就能分出"人的操作"和"系统的动作"。
 /// </para>
 ///
 /// <para>
@@ -94,8 +94,36 @@ public enum AuditAction
     /// <summary>停用用户</summary>
     UserDisable = 41,
 
-    /// <summary>修改密码</summary>
+    /// <summary>修改密码（本人改自己的，需要知道旧密码）</summary>
     PasswordChange = 42,
+
+    /// <summary>
+    /// 启用用户。
+    ///
+    /// <para>
+    /// 与 <see cref="UserDisable"/> 分开而不是"用同一个动作 + detail 说明"：
+    /// 审计页按动作筛选，"谁被停用过"和"谁被放回来过"是两条完全不同的追问，
+    /// 挤在一个枚举值里就只能靠读 detail 文本才能分开。
+    /// </para>
+    /// </summary>
+    UserEnable = 43,
+
+    /// <summary>
+    /// 修改用户角色。
+    ///
+    /// 提权与降权都记这一个动作，前后值记在 <c>Before/After</c>（角色中文名）——
+    /// 动作类型不该随方向裂成两个值，否则加一级角色就要再加两个枚举。
+    /// </summary>
+    UserRoleChange = 44,
+
+    /// <summary>
+    /// 管理员重置他人密码（不知道旧密码，重置后强制本人改密）。
+    ///
+    /// 与 <see cref="PasswordChange"/> 分开：后者是"本人凭旧密码改密"，
+    /// 权限表里明确不需要任何权限；重置是管理动作，必须由 <c>ManageUsers</c> 把关。
+    /// 混成一个值会让审计页分不清"他改了自己的密码"和"别人把他密码重置了"。
+    /// </summary>
+    PasswordReset = 45,
 }
 
 /// <summary>

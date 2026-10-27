@@ -24,7 +24,24 @@ public sealed record RecipeSummary(
     int Height,
     DateTimeOffset? UpdatedAt,
     string Engine,
-    bool IsActive);
+    bool IsActive)
+{
+    /// <summary>
+    /// 配方声明的输出项数（<c>vm.outputs</c> 的条数），0 = 没配输出映射。
+    ///
+    /// <para>
+    /// 为什么不放进主构造参数：这是个<b>后加的展示字段</b>，
+    /// 位置参数一改，所有 <c>new RecipeSummary(...)</c> 都要跟着改，
+    /// 而这个 record 是跨工程契约。写成 <c>init</c> 属性加成，
+    /// 老的构造写法与序列化形状都不受影响。
+    /// </para>
+    /// <para>
+    /// <b>它是"文件这么写"而不是"运行时生效几项"</b>：分隔符报文按这个顺序对号入座，
+    /// 输出项数为 0 意味着这份配方即使被激活也不会有任何结果项 —— 切换前值得看一眼。
+    /// </para>
+    /// </summary>
+    public int OutputCount { get; init; }
+}
 
 /// <summary>
 /// 配方持久化端口。

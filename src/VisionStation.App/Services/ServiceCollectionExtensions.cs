@@ -398,9 +398,26 @@ public static class ServiceCollectionExtensions
         // 它不是"工程师后台"，是操作员发现 NG 后自己回看那一件的地方。
         services.AddSingleton<HistoryPageViewModel>();
 
-        // 导航：路由表在 NavigationService 里写死四页（检测 / 图像来源 / 历史 / 审计），
-        // 不查容器、不建工厂。
-        services.AddSingleton<INavigationService, NavigationService>();
+        // 配方页：技术员及以上（Permission.SwitchRecipe）。只换激活配方 + 提示重启生效，
+        // 不做运行时热重载（引擎与工作流都吃单例 RecipeConfig，换配方要重建它们）。
+        services.AddSingleton<RecipePageViewModel>();
+
+        // 用户页：仅管理员（Permission.ManageUsers）。
+        services.AddSingleton<UserManagePageViewModel>();
+
+        // 导航：路由表在这里组装（检测 / 图像来源 / 历史 / 审计 / 配方 / 用户）。
+        // NavigationService 只认一张表，不查容器、不建工厂；缺页会在构造时直接抛。
+        services.AddSingleton<INavigationService>(sp => new NavigationService(
+            new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [NavigationService.InspectionRoute] = sp.GetRequiredService<InspectionPageViewModel>(),
+                [NavigationService.ImageSourceRoute] = sp.GetRequiredService<ImageSourcePageViewModel>(),
+                [NavigationService.HistoryRoute] = sp.GetRequiredService<HistoryPageViewModel>(),
+                [NavigationService.AuditRoute] = sp.GetRequiredService<AuditPageViewModel>(),
+                [NavigationService.RecipeRoute] = sp.GetRequiredService<RecipePageViewModel>(),
+                [NavigationService.UsersRoute] = sp.GetRequiredService<UserManagePageViewModel>(),
+            },
+            sp.GetRequiredService<ILogger<NavigationService>>()));
         services.AddSingleton<ShellViewModel>();
 
         return services;

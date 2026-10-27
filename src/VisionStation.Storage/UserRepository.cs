@@ -59,6 +59,17 @@ public interface IUserRepository
     Task TouchLoginAsync(string userName, DateTime at);
 
     Task SetEnabledAsync(string userName, bool enabled);
+
+    /// <summary>
+    /// 只改角色（用户管理页的「改角色」）。找不到账号返回 <c>false</c>。
+    ///
+    /// <para>
+    /// 单独一个方法而不是复用 <see cref="UpsertAsync"/>：Upsert 会把密码材料、
+    /// 启用状态、最后登录时间一起写回去 —— 传进来的对象只要有一项是三天前的快照，
+    /// 就会把别人刚做的改动覆盖掉。改角色只该动这一列。
+    /// </para>
+    /// </summary>
+    Task<bool> SetRoleAsync(string userName, UserRole role);
 }
 
 /// <summary>
@@ -272,6 +283,26 @@ public class UserRepository : IUserRepository
         row.IsEnabled = enabled;
         await db.SaveChangesAsync().ConfigureAwait(false);
         _logger?.LogWarning("[用户] {Action}账号 {User}", enabled ? "启用" : "停用", userName);
+        return true;
+    });
+
+    /// <summary>
+    /// 只改角色。找不到账号返回 false，不抛 —— 与 <see cref="SetEnabledAsync"/> 同口径，
+    /// 由 Service 层把 false 翻译成"账号不存在"给人看。
+    ///
+    /// 日志用 Warning：改角色就是改权限，和停用一样属于"改变谁能干什么"的动作，
+    /// 混在 Information 流水里翻日志时容易被当普通写入跳过。
+    /// </summary>
+    public Task<bool> SetRoleAsync(string userName, UserRole role) => RunAsync(async db =>
+    {
+        var row = await db.Users.FirstOrDefaultAsync(u => u.UserName == userName).ConfigureAwait(false);
+        if (row is null) return false;
+
+        var before = row.Role;
+        row.Role = role;
+        await db.SaveChangesAsync().ConfigureAwait(false);
+        _logger?.LogWarning("[用户] 修改账号 {User} 的角色：{Before} → {After}",
+            userName, RolePermissions.Describe(before), RolePermissions.Describe(role));
         return true;
     });
 

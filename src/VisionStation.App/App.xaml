@@ -41,6 +41,12 @@
             <DataTemplate DataType="{x:Type vm:AuditPageViewModel}">
                 <views:AuditPageView />
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:RecipePageViewModel}">
+                <views:RecipePageView />
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:UserManagePageViewModel}">
+                <views:UserManagePageView />
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vm:ImagePanelViewModel}">
                 <views:ImagePanelView />
             </DataTemplate>

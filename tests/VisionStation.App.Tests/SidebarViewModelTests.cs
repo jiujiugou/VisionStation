@@ -72,8 +72,17 @@ public class SidebarViewModelTests
         // 以前 8 个图标里 6 个点了弹回去，操作员点名骂的就是这个。
         var inspection = TestPages.Inspection();
         var camera = TestPages.ImageSource();
-        var navigation = new NavigationService(inspection, camera, TestPages.History(),
-            new AuditPageViewModel(new FakeAuditService()), NullLogger<NavigationService>.Instance);
+        var navigation = new NavigationService(
+            new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [NavigationService.InspectionRoute] = inspection,
+                [NavigationService.ImageSourceRoute] = camera,
+                [NavigationService.HistoryRoute] = TestPages.History(),
+                [NavigationService.AuditRoute] = new AuditPageViewModel(new FakeAuditService()),
+                [NavigationService.RecipeRoute] = new object(),
+                [NavigationService.UsersRoute] = new object(),
+            },
+            NullLogger<NavigationService>.Instance);
         var sidebar = new SidebarViewModel(navigation, new FakeSessionService());
 
         foreach (var item in AllItems(sidebar))

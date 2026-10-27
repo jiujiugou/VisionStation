@@ -74,8 +74,18 @@ public class NavigationServiceTests
     {
         var inspection = TestPages.Inspection();
         var camera = TestPages.ImageSource();
-        var service = new NavigationService(inspection, camera, TestPages.History(),
-            new AuditPageViewModel(new FakeAuditService()), NullLogger<NavigationService>.Instance);
+        var service = new NavigationService(
+            // 路由表由组合根组装；这里用替身对象即可 —— 导航测试不关心页面内容。
+            new Dictionary<string, object>(StringComparer.Ordinal)
+            {
+                [NavigationService.InspectionRoute] = inspection,
+                [NavigationService.ImageSourceRoute] = camera,
+                [NavigationService.HistoryRoute] = TestPages.History(),
+                [NavigationService.AuditRoute] = new AuditPageViewModel(new FakeAuditService()),
+                [NavigationService.RecipeRoute] = new object(),
+                [NavigationService.UsersRoute] = new object(),
+            },
+            NullLogger<NavigationService>.Instance);
         return (service, inspection, camera);
     }
 }

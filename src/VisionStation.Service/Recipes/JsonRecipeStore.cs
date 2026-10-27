@@ -246,7 +246,12 @@ public sealed class JsonRecipeStore : IRecipeStore
                     recipe.Sensor.Height,
                     recipe.UpdatedAt,
                     recipe.Engine,
-                    string.Equals(fileName, active, StringComparison.OrdinalIgnoreCase)));
+                    string.Equals(fileName, active, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 列表要能在切换前看出"这份配方到底会出几项结果"。
+                    // 这个数不额外读盘 —— 文件已经在手里反序列化过了。
+                    OutputCount = recipe.Vm.Outputs.Count,
+                });
             }
             catch (Exception ex)
             {

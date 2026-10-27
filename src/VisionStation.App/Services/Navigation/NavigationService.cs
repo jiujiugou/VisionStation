@@ -24,11 +24,17 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
     /// <summary>审计页。管理员权限才可见，记录登录/配置变更/启停。</summary>
     public const string AuditRoute = "审计";
 
+    /// <summary>配方页。技术员及以上（Permission.SwitchRecipe），换型时选配方。</summary>
+    public const string RecipeRoute = "配方";
+
+    /// <summary>用户页。仅管理员（Permission.ManageUsers），增删改账号。</summary>
+    public const string UsersRoute = "用户";
+
     /// <summary>
     /// 路由 → 页面 VM 实例。**实例是常驻的**（由容器单例注入），导航只是换引用，
     /// 不销毁也不重建 —— 所以切走再切回来，页面上已加载的列表、筛选条件都还在。
     /// </summary>
-    private readonly Dictionary<string, object> _pages;
+    private readonly IReadOnlyDictionary<string, object> _pages;
 
     private readonly ILogger<NavigationService> _logger;
 
@@ -37,36 +43,42 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
     /// <summary>当前路由。初值与 <see cref="_currentPage"/> 保持一致，否则侧边栏高亮和内容会错位。</summary>
     private string _currentRoute = InspectionRoute;
 
-    /// <summary>
-    /// 构造时就把四个页面全部解析出来：任何一页的构造函数炸了，启动期就炸，
-    /// 而不是等操作员点到那一页才发现白屏。
-    /// </summary>
-    /// <param name="inspectionPage">检测页（操作员主界面）</param>
-    /// <param name="imageSourcePage">图像来源页（工程师模式）</param>
-    /// <param name="historyPage">历史记录页</param>
-    /// <param name="auditPage">审计页（管理员）</param>
-    /// <param name="logger">只用于记录"导航到未实现路由"这一种异常情况</param>
-    public NavigationService(
-        InspectionPageViewModel inspectionPage,
-        ImageSourcePageViewModel imageSourcePage,
-        HistoryPageViewModel historyPage,
-        AuditPageViewModel auditPage,
-        ILogger<NavigationService> logger)
+    /// <summary>全部路由常量。侧边栏与组合根都用它做完整性检查。</summary>
+    public static IReadOnlyList<string> AllRoutes { get; } = new[]
     {
+        InspectionRoute, ImageSourceRoute, HistoryRoute, AuditRoute, RecipeRoute, UsersRoute,
+    };
+
+    /// <summary>
+    /// 构造时就把全部页面拿到手：任何一页的构造函数炸了，启动期就炸，
+    /// 而不是等操作员点到那一页才发现白屏。
+    ///
+    /// <para>
+    /// 为什么收一张表而不是逐个页面参数：页数从 4 涨到 6 时，
+    /// 逐个参数意味着每加一页都要改构造函数、改测试、改组合根三处。
+    /// 表由组合根构建（容器解析各页），本类仍然不查容器、不用反射。
+    /// </para>
+    /// </summary>
+    /// <param name="pages">路由 → 页面 VM 实例；缺任何一条 <see cref="AllRoutes"/> 里的路由都会当场抛。</param>
+    /// <param name="logger">只用于记录"导航到未实现路由"这一种异常情况</param>
+    public NavigationService(IReadOnlyDictionary<string, object> pages, ILogger<NavigationService> logger)
+    {
+        ArgumentNullException.ThrowIfNull(pages);
         _logger = logger;
+
+        // 缺页必须启动期就炸：侧边栏有按钮却点不进去，是上一轮专门清理过的"假按钮"。
+        foreach (var route in AllRoutes)
+        {
+            if (!pages.ContainsKey(route))
+                throw new ArgumentException($"路由表缺少页面：{route}", nameof(pages));
+        }
 
         // StringComparer.Ordinal：路由是程序内常量，不是用户输入，不需要区域文化比较。
         // 用 ordinal 也顺带避免了"土耳其 i"这类文化敏感性 bug（虽然这里全是中文）。
-        _pages = new Dictionary<string, object>(StringComparer.Ordinal)
-        {
-            [InspectionRoute] = inspectionPage,
-            [ImageSourceRoute] = imageSourcePage,
-            [HistoryRoute] = historyPage,
-            [AuditRoute] = auditPage,
-        };
+        _pages = pages;
 
         // 启动即停在检测页：和改造前一致（窗口打开看到的就是检测页）。
-        _currentPage = inspectionPage;
+        _currentPage = pages[InspectionRoute];
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

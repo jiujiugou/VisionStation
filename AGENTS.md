@@ -42,7 +42,7 @@ WPF 金属零件视觉检测上位机。VisionMaster 跑流程出判定 → TCP 
 | `src/VisionStation.Service` | 自检（HealthChecker）、管家（Housekeeping） | 可改 |
 | `src/VisionStation.App` | WPF 组合根、DI 注册、ViewModel | 可改 |
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
-| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 346 项：206 + 140，实测） | **只准加，不准改断言** |
+| `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 379 项：221 + 158，实测） | **只准加，不准改断言** |
 | `tools/VmSimulator` | VM 报文模拟/抓包（**不在** `.slnx` 里，ci.cmd 不构建它） | 可改 |
 | `scripts/rtu_slave.py` + `tools/RtuProbe` | Modbus RTU 从站模拟器 + 验证探针（需 com0com 虚拟串口对 COM3↔COM4，**不进 ci**，跑法见 `docs/产线闭环-说明.md` §8） | 可改 |
 | `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
@@ -66,7 +66,7 @@ dotnet test  tests\VisionStation.UnitTests --filter "FullyQualifiedName~Housekee
 **提交前（分钟级，跑一次算数）**
 
 ```bat
-ci.cmd    :: 全量重建 src + 两个测试工程 → 分析器棘轮 → 346 项测试
+ci.cmd    :: 全量重建 src + 两个测试工程 → 分析器棘轮 → 379 项测试
 ```
 
 `ci.cmd` 慢**是设计代价，不是故障**：三处 `--no-incremental` 全量重建，

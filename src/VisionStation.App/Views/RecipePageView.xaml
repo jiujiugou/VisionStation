@@ -1,0 +1,261 @@
+<UserControl x:Class="VisionStation.App.Views.RecipePageView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:RecipePageViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        配方切换页（F-48）。换型时选一份配方，把它写成 .active 指针。
+
+        顶部那条常驻提示是有意留的：这一页只改"下次启动加载哪一份"，
+        运行时配方是启动时加载的 DI 单例，没有热重载通道。
+        没有这句话，"已切换"会被读成"现在就在用新配方"。
+    -->
+    <Grid Margin="6">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- ═══ 生效时机说明（常驻，不是提示条） ═══ -->
+        <Border Grid.Row="0" Background="{StaticResource WarnBg}"
+                BorderBrush="{StaticResource WarnBorder}" BorderThickness="1"
+                CornerRadius="4" Padding="12,8">
+            <StackPanel>
+                <TextBlock Text="切换的是「下次启动用哪份配方」"
+                           FontSize="12" FontWeight="SemiBold"
+                           Foreground="{StaticResource Warn}" />
+                <TextBlock Margin="0,3,0,0" FontSize="11.5" TextWrapping="Wrap"
+                           Foreground="{StaticResource Warn}"
+                           Text="本程序启动时把配方加载进内存，引擎与各面板一直用那一份；改动激活指针后必须重启程序才会换过去。本次运行不受影响。" />
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ 操作条 ═══ -->
+        <Border Grid.Row="1" Style="{StaticResource PanelCard}" Padding="12,9" Margin="0,8,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="配方" Style="{StaticResource PanelTitle}"
+                           VerticalAlignment="Center" Margin="0" />
+
+                <TextBlock Grid.Column="1" Margin="12,0,8,0"
+                           VerticalAlignment="Center" FontSize="11"
+                           Foreground="{StaticResource TextMuted}"
+                           TextTrimming="CharacterEllipsis"
+                           Text="{Binding Folder}"
+                           ToolTip="{Binding Folder}" />
+
+                <Button Grid.Column="2" Content="刷新" Width="62"
+                        Style="{StaticResource MinorButton}"
+                        Command="{Binding RefreshCommand}"
+                        IsEnabled="{Binding IsIdle}"
+                        ToolTip="重新读取配方目录（手工改过文件之后点它）" />
+
+                <Button Grid.Column="3" Content="切换为激活配方" Width="124" Height="26"
+                        Margin="8,0,0,0" FontSize="11"
+                        Style="{StaticResource MinorButton}"
+                        Command="{Binding SwitchCommand}"
+                        IsEnabled="{Binding IsIdle}"
+                        ToolTip="把选中的配方写成 .active 指针；重启程序后生效。需要技术员及以上权限" />
+            </Grid>
+        </Border>
+
+        <!-- ═══ 列表 ═══ -->
+        <Border Grid.Row="2" Style="{StaticResource PanelCard}" Padding="0" Margin="0,8,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 表头 -->
+                <Border Background="{StaticResource SubtleBg}" Padding="10,6"
+                        BorderBrush="{StaticResource CardBorder}" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="190" />
+                            <ColumnDefinition Width="64" />
+                            <ColumnDefinition Width="72" />
+                            <ColumnDefinition Width="96" />
+                            <ColumnDefinition Width="92" />
+                            <ColumnDefinition Width="56" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="配方名称" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Grid.Column="1" Text="文件名" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Grid.Column="2" Text="引擎" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Grid.Column="3" Text="输出项" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Grid.Column="4" Text="画面" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Grid.Column="5" Text="最近保存" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Grid.Column="6" Text="状态" FontSize="11" Foreground="{StaticResource TextMuted}"
+                                   HorizontalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <ListBox Grid.Row="1" ItemsSource="{Binding Rows}"
+                         SelectedItem="{Binding SelectedRow}"
+                         Background="Transparent" BorderThickness="0"
+                         HorizontalContentAlignment="Stretch"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Root" Background="Transparent" Padding="10,5"
+                                                BorderBrush="{StaticResource CardBorder}"
+                                                BorderThickness="0,0,0,1">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Root" Property="Background"
+                                                        Value="{StaticResource SubtleBg}" />
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Root" Property="Background"
+                                                        Value="{StaticResource AccentSoft}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="190" />
+                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="96" />
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="56" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                           FontSize="11.5" FontWeight="Medium"
+                                           Foreground="{StaticResource TextPrimary}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"
+                                           ToolTip="{Binding Name}" />
+
+                                <TextBlock Grid.Column="1" Text="{Binding FileName}"
+                                           FontFamily="Consolas" FontSize="11"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"
+                                           ToolTip="{Binding FileName}" />
+
+                                <TextBlock Grid.Column="2" Text="{Binding EngineText}"
+                                           FontSize="11" Foreground="{StaticResource TextSecondary}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"
+                                           ToolTip="配方声明的引擎；运行时只支持 Vm" />
+
+                                <!--
+                                    输出项数为 0 时标成告警色：这份配方激活后不会有任何结果项，
+                                    切换前就该看见，而不是重启完才发现界面上什么都没有。
+                                -->
+                                <TextBlock Grid.Column="3" Text="{Binding OutputText}"
+                                           FontSize="11" VerticalAlignment="Center">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding OutputCount}" Value="0">
+                                                    <Setter Property="Foreground" Value="{StaticResource Warn}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <TextBlock Grid.Column="4" Text="{Binding SizeText}"
+                                           FontFamily="Consolas" FontSize="11"
+                                           Foreground="{StaticResource TextSecondary}"
+                                           VerticalAlignment="Center" />
+
+                                <TextBlock Grid.Column="5" Text="{Binding UpdatedText}"
+                                           FontFamily="Consolas" FontSize="11"
+                                           Foreground="{StaticResource TextMuted}"
+                                           VerticalAlignment="Center" />
+
+                                <!-- 当前激活项必须一眼看到：换型时最怕"以为换好了，其实还指着旧的" -->
+                                <Border Grid.Column="6" CornerRadius="3" Padding="4,1"
+                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Setter Property="Background" Value="{StaticResource AccentSoft}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBlock Text="当前" FontSize="10" FontWeight="SemiBold"
+                                               Foreground="{StaticResource Accent}" />
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- 空态：说清是"目录里没有配方"还是"读失败了"，别留一块白板 -->
+                <TextBlock Grid.Row="1" Text="{Binding StatusText}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextAlignment="Center" TextWrapping="Wrap" Margin="24"
+                           FontSize="12" Foreground="{StaticResource TextMuted}"
+                           IsHitTestVisible="False">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Rows.Count}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <!-- 状态行：切换结果/失败原因/权限提示都在这里 -->
+                <Border Grid.Row="2" Background="{StaticResource SubtleBg}" Padding="10,6"
+                        BorderBrush="{StaticResource CardBorder}" BorderThickness="0,1,0,0">
+                    <TextBlock Text="{Binding StatusText}" FontSize="11" TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding StatusIsWarning}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

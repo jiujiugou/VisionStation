@@ -47,6 +47,32 @@ public sealed record AuthResult(AuthOutcome Outcome, UserAccount? User, TimeSpan
 }
 
 /// <summary>
+/// 一次管理动作（新增 / 停用启用 / 重置密码 / 改角色）的结果。
+///
+/// <para>
+/// 为什么不用异常表达失败：这些失败绝大多数是<b>业务上的"不允许"</b>
+/// （撞名、最后一个管理员、密码太短），界面要原样展示给人看。
+/// 抛异常会让"业务拒绝"和"数据库坏了"混在同一层 catch 里，
+/// 最后两边都只剩一句"操作失败"。
+/// </para>
+/// <para>
+/// <b>没有</b> <c>Denied</c> 字段：权限判定在界面层（<c>ISessionService.HasPermission</c>），
+/// 到不了这里 —— 本类不持有会话，也无从知道"现在登录的是谁"（<c>actor</c> 是调用方传进来的，
+/// 只用于自保护判定，不是权限判定）。
+/// </para>
+/// </summary>
+/// <param name="Ok">是否真的改了库</param>
+/// <param name="Error">失败原因，直接给操作员看</param>
+public sealed record UserAdminResult(bool Ok, string? Error = null)
+{
+    /// <summary>成功（同一个实例可复用，它是不可变的）</summary>
+    public static readonly UserAdminResult Success = new(true);
+
+    /// <summary>失败：<paramref name="error"/> 必须是能直接显示的中文句子</summary>
+    public static UserAdminResult Fail(string error) => new(false, error);
+}
+
+/// <summary>
 /// 认证与账号管理契约。
 ///
 /// 注意这里没有"当前登录的是谁" —— 那是 <see cref="ISessionService"/> 的职责。
@@ -65,6 +91,39 @@ public interface IUserService
     Task EnsureDefaultAdminAsync(CancellationToken ct = default);
 
     Task<IReadOnlyList<UserAccount>> GetUsersAsync(CancellationToken ct = default);
+
+    // ── 用户管理（F-64） ──
+    //
+    // 四个方法的 actor 参数是"当前操作人的登录名"，只用于两条自保护判定
+    // （不能停用自己 / 不能改掉最后一个启用中的管理员）。
+    // 权限判定不在这里：ISessionService.HasPermission(ManageUsers) 由界面层先做一遍，
+    // 本类不持有会话，也无从伪造一个"当前用户"。
+
+    /// <summary>
+    /// 新建账号。新号一律 <c>MustChangePassword = true</c>（与出厂管理员同一口径），
+    /// 用户名大小写不敏感唯一。
+    /// </summary>
+    Task<UserAdminResult> CreateUserAsync(
+        string userName, UserRole role, string initialPassword, string actor,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// 启用 / 停用。停用之后 <see cref="AuthenticateAsync"/> 返回 <see cref="AuthOutcome.Disabled"/>，
+    /// 但账号记录与全部历史审计都留着。
+    /// </summary>
+    Task<UserAdminResult> SetUserEnabledAsync(
+        string userName, bool enabled, string actor, CancellationToken ct = default);
+
+    /// <summary>
+    /// 管理员重置他人密码（不需要旧密码），重置后强制本人下次登录改密。
+    /// 这是 <see cref="ChangePasswordAsync"/> 缺失的那条路径，不是它的替代 —— 两者都要留着。
+    /// </summary>
+    Task<UserAdminResult> ResetPasswordAsync(
+        string userName, string newPassword, string actor, CancellationToken ct = default);
+
+    /// <summary>改角色。降掉最后一个启用中的管理员会让系统锁死，因此被拒。</summary>
+    Task<UserAdminResult> ChangeRoleAsync(
+        string userName, UserRole role, string actor, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -408,6 +467,220 @@ public sealed class UserService : IUserService
     /// </summary>
     public Task<IReadOnlyList<UserAccount>> GetUsersAsync(CancellationToken ct = default)
         => _repo.GetAllAsync();
+
+    // ── 用户管理（F-64） ──
+
+    /// <summary>
+    /// 新建账号。三道校验的顺序是刻意的：用户名 → 角色 → 密码 → 撞名。
+    /// 撞名放在最后，是因为它要查库；前三项纯内存判断，能不出门就不出门。
+    ///
+    /// <para>
+    /// <b>撞名判定必须走 <see cref="IUserRepository.FindAsync"/></b>：它大小写不敏感，
+    /// 与登录口径一致。直接靠主键撞库会抛 SQLite 的约束异常，
+    /// 界面拿到的就是一句英文堆栈 —— 而"admin 已存在"才是操作员能处理的信息。
+    /// </para>
+    /// <para>
+    /// <b><c>MustChangePassword = true</c> 是硬要求</b>：初始密码是管理员口头/写在交接班表上的，
+    /// 知道它的人可能不止一个人。不强制改密，这个号就永远是一个公共账号。
+    /// </para>
+    /// <para>
+    /// 线程：UI 线程发起（按钮命令），内部两次 await 之后落到线程池；
+    /// 失败行为：业务失败返回 <see cref="UserAdminResult.Fail"/>，数据库异常照常抛给调用方
+    /// （那是真故障，界面统一按"操作失败"提示并记审计 Failed）。
+    /// </para>
+    /// </summary>
+    public async Task<UserAdminResult> CreateUserAsync(
+        string userName, UserRole role, string initialPassword, string actor,
+        CancellationToken ct = default)
+    {
+        var name = (userName ?? string.Empty).Trim();
+
+        if (name.Length == 0) return UserAdminResult.Fail("用户名不能为空");
+        if (name.Any(char.IsWhiteSpace)) return UserAdminResult.Fail("用户名不能包含空格");
+        if (!Enum.IsDefined(role)) return UserAdminResult.Fail("角色无效");
+
+        if (string.IsNullOrEmpty(initialPassword) || initialPassword.Length < MinPasswordLength)
+            return UserAdminResult.Fail($"初始密码至少 {MinPasswordLength} 位");
+
+        // 大小写不敏感查重：与 FindAsync/登录同一口径，避免 admin 与 Admin 并存
+        var existing = await _repo.FindAsync(name).ConfigureAwait(false);
+        if (existing is not null)
+            return UserAdminResult.Fail($"账号「{existing.UserName}」已存在（用户名不区分大小写）");
+
+        var pwd = PasswordHasher.Create(initialPassword);
+
+        await _repo.UpsertAsync(new UserAccount
+        {
+            UserName = name,
+            DisplayName = name,
+            Role = role,
+            PasswordHash = pwd.Hash,
+            PasswordSalt = pwd.Salt,
+            PasswordIterations = pwd.Iterations,
+            IsEnabled = true,
+            MustChangePassword = true,
+            CreatedAt = _now(),
+        }).ConfigureAwait(false);
+
+        _logger?.LogWarning("[用户] {Actor} 新建账号 {User}（{Role}），首次登录必须改密",
+            DescribeActor(actor), name, RolePermissions.Describe(role));
+
+        return UserAdminResult.Success;
+    }
+
+    /// <summary>
+    /// 启用 / 停用。停用是**唯一**的"删人"手段（仓储刻意没有 Delete，理由见
+    /// <see cref="IUserRepository"/>），所以这里的两条自保护就是全部的防线。
+    ///
+    /// <para>
+    /// 幂等：账号已经是目标状态时直接返回成功，不写库、不报错 ——
+    /// 界面上连点两下"停用"不该看到第二句"操作失败"。
+    /// </para>
+    /// <para>
+    /// <b>两条底线，顺序不能反</b>：先拦"停用自己"（操作员最常误点的就是自己那一行），
+    /// 再拦"最后一个启用中的管理员"。后者查的是<b>库里现在的状态</b>，
+    /// 不是在内存里推算 —— 提前算会漏掉"另一个人刚被停用"的情况。
+    /// </para>
+    /// </summary>
+    public async Task<UserAdminResult> SetUserEnabledAsync(
+        string userName, bool enabled, string actor, CancellationToken ct = default)
+    {
+        var user = await _repo.FindAsync(userName).ConfigureAwait(false);
+        if (user is null) return UserAdminResult.Fail("账号不存在");
+
+        // 已经是这个状态：什么都不用做，也别记成失败
+        if (user.IsEnabled == enabled) return UserAdminResult.Success;
+
+        if (!enabled)
+        {
+            if (IsSelf(user, actor))
+                return UserAdminResult.Fail("不能停用当前登录的账号");
+
+            if (await IsLastEnabledAdminAsync(user).ConfigureAwait(false))
+                return UserAdminResult.Fail("这是最后一个启用中的管理员，停用后就没人能管理账号了");
+        }
+
+        // 仓储这里不返回 bool：目标账号刚刚才查到，找不到只可能是并发删表这种真故障
+        await _repo.SetEnabledAsync(user.UserName, enabled).ConfigureAwait(false);
+
+        _logger?.LogWarning("[用户] {Actor} {Action}账号 {User}",
+            DescribeActor(actor), enabled ? "启用" : "停用", user.UserName);
+
+        return UserAdminResult.Success;
+    }
+
+    /// <summary>
+    /// 管理员重置他人密码：不需要旧密码，直接把新密码写进去，并置
+    /// <c>MustChangePassword = true</c>。
+    ///
+    /// <para>
+    /// <b>为什么必须强制改密</b>：管理员知道这个临时密码，如果不强制改，
+    /// 管理员可以随时用这串密码登进这个号 —— 那就等于每个账号都长了一样。
+    /// 强制改密把"临时密码的知晓期"限制到本人下一次登录为止。
+    /// </para>
+    /// <para>
+    /// 与 <see cref="ChangePasswordAsync"/> 的差别：那个要旧密码、清掉改密标志
+    /// （本人改完就算完）；这个不要旧密码、设上改密标志。两条路径不能合并 ——
+    /// 合并的第一种写法就是"管理员重置也校验旧密码"，等于重置不了。
+    /// </para>
+    /// <para>
+    /// 允许重置自己：管理员忘了密码时现场只有这台机器，不给这条路就只能重装。
+    /// 代价是自己下一次登录也会被要求改密，这是可接受的。
+    /// </para>
+    /// </summary>
+    public async Task<UserAdminResult> ResetPasswordAsync(
+        string userName, string newPassword, string actor, CancellationToken ct = default)
+    {
+        var user = await _repo.FindAsync(userName).ConfigureAwait(false);
+        if (user is null) return UserAdminResult.Fail("账号不存在");
+
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < MinPasswordLength)
+            return UserAdminResult.Fail($"新密码至少 {MinPasswordLength} 位");
+
+        var fresh = PasswordHasher.Create(newPassword);
+
+        // mustChangePassword: true —— 重置出来的密码只是"临时通行证"
+        await _repo.UpdatePasswordAsync(
+            user.UserName, fresh.Hash, fresh.Salt, fresh.Iterations, mustChangePassword: true)
+            .ConfigureAwait(false);
+
+        _logger?.LogWarning("[用户] {Actor} 重置了账号 {User} 的密码（下次登录必须修改）",
+            DescribeActor(actor), user.UserName);
+
+        return UserAdminResult.Success;
+    }
+
+    /// <summary>
+    /// 改角色。提权与降权走同一条路径（审计里用 Before/After 记方向）。
+    ///
+    /// <para>
+    /// <b>为什么降权也要查"最后一个管理员"</b>：把唯一的管理员改成工程师，
+    /// 后果和停用他完全一样 —— 系统里再没有人有 <c>ManageUsers</c>，
+    /// 连"改回来"都做不到。拦的是后果，不是动作名字。
+    /// </para>
+    /// <para>
+    /// 允许改自己的角色（前提是改完仍有别的启用管理员）：现场一个管理员
+    /// 要把权限交出去时，先建新管理员再降自己是最正常的流程。
+    /// 注意界面上的会话不会因此变化 —— 角色要重新登录才生效（<see cref="ISessionService"/> 的设计）。
+    /// </para>
+    /// </summary>
+    public async Task<UserAdminResult> ChangeRoleAsync(
+        string userName, UserRole role, string actor, CancellationToken ct = default)
+    {
+        var user = await _repo.FindAsync(userName).ConfigureAwait(false);
+        if (user is null) return UserAdminResult.Fail("账号不存在");
+        if (!Enum.IsDefined(role)) return UserAdminResult.Fail("角色无效");
+
+        // 角色没变：不写库、不记失败（界面上的"保存"经常有人连点）
+        if (user.Role == role) return UserAdminResult.Success;
+
+        if (user.Role == UserRole.Admin && role != UserRole.Admin
+            && await IsLastEnabledAdminAsync(user).ConfigureAwait(false))
+            return UserAdminResult.Fail("这是最后一个启用中的管理员，改成其他角色后就没人能管理账号了");
+
+        if (!await _repo.SetRoleAsync(user.UserName, role).ConfigureAwait(false))
+            return UserAdminResult.Fail("账号不存在");
+
+        _logger?.LogWarning("[用户] {Actor} 修改账号 {User} 的角色：{Before} → {After}",
+            DescribeActor(actor), user.UserName,
+            RolePermissions.Describe(user.Role), RolePermissions.Describe(role));
+
+        return UserAdminResult.Success;
+    }
+
+    /// <summary>
+    /// 目标账号是不是当前操作人自己。大小写不敏感（与查库口径一致）：
+    /// 操作员在小键盘上敲出的 "Admin" 和会话里的 "admin" 是同一个人。
+    /// </summary>
+    private static bool IsSelf(UserAccount user, string actor)
+        => !string.IsNullOrWhiteSpace(actor)
+           && string.Equals(user.UserName, actor.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 目标账号是不是"最后一个启用中的管理员"。
+    ///
+    /// 判据是查库后的计数，不是缓存：停用/改角色都发生在用户管理页，
+    /// 而管理员可能刚刚在另一台机器上改过（同一台机器上也可能连着点两下）。
+    /// 账号表只有个位数行，多查一次不值得为它引入缓存失效逻辑。
+    ///
+    /// <para>
+    /// <b>已知边界</b>：查计数与写库是两次独立操作，中间有人并发停用另一个管理员时
+    /// 仍可能双双通过。这个程序里管理动作只有一个人在一个界面上做（单机上位机），
+    /// 不为此引入事务与重试。
+    /// </para>
+    /// </summary>
+    private async Task<bool> IsLastEnabledAdminAsync(UserAccount user)
+    {
+        // 停用的管理员本来就不能登录，不构成"锁死"；非管理员更无关
+        if (user.Role != UserRole.Admin || !user.IsEnabled) return false;
+
+        var all = await _repo.GetAllAsync().ConfigureAwait(false);
+        return all.Count(u => u.IsEnabled && u.Role == UserRole.Admin) <= 1;
+    }
+
+    /// <summary>日志里的操作人。取不到就写 unknown —— 不因为少一个名字丢掉整行日志。</summary>
+    private static string DescribeActor(string actor)
+        => string.IsNullOrWhiteSpace(actor) ? "unknown" : actor.Trim();
 
     // ── 失败计数（内存，见类注释第 1 条） ──
 

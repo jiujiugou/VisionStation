@@ -52,6 +52,22 @@ public class ArchitectureTests
         AssertPass(result, "领域层不碰持久化实现");
     }
 
+    /// <summary>
+    /// F-10（2026-10-27 拍板）：不按引擎"能力"分流。
+    ///
+    /// 曾经的 <c>IPushDrivenEngine</c> 空接口只在控制面板弹一句提示，
+    /// 真正的执行路径（<c>RunOnceAsync</c>）压根不看它 —— 结论对、理由不对。
+    /// 单引擎下没有第二种取值可对照，它已删除；这条测试防它被人加回来。
+    /// </summary>
+    [Fact]
+    public void 引擎契约里不应再有推驱动能力标记()
+    {
+        var marker = CoreAssembly.GetType(
+            "VisionStation.Core.Engines.IPushDrivenEngine", throwOnError: false);
+
+        Assert.Null(marker);
+    }
+
     private static void AssertPass(TestResult result, string reason)
     {
         if (result.IsSuccessful)

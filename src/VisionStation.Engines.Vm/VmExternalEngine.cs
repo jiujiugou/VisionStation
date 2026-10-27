@@ -42,15 +42,15 @@ namespace VisionStation.Engines.Vm;
 /// </para>
 ///
 /// <para>
-/// <b>实现 <see cref="IPushDrivenEngine"/> 的作用</b>：告诉上层"这个引擎不响应主动检测"。
-/// 控制面板据此在点"开始检测"时直接说明原因，而不是让人以为按钮坏了。
-/// 自动循环那条路的跳过目前是工作流里硬编码的（<c>RunOnceAsync</c> 无条件返回 null），
-/// 但如果哪天有人把它改回"按引擎决定"，这个标记就是唯一正确的判断依据 ——
-/// 漏判的后果是每 2 秒产生一条"VM 模式不支持主动检测"的假 NG 进库，
-/// 一天几万条，良率统计直接失真，而且这些记录和真 NG 长得一模一样。
+/// <b>为什么这个引擎永远不主动检测</b>：检测由 VisionMaster 自己跑、结果主动推过来，
+/// 本引擎没有相机、没有流程、也没有回推通道。所以 <see cref="Inspect"/> 恒返回 NG；
+/// 上层（控制面板按钮、自动循环）在调它之前就已经说明"检测由平台执行"。
+/// 这里不做"引擎类型分流"——运行时只有这一个引擎，"按能力判断"没有任何第二种取值可对照
+/// （2026-10-27 F-10 拍板，原来的 <c>IPushDrivenEngine</c> 标记已删除：它在真正的
+/// 执行路径上从未起过作用，只是看起来在工作）。
 /// </para>
 /// </summary>
-public sealed class VmExternalEngine : IInspectionEngine, IPushDrivenEngine
+public sealed class VmExternalEngine : IInspectionEngine
 {
     /// <summary>
     /// 构造时算好的失败原因（含链路描述）。存成字段而不是每次拼：
@@ -79,11 +79,10 @@ public sealed class VmExternalEngine : IInspectionEngine, IPushDrivenEngine
     /// 副作用：无 —— 不读图、不释放 <c>request.Image</c>、不发消息、不写库。
     /// </para>
     /// <para>
-    /// <b>实际上几乎不会被调用</b>：控制面板在点"开始检测"时先判
-    /// <see cref="IPushDrivenEngine"/> 并直接提示，自动循环也会跳过；
-    /// 所以操作员看到的那句提示来自 <c>ControlPanelViewModel</c>，不是这里。
-    /// 本方法的价值是"第二道防线"：任何新代码绕过那两处判断时，
-    /// 拿到的还是一条可解释的 NG，而不是一张已经被 VM 独占的相机图或一个空引用。
+    /// <b>实际上几乎不会被调用</b>：控制面板在点"开始检测"时直接说明"检测由平台执行"，
+    /// 自动循环那条路的 <c>RunOnceAsync</c> 也无条件返回 null；所以操作员看到的那句提示
+    /// 来自 <c>ControlPanelViewModel</c>，不是这里。本方法的价值是"第二道防线"：
+    /// 任何新代码绕过那两处时，拿到的还是一条可解释的 NG，而不是一个空引用。
     /// </para>
     /// </summary>
     public InspectionReport Inspect(InspectionRequest request)

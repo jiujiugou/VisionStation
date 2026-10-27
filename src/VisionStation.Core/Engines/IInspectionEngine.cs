@@ -18,16 +18,15 @@ namespace VisionStation.Core.Engines;
 /// <b>为什么会有这个接口</b>（历史）：曾经确实存在两个实现，
 /// <c>Vm</c>（海康流程）与 <c>Onnx</c>（YOLO 兜底），按配方切换是真需求，不是为 mock 造的缝。
 /// 2026-10-27 起 ONNX 整条线删除（引擎、离线跑批工具、模型、数据集、相关测试），
-/// 于是实现只剩一个 —— 接口留着，是因为"换引擎"的语义还在（配方里有 engine 字段），
-/// 而且 <see cref="IPushDrivenEngine"/> 这条能力判定需要一个挂点。
+/// 于是实现只剩一个 —— 接口留着，是因为"换引擎"的语义还在（配方里有 engine 字段）。
 /// </para>
 ///
 /// <para>
 /// <b>归属与线程</b>：<c>InspectionEngineFactory</c> 按配方 new 一次，注册为单例，活到进程结束；
 /// 被工作流、图像面板、控制面板共享。VM 模式下 <see cref="Inspect"/> 在正常运行期间
 /// 一次都不会被调用：自动循环走的是 <c>InspectionWorkflow.RunOnceAsync</c>，
-/// 它在相机层删除后已经<b>无条件返回 null</b>；界面上点"开始检测"则由控制面板用
-/// <see cref="IPushDrivenEngine"/> 提前拦下并说明原因。两条路都不进 <see cref="Inspect"/>。
+/// 它在相机层删除后已经<b>无条件返回 null</b>；界面上点"开始检测"则由控制面板
+/// 直接说明"检测由 VisionMaster 执行"。两条路都不进 <see cref="Inspect"/>。
 /// </para>
 ///
 /// <para>
@@ -75,43 +74,6 @@ public interface IInspectionEngine : IDisposable
     /// </returns>
     InspectionReport Inspect(InspectionRequest request);
 
-}
-
-/// <summary>
-/// 标记：判定由**外部系统主动推送**，本引擎不响应"给图 → 出报告"。
-///
-/// <para>
-/// <b>有它的原因</b>：TCP 中转模式下 VisionMaster 自己采图、自己判定、把结果推过来，
-/// 方向是反的。而上位机的自动循环并不知道这件事，它仍会按节拍（2 秒）调一次
-/// <see cref="IInspectionEngine.Inspect"/>。
-/// </para>
-///
-/// <para>
-/// <b>不跳的后果（这是这个空接口存在的全部价值）</b>：<c>VmExternalEngine.Inspect</c>
-/// 会如实返回一份"VM 模式不支持主动检测"的 NG 报告，工作流再把它入库 ——
-/// 于是产线每 2 秒多一条假 NG，一天就是几万条。良率统计直接失真，
-/// 而且这些记录长得和真 NG 一模一样，事后没法从库里区分。
-/// 所以上层在调主动检测<b>之前</b>必须先问一句"这个引擎是不是推驱动"。
-/// </para>
-///
-/// <para>
-/// <b>现状（别把它当成已在生效的开关）</b>：这个标记现在只被两处界面用到 ——
-/// <c>ControlPanelViewModel.StartDetection</c>（点按钮时直接说明"由 VM 执行、本按钮不发起检测"）
-/// 和 <c>ImagePanelViewModel</c>（提示文案）。
-/// 真正让自动循环不入库的是 <c>InspectionWorkflow.RunOnceAsync</c>：相机层删除后它
-/// <b>无条件</b>返回 null，并不检查这个接口。也就是说"跳过"目前是硬编码的，
-/// 这个标记守的是"再来一个新的推驱动引擎时，界面别去假装触发它"。
-/// 若将来恢复"按引擎类型决定要不要主动检测"，判断点必须落在这里。
-/// </para>
-///
-/// <para>
-/// <b>为什么是空接口而不是一个 bool 属性</b>：能力标记不需要状态，也不需要实现方提供值。
-/// 空接口让"是不是推驱动"由类型本身回答，编译期就确定，不会出现"属性忘了实现、默认 false"
-/// 那种要看运行结果才知道的错。
-/// </para>
-/// </summary>
-public interface IPushDrivenEngine
-{
 }
 
 /// <summary>

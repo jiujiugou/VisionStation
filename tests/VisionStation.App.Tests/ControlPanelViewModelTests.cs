@@ -26,7 +26,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = false };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            new FakeEngine(), TestPaths.Recipe(), audit)
+            TestPaths.Recipe(), audit)
         {
             IsAutoMode = true
         };
@@ -57,7 +57,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = true };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            new FakeEngine(), TestPaths.Recipe(), audit)
+            TestPaths.Recipe(), audit)
         {
             IsAutoMode = true
         };
@@ -94,7 +94,7 @@ public class ControlPanelViewModelTests
         try
         {
             var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
-                new FakeEngine(), TestPaths.Recipe(), new FakeAuditService());
+                TestPaths.Recipe(), new FakeAuditService());
 
             vm.ClearAllCommand.Execute(null);
 
@@ -107,9 +107,47 @@ public class ControlPanelViewModelTests
         }
     }
 
+    /// <summary>
+    /// F-10（2026-10-27 拍板）：本程序不参与触发。
+    ///
+    /// "开始检测"只解释原因，**绝不推触发源** —— 推了也没有任何东西会检测，
+    /// 但日志里会留下"已触发"的假象，比按钮没反应更难查。
+    /// </summary>
+    [Fact]
+    public void StartDetection_DoesNotFireTrigger_ExplainsPlatformOwnsDetection()
+    {
+        var trigger = new FakeTrigger();
+        var logs = new List<LogMessage>();
+
+        WeakReferenceMessenger.Default.Register<LogMessage>(this, (_, msg) => logs.Add(msg));
+
+        try
+        {
+            var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
+                TestPaths.Recipe(), new FakeAuditService());
+
+            vm.StartDetectionCommand.Execute(null);
+
+            Assert.Equal(0, trigger.FireCount);
+
+            var log = Assert.Single(logs);
+            Assert.Equal(LogMsgLevel.Warning, log.Value.Level);
+            Assert.Contains("VisionMaster", log.Value.Text);
+        }
+        finally
+        {
+            // 与 ClearAll 用例同理：静态 Messenger 不反注册会污染同进程其他用例
+            WeakReferenceMessenger.Default.UnregisterAll(this);
+        }
+    }
+
     private sealed class FakeTrigger : ITriggerSource
     {
         public int StopCount { get; private set; }
+
+        /// <summary>Fire 次数。F-10 的验收点：手动"开始检测"一次都不许推触发源。</summary>
+        public int FireCount { get; private set; }
+
         public bool IsRunning { get; private set; }
         public event Action<TriggerOrigin>? Triggered;
 
@@ -121,7 +159,11 @@ public class ControlPanelViewModelTests
             IsRunning = false;
         }
 
-        public void Fire() => Triggered?.Invoke(TriggerOrigin.Manual);
+        public void Fire()
+        {
+            FireCount++;
+            Triggered?.Invoke(TriggerOrigin.Manual);
+        }
 
         public void Dispose() { }
     }

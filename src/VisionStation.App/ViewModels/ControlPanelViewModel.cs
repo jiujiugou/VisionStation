@@ -45,9 +45,6 @@ public partial class ControlPanelViewModel : ObservableObject
     private readonly ITriggerSource _trigger;
     private readonly IDialogService _dialog;
 
-    /// <summary>引擎。用 <c>is IPushDrivenEngine</c> 判断能力，不看具体类型。</summary>
-    private readonly IInspectionEngine _engine;
-
     /// <summary>配方。只为审计里的配方名读它（"这班是谁在用哪份配方"）。</summary>
     private readonly RecipeConfig _recipe;
 
@@ -77,13 +74,11 @@ public partial class ControlPanelViewModel : ObservableObject
     public ControlPanelViewModel(
         ITriggerSource trigger,
         IDialogService dialog,
-        IInspectionEngine engine,
         RecipeConfig recipe,
         IAuditService audit)
     {
         _trigger = trigger;
         _dialog = dialog;
-        _engine = engine;
         _recipe = recipe;
         _audit = audit;
     }
@@ -93,23 +88,24 @@ public partial class ControlPanelViewModel : ObservableObject
     // ═══════════════════════════════════════════════════════════
 
     /// <summary>
-    /// 手动触发一次检测
-    /// 流程：按钮点击 → 如果是 ManualTrigger → 调 Fire() → Triggered 事件 → InspectionPageViewModel（S4 后不再经 MainViewModel 中转）
+    /// 手动触发一次检测 —— <b>本程序不发起检测</b>（2026-10-27 F-10 拍板）。
+    ///
+    /// <para>
+    /// 相机与判定都归 VisionMaster：图在平台侧产生、结果由平台主动推送，本程序没有可触发的采图动作。
+    /// 所以这里只说明原因然后返回 —— 这个按钮在产线上是给人按的，点了没反应会被当成程序卡死。
+    /// </para>
+    /// <para>
+    /// <b>为什么不按引擎类型判断</b>：运行时只有一个引擎（VM），"按能力分流"没有第二种取值可对照；
+    /// 原来的 <c>IPushDrivenEngine</c> 标记只在这一处产生提示，真正的执行路径压根不看它 ——
+    /// 结论对、理由不对，所以标记已删除，这里改成直接说事实。
+    /// </para>
     /// </summary>
     [RelayCommand]
     private void StartDetection()
     {
-        // VM 模式（推驱动）：检测由 VisionMaster 自己跑，本程序的触发源推不动它。
-        // 这里必须明说，否则点了没反应会被当成程序卡死 —— 这个按钮在产线上是要给人按的。
-        if (_engine is IPushDrivenEngine)
-        {
-            WeakReferenceMessenger.Default.Send(new LogMessage(
-                $"当前引擎是 {_engine.Name}（推驱动）：检测由 VisionMaster 执行，本按钮不发起检测",
-                LogMsgLevel.Warning));
-            return;
-        }
-
-        _trigger.Fire();
+        WeakReferenceMessenger.Default.Send(new LogMessage(
+            "检测由 VisionMaster 执行：本程序不采图、不发起检测，等待平台推送结果",
+            LogMsgLevel.Warning));
     }
 
     /// <summary>

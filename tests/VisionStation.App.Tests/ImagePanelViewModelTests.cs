@@ -50,6 +50,31 @@ public class ImagePanelViewModelTests
     }
 
     /// <summary>
+    /// F-10（2026-10-27）：单引擎之后，"等平台推"不再由能力标记决定 —— 传了引擎就是 VM 模式。
+    /// 这条钉住运行时那一支的等待文案；下一条钉住没传引擎（单测）的那一支。
+    /// </summary>
+    [Fact]
+    public void WaitingState_WithEngine_WaitsForPlatformPush()
+    {
+        var vm = new ImagePanelViewModel(new FakeEngine());
+
+        Assert.Equal("等待检测结果", vm.EmptyTitle);
+    }
+
+    /// <summary>
+    /// 没传引擎时仍按"等你点开始"说话：这条分支现在只剩单测会走到，
+    /// 但文案与链路状态处理还挂在它上面，留着并钉住，防止某次重构把两支并成一支后
+    /// 单测里出现"等平台推送"这种与场景不符的文案。
+    /// </summary>
+    [Fact]
+    public void WaitingState_WithoutEngine_AsksOperatorToStart()
+    {
+        var vm = new ImagePanelViewModel();
+
+        Assert.Equal("尚未开始检测", vm.EmptyTitle);
+    }
+
+    /// <summary>
     /// 1x1 Bgr24 只用来区分两个对象引用，不参与渲染。
     /// 必须 Freeze：生产代码里位图在后台线程创建，未冻结的 BitmapSource 交给 UI 会抛
     /// InvalidOperationException；测试替身也按同一契约走。

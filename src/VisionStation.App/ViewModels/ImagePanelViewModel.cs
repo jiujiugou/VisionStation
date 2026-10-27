@@ -21,16 +21,19 @@ namespace VisionStation.App.ViewModels;
 public partial class ImagePanelViewModel : ObservableObject
 {
     /// <summary>
-    /// 图像是否由外部引擎推来（VM）。决定等待态怎么说话。
+    /// 图像是否由平台推送而来（VM）。决定等待态怎么说话。
     ///
     /// <para>
-    /// <b>现状：恒为 true。</b>自采模式（程序自己截图后检测）随相机层在 2026-10-26 删除，
-    /// 运行时唯一的引擎 <c>VmExternalEngine</c> 实现了 <see cref="IPushDrivenEngine"/>。
-    /// 保留这个分支是因为下面的 <c>ShowWaitingState</c> / <c>ApplyLinkStatus</c> 依赖它
-    /// 区分"等平台推"和"等你点开始"，而测试里仍会构造非推驱动的替身。
+    /// <b>怎么算：传了引擎就算。</b>自采模式（程序自己截图后检测）随相机层在 2026-10-26 删除，
+    /// 运行时只有一个引擎 <c>VmExternalEngine</c>，"有引擎"与"等平台推"在当前代码里是同一件事。
+    /// 不传引擎的是单测，按"等你点开始"的旧文案说话，两条分支都还留着测试覆盖。
+    /// </para>
+    /// <para>
+    /// 2026-10-27 F-10：原来这里判 <c>engine is IPushDrivenEngine</c>（一个能力标记空接口）。
+    /// 标记已删除 —— 单引擎下它只把"有没有引擎"多包了一层，看着像分流、实际没有第二种取值。
     /// </para>
     /// </summary>
-    private readonly bool _isPushDriven;
+    private readonly bool _waitsForPlatformPush;
 
     /// <summary>最近一次真正拿到图像的时间；null = 从启动到现在一张都没成功过</summary>
     private DateTime? _lastImageTime;
@@ -203,7 +206,7 @@ public partial class ImagePanelViewModel : ObservableObject
     /// </para>
     /// </summary>
     /// <param name="engine">
-    /// 用来判断"图是不是外面推来的"。没有引擎（单测）时按自采模式说话。
+    /// 运行时引擎。传了 = 图由平台推送（等待态说"等结果"）；不传（单测）= 按"等你点开始"说话。
     /// </param>
     /// <param name="ngHoldDuration">
     /// NG 主图保持时长；null = 用默认 2 秒。**只有测试会传别的值**：
@@ -211,7 +214,8 @@ public partial class ImagePanelViewModel : ObservableObject
     /// </param>
     public ImagePanelViewModel(IInspectionEngine? engine, TimeSpan? ngHoldDuration = null)
     {
-        _isPushDriven = engine is IPushDrivenEngine;
+        // 单引擎：有引擎就是 VM 模式（结果由平台推送），不再按引擎"能力"分流。
+        _waitsForPlatformPush = engine is not null;
         _ngHoldDuration = ngHoldDuration ?? DefaultNgHoldDuration;
 
         _selectedTab = Tabs[0]; // 默认显示原图
@@ -259,15 +263,15 @@ public partial class ImagePanelViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 还没收到任何结果时的空态。两种引擎说不同的话：
-    /// VM 模式是"等它推"，自采模式是"你还没让它跑"。
+    /// 还没收到任何结果时的空态。两种身份说不同的话：
+    /// 接了引擎（运行时）是"等它推"，没接引擎（单测）是"你还没让它跑"。
     ///
     /// 措辞上刻意不提 "VisionMaster"：产线操作员不认识这个词，
     /// 他只认"等结果""没连上""断了"这三种状态。
     /// </summary>
     private void ShowWaitingState()
     {
-        if (_isPushDriven)
+        if (_waitsForPlatformPush)
         {
             EmptyTitle = "等待检测结果";
             EmptyDetail = "尚未收到任何结果";
@@ -292,8 +296,8 @@ public partial class ImagePanelViewModel : ObservableObject
     /// </summary>
     private void ApplyLinkStatus(VmLinkStatus status)
     {
-        // 自采模式没有"平台连没连"这回事，链路状态与它无关
-        if (!_isPushDriven) return;
+        // 没有引擎（单测）时没有"平台连没连"这回事，链路状态与它无关
+        if (!_waitsForPlatformPush) return;
 
         if (OriginalImage is not null) return;
 
@@ -398,7 +402,7 @@ public partial class ImagePanelViewModel : ObservableObject
             EmptyAction = $"上一张有图像的是 {last.ToString("HH:mm:ss", CultureInfo.InvariantCulture)}";
             HasEmptyAction = true;
         }
-        else if (_isPushDriven)
+        else if (_waitsForPlatformPush)
         {
             // 一张都没成功过：这是链路/配置没接通，不是偶发失败，直接给两个动作
             EmptyAction = "切到工程师模式 → 侧边栏「图像来源」，指定平台存图的目录；"

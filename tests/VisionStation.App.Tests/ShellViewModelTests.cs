@@ -20,7 +20,7 @@ public class ShellViewModelTests
         var changed = new List<string?>();
         shell.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
-        navigation.Navigate("相机");
+        navigation.Navigate("图像来源");
 
         Assert.Contains(nameof(ShellViewModel.CurrentPage), changed);
         Assert.Contains(nameof(ShellViewModel.CurrentRoute), changed);
@@ -28,13 +28,13 @@ public class ShellViewModelTests
     }
 
     private static (ShellViewModel Shell, FakeNavigationService Navigation,
-        InspectionPageViewModel Inspection, CameraPageViewModel Camera) Create()
+        InspectionPageViewModel Inspection, ImageSourcePageViewModel Camera) Create()
     {
         var inspection = TestPages.Inspection();
-        var camera = TestPages.Camera();
+        var camera = TestPages.ImageSource();
         var navigation = new FakeNavigationService("检测", inspection)
             .With("检测", inspection)
-            .With("相机", camera);
+            .With("图像来源", camera);
 
         // 顶栏 2026-10-24 加入外壳。它只读配方 + 设备状态，不参与导航，
         // 所以这里给一份最小配方即可 —— 断言仍然是"切页必须通知两处"。

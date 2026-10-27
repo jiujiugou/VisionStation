@@ -13,7 +13,7 @@ namespace VisionStation.Devices;
 ///   TimerTrigger：Fire/Start/Stop 全支持
 ///   将来 PlcTrigger：Start 监听 PLC 寄存器，Fire 软件触发，Stop 断开监听
 ///
-/// 继承 IDisposable 的理由同 ICamera：定时器与轮询线程都持有资源，
+/// 继承 IDisposable 的理由：定时器与轮询线程都持有资源，
 /// "可释放"由编译器强制，而不是靠实现类自觉。
 /// </summary>
 public interface ITriggerSource : IDisposable

@@ -33,7 +33,7 @@ VisionStation.slnx
 │   ├── VmInspectionEngine.cs      VmSolution → VmProcedure → 模块 IO 取结果
 │   └── VmResultMapper.cs          读数 → 报告（纯逻辑，可单测）
 │
-├── VisionStation.Devices/         硬件抽象：相机（Hik / File / Webcam）、PLC、触发源
+├── VisionStation.Devices/         硬件抽象：触发源、PLC 连接（相机归平台独占，本程序不采图）
 ├── VisionStation.Storage/         EF Core + SQLite 记录、图片存储
 ├── VisionStation.Service/         启动自检、管家（清理）、配方存储
 ├── VisionStation.App/             WPF 组合根（MVVM + Messenger）
@@ -54,9 +54,8 @@ Core 不知道任何具体引擎，引擎不知道界面与数据库。
 
 ```
 IInspectionEngine      2 个实现   运行时只用 VM 推送结果那个；ONNX 那个只服务离线跑批
-ICamera                3 个实现   File / Webcam / Hikvision
-ITriggerSource         2 个实现   Timer / PLC（Modbus TCP）
-IDevice                2 个实现   Camera / Trigger
+ITriggerSource         2 个实现   Timer / PLC（Modbus TCP / RTU）
+IDevice                1 个实现   Trigger（相机层 2026-10-26 已删）
 IInspectionRepository  1 个实现   SQLite（管家清理线程与检测线程共用，故按操作建 context）
 ```
 
@@ -78,10 +77,11 @@ VmResultListener → VmResultParser（分隔符 / JSON 两种格式 → Inspecti
 存图 + SQLite 入库 → 界面刷新 → PLC 结果回写（OK=1 / NG=2）+ 心跳自增
 ```
 
-**本地主动检测路径（`RunOnceAsync`）已休眠**：它原本是"上位机取图 → 交给引擎推理"，
-ONNX 移出运行时后，VM 模式下该方法直接返回 `null`，"开始检测"按钮只提示一句
+**本地主动检测路径已删除**：相机层（`ICamera` + Hik/File/Webcam 三个实现 + 热切换）
+于 2026-10-26 整体移除 —— 相机归视觉平台独占，本程序不再采图。
+`RunOnceAsync` 保留为空实现（永远返回 `null` 且不入库），"开始检测"按钮只提示
 "检测由 VisionMaster 执行"（见 `ControlPanelViewModel.StartDetection`）。
-这条路径连同相机切换，是下一步要清理的遗留 —— 现在它不产生检测，也不该假装能。
+"重新连接相机"按钮、相机页、"相机"指示灯一并删除：灯换成"平台"，反映平台推没推结果。
 
 **失败语义（一条硬规则）**：引擎不把异常抛给调用方。平台无授权、`.sol` 缺失、流程损坏，
 一律返回 `IsOk=false` 且带原因的 NG 报告，并记 ERROR —— 产线要的是"这一件没判出来，且查得到原因"，
@@ -111,7 +111,7 @@ dotnet publish src/VisionStation.App -c Release -r win-x64 --self-contained -o p
 ## 配方文件
 
 换检测产品 = 换一份配方 JSON，代码不动。引擎也写在配方里 —— .sol 与模型都是跟产品绑定的，
-而 `appsettings.json` 描述的是这台机器（相机、PLC、存储）。
+而 `appsettings.json` 描述的是这台机器（PLC、存储、平台端口）。
 
 ```json
 {
@@ -184,7 +184,7 @@ dotnet run --project tools/GoldenSetRunner             # 跑批 + 与基线对�
 | 运行时 / UI | .NET 8 · WPF · CommunityToolkit.Mvvm |
 | 视觉平台 | 海康 VisionMaster 4.2（独立运行 + TCP 结果通信，可选） |
 | 离线验证 | OpenCvSharp4 + ONNX Runtime（YOLOv8 导出模型，**仅 `tools/GoldenSetRunner`**） |
-| 相机 | 海康 MVS SDK（真机 + 虚拟相机） |
+| 相机 | **不在本程序**：由 VisionMaster 独占（本程序只接收图路径与判定） |
 | 存储 / 日志 / DI | SQLite + EF Core · Serilog · Microsoft.Extensions.DependencyInjection |
 
 ## 工程约束

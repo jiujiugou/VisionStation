@@ -15,17 +15,14 @@ namespace VisionStation.App.Services.Inspection;
 /// <summary>
 /// 检测链路本体：采图 → 检测 → 标注 → 存图 → 存库。
 ///
-/// 与改造前的区别只有一处，但很关键：**它不再知道检测是怎么做的**。
-/// 采图归 ICamera，判定归 <see cref="IInspectionEngine"/>（VM 流程或 ONNX），
-/// 本类只负责把三者串起来，并保证"每一帧的失败都能被看见"。
+/// 与改造前的区别只有一处，但很关键：**它不再知道检测是怎么做的，也不采图**。
+/// 判定归 <see cref="IInspectionEngine"/>，图像由外部平台推送（VM 存盘、报文带路径），
+/// 本类只负责"解析图 → 标注 → 入库 → 回写 PLC"，并保证每一帧的失败都能被看见。
 /// </summary>
 public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 {
-    private readonly ICamera _camera;
     private readonly IInspectionEngine _engine;
     private readonly IInspectionRepository _repo;
-    private readonly ImageStoreService _imageStore;
-    private readonly RecipeConfig _recipe;
     private readonly ILogger<InspectionWorkflow> _logger;
 
     /// <summary>
@@ -39,20 +36,13 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     private readonly PlcResultWriter? _plcWriter;
 
     /// <summary>
-    /// 连续存图失败次数。成功一次即清零。
+    /// 图像来源设置（可空：未注册时按"只用报文路径"处理）。
     ///
-    /// 单次失败可以容忍（偶发 IO 抖动），连续失败说明存储子系统已经不可用：
-    /// 磁盘满、目录被删、权限变化。只逐帧记一行日志的话，
-    /// 产线会以 5 帧/秒的速度安静地丢掉全部 NG 图，事后一件都查不到。
+    /// 归属说明：路径解析放在这里而不是界面 —— 解码、标注、入库都发生在本类，
+    /// 界面只拿到"已经解好的位图 + 没图时的原因"。把兜底逻辑放界面，
+    /// 会出现"界面显示了图、库里记录的 ImagePath 却是空"的两份真相。
     /// </summary>
-    private int _imageSaveFailures;
-
-    /// <summary>
-    /// 配方与画面尺寸不匹配是否已经报过。
-    /// 自动模式 2 秒一帧，每帧都记 ERROR 会把日志刷成一片，真正的问题反而看不见 ——
-    /// 只在第一次大声说，后续降到 Debug。
-    /// </summary>
-    private int _sensorMismatchReported;
+    private readonly ImageSourceSettingsStore? _imageSourceSettings;
 
     /// <summary>
     /// 上屏最大宽度。显示区不到 900px，按 2448 全尺寸转换等于每张白拷 15MB。
@@ -62,139 +52,35 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
     private const int DisplayMaxWidth = 1280;
 
     public InspectionWorkflow(
-        ICamera camera,
         IInspectionEngine engine,
         IInspectionRepository repo,
-        ImageStoreService imageStore,
-        RecipeConfig recipe,
         ILogger<InspectionWorkflow> logger,
-        PlcResultWriter? plcWriter = null)
+        PlcResultWriter? plcWriter = null,
+        ImageSourceSettingsStore? imageSourceSettings = null)
     {
-        _camera = camera;
         _engine = engine;
         _repo = repo;
-        _imageStore = imageStore;
-        _recipe = recipe;
         _logger = logger;
         _plcWriter = plcWriter;
+        _imageSourceSettings = imageSourceSettings;
     }
 
     /// <summary>当前使用的引擎名（状态栏/日志用）</summary>
     public string EngineName => _engine.Name;
 
+    /// <summary>
+    /// 主动检测 —— 本程序**没有**这条路径了。
+    ///
+    /// 相机归视觉平台独占，图在平台侧产生，本程序只接收结果。所以这里永远返回 null，
+    /// 且**不入库**：自动循环仍会按节拍调进来，若每 2 秒造一条假 NG，良率会被直接污染。
+    ///
+    /// 保留这个方法是因为 <c>InspectionPageViewModel</c> 的"开始检测"按钮和自动循环
+    /// 都挂在同一根轴上；删掉它等于让按钮点下去没反应 —— 那比"明确说不支持"更难排查。
+    /// </summary>
     public Task<InspectionRunResult?> RunOnceAsync(TriggerOrigin origin, CancellationToken ct)
     {
-        // 推驱动引擎（VM 模式）不响应主动检测。自动循环照旧会按节拍调到这里，
-        // 必须**当场返回 null 且不入库** —— 否则每 2 秒一条"VM 模式不支持主动检测"的假 NG，
-        // 良率统计会被直接污染。
-        if (_engine is IPushDrivenEngine)
-        {
-            _logger.LogDebug("[引擎] {Engine} 由外部推送驱动，跳过本次主动检测", _engine.Name);
-            return Task.FromResult<InspectionRunResult?>(null);
-        }
-
-        // 整段丢到线程池：采图（SDK 阻塞）、检测（CPU 密集）、存图（文件 IO）、
-        // 存库（EF 同步段）都没有让出点，留在调用线程上 await 一样会卡死 UI。
-        // 传 CancellationToken.None 给 Task.Run：取消由方法内部处理，
-        // 避免"任务还没开始就被取消"和"跑到一半被取消"两种语义混在一起。
-        return Task.Run(() => RunCoreAsync(origin, ct), CancellationToken.None);
-    }
-
-    private async Task<InspectionRunResult?> RunCoreAsync(TriggerOrigin origin, CancellationToken ct)
-    {
-        var sw = Stopwatch.StartNew();
-        CameraFrame? frame = null;
-
-        try
-        {
-            ct.ThrowIfCancellationRequested();
-
-            var frameImage = _camera.Capture();
-            if (frameImage is null)
-            {
-                _logger.LogWarning("采图失败 - 无图像");
-                return null;
-            }
-
-            frame = frameImage;
-
-            _logger.LogInformation("[采图尺寸] 原始图像: {W}x{H} px, 通道数:{C}, 文件:{F}",
-                frame.Image.Width, frame.Image.Height, frame.Image.Channels(),
-                Path.GetFileName(frame.FilePath));
-
-            // 配方与画面尺寸不匹配 = 这帧的所有结论都不可信（流程里的 ROI 在零件外、标定比例算错），
-            // 必须拒绝，不能"照跑不误然后报 NG"——那会让现场以为是产品不良而不是配置错了。
-            var mismatch = _recipe.CheckSensor(frame.Image.Width, frame.Image.Height);
-            if (mismatch is not null)
-            {
-                ReportSensorMismatchOnce(mismatch);
-                return null;
-            }
-
-            var original = MatBitmap.ToBitmapSource(frame.Image, DisplayMaxWidth);
-
-            var report = _engine.Inspect(new InspectionRequest
-            {
-                Image = frame.Image,
-                // 来源由触发那一刻决定，不再写死。写死 Manual 的后果是：
-                // 定时跑了一整班的记录，历史页上全变成"人点出来的"，追责时说不清。
-                TriggerSource = origin.ToReportValue(),
-                ImagePath = frame.FilePath
-            });
-
-            // 引擎把失败也表达成 NG 报告（而不是抛异常），所以"报告里没有可判定的项"
-            // 就等于"这一件没检出来"。必须显式说出来，不能让它无声无息地进库。
-            if (report.Results.Count == 0)
-                _logger.LogError("[引擎] {Engine} 未给出任何结论，本帧按 NG 处理", _engine.Name);
-            else if (report.Results.TryGetValue(ResultKeys.Engine, out var engineFailure))
-                _logger.LogError("[引擎] {Engine}: {Reason}", _engine.Name, engineFailure.Summary);
-
-            using var annotatedMat = frame.Image.Clone();
-            DrawAnnotations(report, annotatedMat);
-            var annotated = MatBitmap.ToBitmapSource(annotatedMat, DisplayMaxWidth);
-
-            ct.ThrowIfCancellationRequested();
-
-            // 存图结果必须检查：Cv2.ImWrite 写失败只返回 false 不抛异常，
-            // 不看结果就会变成"系统认为存了，磁盘上其实没有"。
-            var imageResult = _imageStore.Save(frame, report);
-            if (imageResult.IsFailed)
-            {
-                _imageSaveFailures++;
-                _logger.LogError("[存图失败] 连续 {N} 次：{Err}", _imageSaveFailures, imageResult.Error);
-            }
-            else if (imageResult.IsSaved)
-            {
-                _imageSaveFailures = 0;   // 恢复即清零
-            }
-
-            await _repo.SaveAsync(report).ConfigureAwait(false);
-
-            // 回写 PLC：入库之后、返回之前。产线上 PLC 拿到判定才能动剔除机构，
-            // 越早越好；但必须等入库成功——否则会出现"PLC 已经放行、库里却没有这条记录"。
-            _plcWriter?.Write(report.IsOk);
-
-            _logger.LogInformation("判定:{V} 引擎:{E} 文件:{F} 耗时:{Ms}ms",
-                report.OverallVerdict, report.Engine,
-                Path.GetFileName(frame.FilePath), sw.ElapsedMilliseconds);
-
-            return new InspectionRunResult(
-                report,
-                original,
-                annotated,
-                sw.ElapsedMilliseconds,
-                imageResult.IsSaved,
-                imageResult.Error,
-                _imageSaveFailures,
-                _camera.IsAvailable);
-        }
-        finally
-        {
-            // 帧的 Mat 归工作流所有：谁创建谁释放。
-            // 以前这里没人释放，靠 Mat 的终结器兜底 —— 12MP 彩色帧一帧 36MB，
-            // 5 帧/秒就是每分钟数百 MB 的非托管分配压力，GC 根本跟不上。
-            frame?.Image.Dispose();
-        }
+        _logger.LogDebug("[引擎] {Engine} 由外部推送驱动，本程序不采图，跳过主动检测", _engine.Name);
+        return Task.FromResult<InspectionRunResult?>(null);
     }
 
     /// <summary>
@@ -226,18 +112,34 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
         // 但处理方式完全不同 —— 等、去 VM 里配、查路径、查权限。
         string? imageReason = null;
 
-        var path = report.ImagePath;
-        if (string.IsNullOrWhiteSpace(path))
+        // 报文里的路径有三种常见形态：空、只是目录、完整文件。翻译成"能读的文件"
+        // 的规则统一在 ImageFileResolver 里（报文优先，界面设置的目录兜底）。
+        var (path, pathReason) = ImageFileResolver.Resolve(
+            report.ImagePath,
+            report.Timestamp,
+            _imageSourceSettings?.Current ?? ImageSourceSettings.Disabled);
+
+        if (path is null)
         {
-            imageReason = "本帧结果没有带图像路径（VM 侧未发 imagePath）";
-        }
-        else if (!File.Exists(path))
-        {
-            imageReason = $"VM 给的图像路径不存在：{path}";
-            _logger.LogWarning("[VM] VM 报告里的图像路径不存在：{Path}", path);
+            imageReason = pathReason;
+
+            // 带路径却不可用 = 配置或写盘出了问题，值得一条警告；
+            // 什么都没带是常态（没配存图），不刷日志。
+            if (!string.IsNullOrWhiteSpace(report.ImagePath))
+                _logger.LogWarning("[VM] 图像不可用：{Reason}", pathReason);
         }
         else
         {
+            // 兜底目录生效时如实记下取的是哪一张：否则事后查"这张图是不是那一件的"没有依据
+            if (!string.Equals(path, report.ImagePath, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("[VM] 报文路径不可用（{Raw}），改用 {Path}", report.ImagePath, path);
+
+                // 库里的 ImagePath 必须指向**实际显示的那张图**。
+                // 只改界面不改记录，等于给现场留了一条"点开历史记录看到的是另一张图"的坑。
+                report.ImagePath = path;
+            }
+
             try
             {
                 using var mat = Cv2.ImRead(path, ImreadModes.Color);
@@ -282,7 +184,7 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
             report.OverallVerdict, report.Engine, sw.ElapsedMilliseconds);
 
         // ConsecutiveImageFailures 恒为 0：VM 模式不存图，没有"连续存图失败"这回事。
-        // CameraOnline 表示 VM 链路是否在跑 —— 界面上的相机状态位复用它。
+        // ImageLinkOnline 表示平台是否在推 —— 顶栏/状态栏那个"平台"灯复用它。
         return new InspectionRunResult(
             report,
             original,
@@ -350,20 +252,4 @@ public sealed class InspectionWorkflow : IInspectionWorkflow, IDisposable
 
     public void Dispose()
         => WeakReferenceMessenger.Default.UnregisterAll(this);
-
-    /// <summary>
-    /// 配方尺寸不匹配：第一次记 ERROR 并推到界面日志面板，之后只记 Debug。
-    /// 光写 ERROR 不够 —— 操作员看的是界面，不是日志文件。
-    /// </summary>
-    private void ReportSensorMismatchOnce(string reason)
-    {
-        if (Interlocked.Exchange(ref _sensorMismatchReported, 1) == 1)
-        {
-            _logger.LogDebug("[配方] {Reason}", reason);
-            return;
-        }
-
-        _logger.LogError("[配方] {Reason}", reason);
-        WeakReferenceMessenger.Default.Send(new LogMessage(reason, LogMsgLevel.Error));
-    }
 }

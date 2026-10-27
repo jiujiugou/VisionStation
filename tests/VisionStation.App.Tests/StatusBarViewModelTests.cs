@@ -28,15 +28,15 @@ public class StatusBarViewModelTests
     }
 
     [Fact]
-    public void 相机状态跟着消息走()
+    public void 图像链路状态跟着消息走()
     {
         var vm = new StatusBarViewModel();
 
-        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(false));
-        Assert.False(vm.CameraOnline);
+        WeakReferenceMessenger.Default.Send(new ImageLinkStatusMessage(false));
+        Assert.False(vm.ImageLinkOnline);
 
-        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(true));
-        Assert.True(vm.CameraOnline);
+        WeakReferenceMessenger.Default.Send(new ImageLinkStatusMessage(true));
+        Assert.True(vm.ImageLinkOnline);
     }
 
     [Fact]

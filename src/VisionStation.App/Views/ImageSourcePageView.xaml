@@ -1,0 +1,95 @@
+<UserControl x:Class="VisionStation.App.Views.ImageSourcePageView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance vm:ImageSourcePageViewModel, IsDesignTimeCreatable=False}">
+    <Grid Background="{StaticResource Bg}">
+        <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}" BorderThickness="1"
+                CornerRadius="4" Padding="24" Margin="40"
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                MinWidth="640">
+            <StackPanel>
+                <TextBlock Text="图像来源" FontSize="16" FontWeight="SemiBold"
+                           Foreground="{StaticResource TextPrimary}" />
+                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap" FontSize="11.5" LineHeight="18"
+                           Foreground="{StaticResource TextSecondary}"
+                           Text="报文里带完整图像路径时，程序优先用报文里的。这里是「报文给不出可用文件」时的兜底：平台只发了目录、只发了文件名，或者什么都没发。" />
+
+                <!-- 当前生效值：界面上正在改的值没保存前不生效，这两者必须能区分 -->
+                <Border Background="{StaticResource SubtleBg}" CornerRadius="4" Padding="14,10" Margin="0,16,0,0">
+                    <StackPanel>
+                        <TextBlock Text="当前生效" FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Text="{Binding EffectiveText}" FontSize="13" Margin="0,3,0,0"
+                                   TextWrapping="Wrap" Foreground="{StaticResource TextPrimary}" />
+                    </StackPanel>
+                </Border>
+
+                <CheckBox Margin="0,18,0,0" FontSize="12.5" Foreground="{StaticResource TextPrimary}"
+                          IsChecked="{Binding FolderFallbackEnabled}"
+                          Content="启用目录兜底（从下面的目录里取本帧最新的一张图）" />
+
+                <TextBlock Text="图像目录" Margin="0,14,0,0" FontSize="11.5"
+                           Foreground="{StaticResource TextSecondary}" />
+                <Grid Margin="0,5,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0" Height="30" Padding="7,0"
+                             VerticalContentAlignment="Center" FontSize="12.5"
+                             BorderBrush="{StaticResource InputBorder}"
+                             Text="{Binding Folder, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="平台「输出图像」模块的生成目录，填最上层即可（它会按月/日分层）" />
+                    <Button Grid.Column="1" Content="浏览…" Width="76" Height="30" Margin="8,0,0,0"
+                            Style="{StaticResource MinorButton}" FontSize="12"
+                            Click="OnBrowseClick" />
+                </Grid>
+
+                <CheckBox Margin="0,12,0,0" FontSize="12.5" Foreground="{StaticResource TextPrimary}"
+                          IsChecked="{Binding Recursive}"
+                          Content="包含子目录（平台按月/日分目录时必须勾）" />
+
+                <!-- 提示行：保存结果 / 测试结果 / 校验失败都写在这里，
+                     不弹模态框 —— 这条信息本来就该留在这页上，让人回头能再看一遍 -->
+                <TextBlock Text="{Binding StatusText}" Margin="0,14,0,0" MinHeight="34"
+                           TextWrapping="Wrap" FontSize="11.5" LineHeight="17">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding StatusIsWarning}" Value="True">
+                                    <Setter Property="Foreground" Value="{StaticResource Warn}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="10.5"
+                               TextWrapping="Wrap" Foreground="{StaticResource TextMuted}"
+                               Text="{Binding SettingsFilePath}"
+                               ToolTip="设置文件位置：可以备份，也可以拷到另一台工控机" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="测试" Width="66" Height="30" FontSize="12"
+                                Style="{StaticResource MinorButton}"
+                                Command="{Binding ProbeCommand}" />
+                        <Button Content="重新读取" Width="86" Height="30" FontSize="12" Margin="10,0,0,0"
+                                Style="{StaticResource MinorButton}"
+                                Command="{Binding ReloadCommand}" />
+                        <Button Content="保存" Width="88" Height="30" FontSize="12.5" Margin="10,0,0,0"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding SaveCommand}" />
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

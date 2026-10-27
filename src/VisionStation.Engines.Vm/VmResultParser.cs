@@ -11,7 +11,9 @@ namespace VisionStation.Engines.Vm;
 /// <list type="number">
 ///   <item>JSON：<c>{"verdict":"OK","items":[...]}</c> —— 信息最全，首选。</item>
 ///   <item>分隔符：<c>OK;12.345;8</c> —— VM 4.2「发送数据」模块最省事的产物（每行订阅一个输出 + 分隔符 + 结束符）。
-///   没有字段名，值按位置对应配方 <c>vm.outputs</c> 的顺序。</item>
+///   没有字段名，值按位置对应配方 <c>vm.outputs</c> 的顺序。
+///   这种格式也能带图：把「输出图像」模块的路径输出订阅成一段（<c>OK;1;D:\VMOut\a.bmp</c>），
+///   解析器按"有路径分隔符 + 图片扩展名"认出它，塞进 <c>ImagePath</c>，且**不占配方输出的位置**。</item>
 /// </list>
 ///
 /// 为什么必须支持第二种：VM 4.2 的「格式化」模块保存含 <c>{ }</c> 的文本会报「格式化验证失败」，
@@ -105,8 +107,24 @@ public static class VmResultParser
             Engine = engine,
         };
 
-        // 一个值都没有：只有判定，按"只给总判定"处理
-        if (itemsText.Length == 0)
+        // 分隔符里也可能夹着图像信息：「发送数据」把「输出图像」模块的两项输出各订阅成一段。
+        // **VM 把"路径"和"名称"拆成两个输出**：路径给到日期目录（...\20261026），
+        // 文件名在「原图名称」里（render_46.bmp）。所以这里要认两种形状：
+        //   ① 完整路径：D:\VMOut\OK\a.bmp
+        //   ② 目录 + 下一段文件名：D:\VMOut\OK\20261026  +  render_46.bmp
+        // 认出来的段**不占配方 vm.outputs 的位置** —— 那张表是给数值/状态用的，
+        // 掺两段路径进去，后面所有映射会整体错位。
+        var consumed = new bool[itemsText.Length];
+        report.ImagePath = ResolveImagePath(itemsText, consumed) ?? "";
+
+        var itemCount = 0;
+        for (var i = 0; i < itemsText.Length; i++)
+        {
+            if (!consumed[i]) itemCount++;
+        }
+
+        // 一个值都没有：只有判定，按"只给总判定"处理（带图时也一样）
+        if (itemCount == 0)
         {
             if (verdict is null)
             {
@@ -133,11 +151,20 @@ public static class VmResultParser
 
         for (var i = 0; i < itemsText.Length; i++)
         {
+            if (consumed[i]) continue;
+
             var text = itemsText[i].Trim();
             if (text.Length == 0) continue;
 
-            var mapping = outputs is not null && i < outputs.Count ? outputs[i] : null;
-            var label = string.IsNullOrWhiteSpace(mapping?.Label) ? $"值{i + 1}" : mapping!.Label;
+            // 图像那几段不占配方位置：被吃掉的段数要从下标里减掉，否则映射整体错位
+            var slot = i;
+            for (var j = 0; j < i; j++)
+            {
+                if (consumed[j]) slot--;
+            }
+
+            var mapping = outputs is not null && slot < outputs.Count ? outputs[slot] : null;
+            var label = string.IsNullOrWhiteSpace(mapping?.Label) ? $"值{slot + 1}" : mapping!.Label;
 
             var result = new ToolResult
             {
@@ -168,6 +195,57 @@ public static class VmResultParser
     }
 
     private static string Preview(string text) => text.Length <= 120 ? text : text[..120] + "…";
+
+    /// <summary>VM「输出图像」模块存出来的图，实际就这几种扩展名。</summary>
+    private static readonly string[] ImageExtensions =
+        [".bmp", ".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+
+    /// <summary>
+    /// 从各段里认出图像路径，并把用掉的段标记到 <paramref name="consumed"/>。
+    ///
+    /// 两种形状（VM 把「路径」和「名称」拆成两个输出，所以两种都会遇到）：
+    /// ① 完整路径一段：<c>D:\VMOut\OK\a.bmp</c>
+    /// ② 目录一段 + 文件名一段：<c>D:\VMOut\OK\20261026</c> 与 <c>render_46.bmp</c>
+    ///
+    /// 只认第一处。**只看形状不碰磁盘** —— 同一行结果在离线回放和现场必须解析成同一种东西，
+    /// "文件在不在"是工作流该报的错（它会区分路径不存在、解码失败、没有路径）。
+    /// </summary>
+    private static string? ResolveImagePath(string[] parts, bool[] consumed)
+    {
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var text = parts[i].Trim().Trim('"');
+            if (!HasPathSeparator(text)) continue;
+
+            if (HasImageExtension(text))
+            {
+                consumed[i] = true;
+                return text;
+            }
+
+            // 目录 + 下一段文件名：只有"下一段是不带路径的图片文件名"才算，避免把普通值拼进来
+            if (i + 1 < parts.Length)
+            {
+                var name = parts[i + 1].Trim().Trim('"');
+                if (!HasPathSeparator(name) && HasImageExtension(name))
+                {
+                    consumed[i] = true;
+                    consumed[i + 1] = true;
+                    return text.TrimEnd('\\', '/') + "\\" + name;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasPathSeparator(string text) => text.IndexOf('\\') >= 0 || text.IndexOf('/') >= 0;
+
+    private static bool HasImageExtension(string text)
+    {
+        var ext = Path.GetExtension(text);
+        return ext.Length > 0 && ImageExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>把已反序列化的消息翻成报告（单测直接调它）。</summary>
     public static InspectionReport ToReport(VmResultMessage message, string engine = "VisionMaster",

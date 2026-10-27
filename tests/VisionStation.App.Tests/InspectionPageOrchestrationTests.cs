@@ -21,19 +21,17 @@ public class InspectionPageOrchestrationTests
     public void 关闭开始后_触发不再进入工作流()
     {
         var trigger = new FakeTriggerSource();
-        var camera = new FakeCamera();
         var shutdown = new ShutdownState();
         var monitor = new InFlightWorkMonitor();
         var workflow = new FakeWorkflow { Result = TestResults.Frame() };
 
-        var page = TestPages.Inspection(workflow, trigger, camera, shutdown, monitor);
+        var page = TestPages.Inspection(workflow, trigger, shutdown, monitor);
 
         // 先关，再触发：这一帧根本不该开始
         shutdown.BeginStop();
         trigger.Fire();
 
         Assert.Equal(0, workflow.RunCount);
-        Assert.Equal(0, camera.CaptureCount);
         Assert.Equal(0, monitor.Count);
 
         page.Dispose();
@@ -46,7 +44,7 @@ public class InspectionPageOrchestrationTests
         var monitor = new InFlightWorkMonitor();
         var workflow = new FakeWorkflow { Result = TestResults.Frame(ok: true, "Presence", "Dimension") };
 
-        var page = TestPages.Inspection(workflow, trigger, camera: null, shutdown: null, inFlight: monitor);
+        var page = TestPages.Inspection(workflow, trigger, shutdown: null, inFlight: monitor);
 
         trigger.Fire();
 
@@ -72,7 +70,7 @@ public class InspectionPageOrchestrationTests
         var monitor = new InFlightWorkMonitor();
         var workflow = new FakeWorkflow { Gate = gate };
 
-        var page = TestPages.Inspection(workflow, trigger, camera: null, shutdown: null, inFlight: monitor);
+        var page = TestPages.Inspection(workflow, trigger, shutdown: null, inFlight: monitor);
 
         trigger.Fire();   // 第一帧挂在 gate 上
         trigger.Fire();   // 第二帧应被丢弃
@@ -101,7 +99,7 @@ public class InspectionPageOrchestrationTests
         var monitor = new InFlightWorkMonitor();
         var workflow = new FakeWorkflow { Gate = gate };
 
-        var page = TestPages.Inspection(workflow, trigger, camera: null, shutdown: shutdown, inFlight: monitor);
+        var page = TestPages.Inspection(workflow, trigger, shutdown: shutdown, inFlight: monitor);
 
         trigger.Fire();
         Assert.Equal(1, workflow.RunCount);

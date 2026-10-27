@@ -32,8 +32,8 @@
             <DataTemplate DataType="{x:Type vm:InspectionPageViewModel}">
                 <views:InspectionPageView />
             </DataTemplate>
-            <DataTemplate DataType="{x:Type vm:CameraPageViewModel}">
-                <views:CameraPageView />
+            <DataTemplate DataType="{x:Type vm:ImageSourcePageViewModel}">
+                <views:ImageSourcePageView />
             </DataTemplate>
             <DataTemplate DataType="{x:Type vm:HistoryPageViewModel}">
                 <views:HistoryPageView />

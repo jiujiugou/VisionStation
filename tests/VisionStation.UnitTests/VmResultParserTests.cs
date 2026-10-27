@@ -229,6 +229,69 @@ public class VmResultParserTests
     }
 
     [Fact]
+    public void 分隔符格式_带图像路径_识别为图且不占结果位()
+    {
+        // VM「发送数据」把「输出图像」的路径也订阅成一段，落在最后
+        var report = VmResultParser.Parse(
+            @"OK;12.345;D:\VMOut\20261026_134118.bmp", outputs: 单输出());
+
+        Assert.Equal("OK", report.OverallVerdict);
+        Assert.Equal(@"D:\VMOut\20261026_134118.bmp", report.ImagePath);
+        Assert.Equal("外径: 12.345px", report.Results["外径"].Summary);
+        // 路径段不该变成一条"检测项"
+        Assert.Single(report.Results);
+    }
+
+    [Fact]
+    public void 分隔符格式_图像路径在中间_后面的值映射往前对()
+    {
+        var outputs = new List<VmOutputMapping>
+        {
+            new() { Module = "BLOB分析1", Label = "螺丝1" },
+            new() { Module = "BLOB分析2", Label = "螺丝2" },
+        };
+
+        var report = VmResultParser.Parse(@"OK;/tmp/shot.jpg;1;0", outputs: outputs);
+
+        Assert.Equal("/tmp/shot.jpg", report.ImagePath);
+        Assert.True(report.Results.ContainsKey("螺丝1"));
+        Assert.True(report.Results.ContainsKey("螺丝2"));
+        Assert.Equal("螺丝2: 0", report.Results["螺丝2"].Summary);
+    }
+
+    [Fact]
+    public void 分隔符格式_只有判定加路径_照样是一条合法结论()
+    {
+        var report = VmResultParser.Parse(@"OK;D:\VMOut\a.png");
+
+        Assert.Equal("OK", report.OverallVerdict);
+        Assert.Equal(@"D:\VMOut\a.png", report.ImagePath);
+        Assert.True(report.Results.ContainsKey(VmResultParser.DefaultVerdictLabel));
+    }
+
+    [Fact]
+    public void 分隔符格式_数值不会被误认成图像路径()
+    {
+        var report = VmResultParser.Parse("OK;12.345;8");
+
+        Assert.True(string.IsNullOrEmpty(report.ImagePath));
+        Assert.Equal(2, report.Results.Count);
+    }
+
+    [Fact]
+    public void 分隔符格式_目录加文件名两段_拼成完整路径且都不占位()
+    {
+        // VM 真实产物：「本地原图保存路径」给到日期目录，「原图名称」单独一段
+        var report = VmResultParser.Parse(@"OK;1;0;D:\Code\VisionStation\VMOut\render\202610\20261026;render_46.bmp");
+
+        Assert.Equal(@"D:\Code\VisionStation\VMOut\render\202610\20261026\render_46.bmp", report.ImagePath);
+        // 两段都不该变成检测项
+        Assert.Equal(2, report.Results.Count);
+        Assert.True(report.Results.ContainsKey("值1"));
+        Assert.True(report.Results.ContainsKey("值2"));
+    }
+
+    [Fact]
     public void 分隔符格式_模块状态2_按NG处理()
     {
         // VM 的「模块状态」是 0=未运行 / 1=OK / 2=NG，直接订阅它就能当总判定用

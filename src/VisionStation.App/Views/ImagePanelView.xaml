@@ -100,12 +100,21 @@
                     </Image.RenderTransform>
                 </Image>
 
-                <!-- NG 回看入口：操作员发现 NG 要叫人来看，但下一件一来图就换了。
-                     这里**不阻塞产线**（库照记、PLC 照回写），只把最近一张 NG 留住。
-                     不做成"NG 就钉住不换"：停在历史帧上的监视器比黑屏更危险。 -->
-                <Border Panel.ZIndex="99" HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Margin="0,8,8,0" CornerRadius="4" Padding="8,4"
-                        Background="#D02C2C2C" BorderBrush="#60FFFFFF" BorderThickness="1">
+                <!-- NG 保持角标：主图在 NG 之后会停 2 秒不换。
+                     不标出来，操作员看到画面不动会以为程序卡死 —— 必须说明"这是设计，不是故障"。 -->
+                <Border Panel.ZIndex="99" HorizontalAlignment="Left" VerticalAlignment="Top"
+                        Margin="8,8,0,0" CornerRadius="4" Padding="8,4"
+                        Background="#D0A32D2D" BorderBrush="#80F09595" BorderThickness="1"
+                        Visibility="{Binding IsNgHeld, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="NG 保持中 · 下一件到达后更新" FontSize="11" Foreground="#FFEDED" />
+                </Border>
+
+                <!-- NG 缩略回看：操作员发现 NG 要叫人来看，但下一件一来主图就换了。
+                     这里**不阻塞产线**（库照记、PLC 照回写），只把最近一张 NG 留一份缩略图。
+                     点缩略图本身也能切换，不必去点小按钮 —— 车间里手上有油，按钮越大越好点。 -->
+                <Border Panel.ZIndex="99" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                        Margin="0,0,8,8" CornerRadius="6" Padding="6"
+                        Background="#CC1E1E1E" BorderBrush="#60FFFFFF" BorderThickness="1">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed" />
@@ -118,12 +127,24 @@
                     </Border.Style>
 
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding RecentNgText}" FontSize="11"
-                                   Foreground="#FFB4B4" VerticalAlignment="Center" />
-                        <Button Margin="8,0,0,0" Padding="7,1" FontSize="11" Cursor="Hand"
-                                Style="{StaticResource MinorButton}"
-                                Content="{Binding NgReviewButtonText}"
-                                Command="{Binding ToggleNgReviewCommand}" />
+                        <Border CornerRadius="3" ClipToBounds="True" Cursor="Hand"
+                                ToolTip="点一下看这张 NG 的标注图">
+                            <Border.InputBindings>
+                                <MouseBinding MouseAction="LeftClick"
+                                              Command="{Binding ToggleNgReviewCommand}" />
+                            </Border.InputBindings>
+                            <Image Source="{Binding RecentNgImage}" Width="96" Height="72"
+                                   Stretch="UniformToFill" />
+                        </Border>
+
+                        <StackPanel Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding RecentNgText}" FontSize="11" Foreground="#FFB4B4" />
+                            <Button Margin="0,5,0,0" Padding="8,1" FontSize="11" Cursor="Hand"
+                                    HorizontalAlignment="Left"
+                                    Style="{StaticResource MinorButton}"
+                                    Content="{Binding NgReviewButtonText}"
+                                    Command="{Binding ToggleNgReviewCommand}" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

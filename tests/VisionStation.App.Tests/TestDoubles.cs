@@ -9,6 +9,7 @@ using VisionStation.App.Abstractions;
 using VisionStation.App.Services;
 using VisionStation.App.Composition;
 using VisionStation.App.Composition.Lifecycle;
+using VisionStation.App.Services.Imaging;
 using VisionStation.App.Services.Inspection;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
@@ -57,31 +58,6 @@ internal sealed class FakeTriggerSource : ITriggerSource
     {
         FireCount++;
         Triggered?.Invoke(NextOrigin);
-    }
-
-    public void Dispose() { }
-}
-
-/// <summary>相机替身：数 Capture 次数。默认采不到图（返回 null）。</summary>
-internal sealed class FakeCamera : ICamera
-{
-
-    /// <summary>可由测试注入的失败原因（断言自检/DeviceManager 会把它带出来）</summary>
-    public string? LastError { get; set; }
-    /// <summary>非空时每次采图都调用它产出一帧。注意每次要新建 Mat：工作流会把上一帧释放掉。</summary>
-    public Func<CameraFrame?>? FrameFactory { get; set; }
-
-    public bool IsAvailable { get; set; } = true;
-    public int CaptureCount { get; private set; }
-    public int FrameCount => CaptureCount;
-
-    public void Open() { }
-    public void Close() { }
-
-    public CameraFrame? Capture()
-    {
-        CaptureCount++;
-        return FrameFactory?.Invoke();   // 默认 null：调用方应跳过本帧而不是抛异常
     }
 
     public void Dispose() { }
@@ -306,7 +282,7 @@ internal static class TestResults
             ImageSaved: true,
             ImageError: null,
             ConsecutiveImageFailures: 0,
-            CameraOnline: true);
+            ImageLinkOnline: true);
     }
 
     public static InspectionReport Report(bool ok = true, params string[] toolNames)
@@ -341,24 +317,21 @@ internal static class TestPages
     public static InspectionPageViewModel Inspection(
         IInspectionWorkflow? workflow = null,
         FakeTriggerSource? trigger = null,
-        FakeCamera? camera = null,
         ShutdownState? shutdown = null,
         InFlightWorkMonitor? inFlight = null,
         ILogger<InspectionPageViewModel>? logger = null,
         IInspectionEngine? engine = null)
     {
         trigger ??= new FakeTriggerSource();
-        camera ??= new FakeCamera();
 
         return new InspectionPageViewModel(
             new ImagePanelViewModel(),
             new ResultPanelViewModel(),
             new LogPanelViewModel(),
-            new ControlPanelViewModel(trigger, camera, new NoopDialog(),
+            new ControlPanelViewModel(trigger, new NoopDialog(),
                 engine ?? new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService()),
             workflow ?? new FakeWorkflow(),
             trigger,
-            camera,
             shutdown ?? new ShutdownState(),
             inFlight ?? new InFlightWorkMonitor(),
             logger ?? NullLogger<InspectionPageViewModel>.Instance);
@@ -368,11 +341,12 @@ internal static class TestPages
     public static HistoryPageViewModel History(IInspectionRepository? repo = null)
         => new(repo ?? new FakeInspectionRepository());
 
-    public static CameraPageViewModel Camera()
+    /// <summary>图像来源页：设置文件指到临时目录，测试之间互不干扰、也不碰真实设置。</summary>
+    public static ImageSourcePageViewModel ImageSource()
     {
-        var camera = new FakeCamera();
-        var swappable = new SwappableCamera(camera, _ => camera, "File");
-        return new CameraPageViewModel(swappable, new DeviceManager());
+        var path = Path.Combine(Path.GetTempPath(),
+            "vs-imsrc-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+        return new ImageSourcePageViewModel(new ImageSourceSettingsStore(path));
     }
 }
 

@@ -3,21 +3,18 @@
   "schemaVersion": 2,
   "sensor": { "width": 2448, "height": 2048 },
   "engine": "Vm",
+  "note": "报文段顺序（分隔符 ;）：第1段=9逻辑1.运算结果（BOOL 汇总判定），第2~6段=BLOB分析1~5 的模块状态（1=OK/2=NG/0=未执行），第7段（可选）=输出图像1.本地原图保存路径。改 VM 里的订阅顺序，必须同步改这里。",
   "vm": {
     "solutionPath": "Config\\solutions\\washer-2448.sol",
     "password": "",
     "procedure": "流程1",
     "imageSourceModule": "图像源1",
     "outputs": [
-      {
-        "module": "圆查找1",
-        "label": "外径",
-        "role": "Measure",
-        "io": "Radius",
-        "ioKind": "Circle",
-        "metric": "Radius_px",
-        "unit": "px"
-      }
+      { "module": "BLOB分析1", "label": "螺丝1", "role": "Defect", "io": "ModuStatus" },
+      { "module": "BLOB分析2", "label": "螺丝2", "role": "Defect", "io": "ModuStatus" },
+      { "module": "BLOB分析3", "label": "螺丝3", "role": "Defect", "io": "ModuStatus" },
+      { "module": "BLOB分析4", "label": "螺丝4", "role": "Defect", "io": "ModuStatus" },
+      { "module": "BLOB分析5", "label": "螺丝5", "role": "Defect", "io": "ModuStatus" }
     ]
   }
 }

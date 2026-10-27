@@ -75,7 +75,7 @@ public class HealthCheckerProbeTests
     {
         var dir = NewRoot();
         var dm = new DeviceManager();
-        dm.Register(new CameraDevice(new OfflineCamera()));
+        dm.Register(new OfflineDevice());
 
         var hc = new HealthChecker(dm, Path.Combine(dir, "a.db"), dir, null, dir);
 
@@ -85,15 +85,15 @@ public class HealthCheckerProbeTests
         Assert.DoesNotContain("有设备离线", item.Error);
     }
 
-    /// <summary>离线且带原因的相机替身（模拟 HikCamera 被 0x80000203 拒绝）</summary>
-    private sealed class OfflineCamera : ICamera
+    /// <summary>离线且带原因的通用设备替身（自检只需要"离线 + 有原因"这两件事）</summary>
+    private sealed class OfflineDevice : IDevice
     {
+        public string Name => "相机";
+        public string Type => "Camera";
+        public bool IsConnected => false;
+        public string Status => "离线";
         public string? LastError { get; } = "打开设备被拒（0x80000203 设备被独占/无数据源）";
-        public bool IsAvailable => false;
-        public int FrameCount => 0;
-        public void Open() { }
-        public void Close() { }
-        public CameraFrame? Capture() => null;
-        public void Dispose() { }
+        public void Connect() { }
+        public void Disconnect() { }
     }
 }

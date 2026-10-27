@@ -10,7 +10,7 @@ namespace VisionStation.App.Services.Navigation;
 public sealed class NavigationService : INavigationService, INotifyPropertyChanged
 {
     public const string InspectionRoute = "检测";
-    public const string CameraRoute = "相机";
+    public const string ImageSourceRoute = "图像来源";
     public const string HistoryRoute = "历史";
     public const string AuditRoute = "审计";
 
@@ -22,7 +22,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
 
     public NavigationService(
         InspectionPageViewModel inspectionPage,
-        CameraPageViewModel cameraPage,
+        ImageSourcePageViewModel imageSourcePage,
         HistoryPageViewModel historyPage,
         AuditPageViewModel auditPage,
         ILogger<NavigationService> logger)
@@ -32,7 +32,7 @@ public sealed class NavigationService : INavigationService, INotifyPropertyChang
         _pages = new Dictionary<string, object>(StringComparer.Ordinal)
         {
             [InspectionRoute] = inspectionPage,
-            [CameraRoute] = cameraPage,
+            [ImageSourceRoute] = imageSourcePage,
             [HistoryRoute] = historyPage,
             [AuditRoute] = auditPage,
         };

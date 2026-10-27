@@ -13,7 +13,7 @@ namespace VisionStation.App.ViewModels;
 /// 侧边导航栏 ViewModel。
 ///
 /// 职责：
-///   1. 持有导航项（上半部：检测；下半部：相机）
+///   1. 持有导航项（上半部：检测；下半部：图像来源 / 历史 / 审计）
 ///   2. 点图标 → 请求导航；高亮 = 当前路由的投影，不是控件自己的选中项
 ///   3. 订阅 TriggerStateMessage → 自动模式暗化、停止时恢复
 ///
@@ -75,9 +75,12 @@ public partial class SidebarViewModel : ObservableObject
         BottomItems = new[]
         {
             new NavItem(
-                route: NavigationService.CameraRoute,
-                label: "相机",
-                geometry: "M9 2L7.2 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.2L15 2H9zm3 15a5 5 0 110-10 5 5 0 010 10z M12 8.8a3.2 3.2 0 100 6.4 3.2 3.2 0 000-6.4z",
+                route: NavigationService.ImageSourceRoute,
+                label: "图像来源",
+                // 图片框图标：这页管的是"平台存的图在哪"，不是相机硬件
+                geometry: "M21 19V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z",
+                // 相机归视觉平台独占之后，本程序不再有"相机参数"这回事。
+                // 工程师真正要调的是图像来源（平台存图目录）—— 那是配置，操作员不该碰。
                 engineerOnly: true),
             new NavItem(
                 route: NavigationService.HistoryRoute,
@@ -186,7 +189,7 @@ public partial class SidebarViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 两个维度一起判：工程师模式（相机页）、权限位（审计页）。
+    /// 两个维度一起判：工程师模式（图像来源页）、权限位（审计页）。
     /// 分开写两个过滤器只会让"到底哪一条规则挡住的"变得难查。
     /// </summary>
     private bool IsVisible(NavItem item)

@@ -8,9 +8,9 @@ namespace VisionStation.Devices;
 ///   统一接口让 DeviceManager 能管所有设备（状态查询 + 连接/断开 + 健康检查）。
 ///
 /// 当前实现：
-///   CameraDevice  → 包装 ICamera
 ///   TriggerDevice → 包装 ITriggerSource
 ///   将来 PlcDevice / LightDevice / SensorDevice 都套这个接口
+///   （相机层 2026-10-26 已删：图归视觉平台，程序内没有相机设备可管）
 /// </summary>
 public interface IDevice
 {

@@ -47,8 +47,8 @@
 
                 <!-- 设备灯 -->
                 <Ellipse Width="7" Height="7" VerticalAlignment="Center"
-                         Fill="{Binding CameraOnline, Converter={StaticResource BoolToCameraColor}}" />
-                <TextBlock Text="相机" FontSize="12" Foreground="{StaticResource TextSecondary}"
+                         Fill="{Binding ImageLinkOnline, Converter={StaticResource BoolToCameraColor}}" />
+                <TextBlock Text="平台" FontSize="12" Foreground="{StaticResource TextSecondary}"
                            Margin="5,0,0,0" VerticalAlignment="Center" />
 
                 <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="14,0,0,0"

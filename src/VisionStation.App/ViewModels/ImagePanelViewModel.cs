@@ -78,24 +78,57 @@ public partial class ImagePanelViewModel : ObservableObject
     private ImageTab _selectedTab;
 
     // ═══════════════════════════════════════════════════════════
-    //  NG 回看（2026-10-24 加入）
+    //  NG 回看（2026-10-24 加入）+ NG 最短停留（2026-10-26）
     //
     //  产线上操作员发现 NG 要叫人来看，但下一件一来图就换了 —— 等人走过来，
     //  刚才那个 NG 已经找不到了。历史页能查，可"喊人来看"发生在几秒钟内。
     //
-    //  这里**不阻塞产线**：图继续进、库继续记、PLC 继续回写。
-    //  只是把最近一张 NG 的位图留一份（1280 宽约 5MB，一张而已），
-    //  右上角给个入口，点了切回去看，再点回到实时。
+    //  两层处理，各管一段：
+    //    · 主图的**最短停留窗口**（NgHoldDuration）：NG 上屏后至少留这么久，
+    //      期间到达的 OK 件不抢画面。这是"抬头能看见"的那一层。
+    //    · 最近一张 NG 的**缩略回看**：始终指向最新 NG，不受停留窗口影响。
+    //      这是"等人走过来"的那一层。
     //
-    //  为什么不做成"NG 就钉住不换"：那会让操作员以为产线停了，
-    //  而且下一个 NG 来的时候界面已经不反映现场了 —— 停在历史帧上的监视器比黑屏更危险。
+    //  为什么不做成"NG 就永久钉住不换"：那会让操作员以为产线停了，
+    //  而且下一件 NG 来的时候界面已经不反映现场了 —— 停在历史帧上的监视器比黑屏更危险。
+    //  所以停留是**有期限**的，过期后主图恢复跟随最新件。
+    //
+    //  这里**不阻塞产线**：图继续进、库继续记、PLC 继续回写。
     // ═══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// NG 画面在**主图**上的最短停留时长。
+    ///
+    /// 业务参数，不是算出来的：人从低头到抬头看屏幕约 1~2 秒，
+    /// 剔除气缸动作 0.5~1.5 秒，取 2 秒是覆盖这两件事的下限。
+    /// **现场节拍不同就要改这个数**，别当成技术常数。
+    /// </summary>
+    private static readonly TimeSpan NgHoldDuration = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// 主图的保持截止时刻（UTC）。过期的判断只发生在"下一件到达时"，
+    /// 不起定时器 —— 产线停了就该一直停在 NG 那一帧，这是对的。
+    /// </summary>
+    private DateTime _ngHoldUntilUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// 主图当前是否停留在 NG 上（还在保持窗口内）。
+    /// UI 用它显示"保持中"角标：不标出来，操作员会把停住的画面当成界面卡死。
+    /// </summary>
+    [ObservableProperty]
+    private bool _isNgHeld;
 
     /// <summary>最近一张 NG 的原图（已 Freeze）</summary>
     private BitmapSource? _recentNgOriginal;
 
     /// <summary>最近一张 NG 的标注图（已 Freeze）</summary>
     private BitmapSource? _recentNgAnnotated;
+
+    /// <summary>
+    /// 右下角缩略图用的位图：优先标注图（一眼能看出坏在哪），没有就原图。
+    /// 与主图不同步 —— 主图会随 OK 件前进，这张始终是最新 NG。
+    /// </summary>
+    public BitmapSource? RecentNgImage => _recentNgAnnotated ?? _recentNgOriginal;
 
     /// <summary>是否有可回看的 NG</summary>
     [ObservableProperty]
@@ -236,25 +269,40 @@ public partial class ImagePanelViewModel : ObservableObject
     {
         if (result.OriginalImage is not null)
         {
+            var isNg = !result.Report.IsOk;
+            var now = DateTime.UtcNow;
+
+            _lastImageTime = result.Report.Timestamp;
+
+            // NG 一律立刻上屏并重开保持窗口；OK 件只在窗口之外才替换主图。
+            // 窗口内被跳过的 OK 件没有丢：它照样入库、照样回写 PLC，只是不上屏 ——
+            // 那块屏幕此刻的职责是"让刚才那件 NG 留在人眼里"。
+            var shouldShow = isNg || now >= _ngHoldUntilUtc;
+
+            if (isNg)
+            {
+                // 缩略回看始终指向最新 NG，不受主图保持窗口影响
+                _recentNgOriginal = result.OriginalImage;
+                _recentNgAnnotated = result.AnnotatedImage ?? result.OriginalImage;
+                HasRecentNg = true;
+                RecentNgText = $"{result.Report.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture)} NG";
+                OnPropertyChanged(nameof(RecentNgImage));
+                _ngHoldUntilUtc = now + NgHoldDuration;
+            }
+
+            if (!shouldShow) return;
+
+            // 顺序很重要 —— 先切回实时再赋值：否则正在回看旧 NG 时会先闪一下旧图再跳到新图。
+            IsReviewingNg = false;
+
             OriginalImage = result.OriginalImage;
             AnnotatedImage = result.AnnotatedImage;
-            _lastImageTime = result.Report.Timestamp;
+            IsNgHeld = isNg;
 
             EmptyTitle = "";
             EmptyDetail = "";
             EmptyAction = "";
             HasEmptyAction = false;
-
-            // 新 NG 到来：留一份，并把画面切回实时（这一帧本身就是那个 NG）。
-            // 顺序很重要 —— 先切回实时再赋值，否则正在回看旧 NG 时会看不出换了件。
-            if (!result.Report.IsOk)
-            {
-                _recentNgOriginal = result.OriginalImage;
-                _recentNgAnnotated = result.AnnotatedImage ?? result.OriginalImage;
-                HasRecentNg = true;
-                RecentNgText = $"{result.Report.Timestamp.ToString("HH:mm:ss", CultureInfo.InvariantCulture)} NG";
-                IsReviewingNg = false;
-            }
 
             // 每帧自动切到"检测"页签：操作员看的是标注结果，不是原图。
             // 保留原行为（S4 只改线程归属，不改交互）。
@@ -270,6 +318,10 @@ public partial class ImagePanelViewModel : ObservableObject
         OriginalImage = null;
         AnnotatedImage = null;
 
+        // 图都清了，"保持中"角标也不能留着 —— 否则黑屏上挂着一句"NG 保持中"，
+        // 操作员会以为图还在、只是没刷出来。
+        IsNgHeld = false;
+
         EmptyTitle = "本帧没有图像";
         EmptyDetail = result.ImageUnavailableReason ?? "未收到图像，也未给出原因";
 
@@ -281,9 +333,9 @@ public partial class ImagePanelViewModel : ObservableObject
         }
         else if (_isPushDriven)
         {
-            // 一张都没成功过：这是链路没接通，不是偶发失败，直接给配置动作
-            EmptyAction = "VM 侧在流程末尾加「存图」模块并开启渲染图输出，"
-                        + "再把文件路径放进发送数据的 imagePath 字段";
+            // 一张都没成功过：这是链路/配置没接通，不是偶发失败，直接给两个动作
+            EmptyAction = "切到工程师模式 → 侧边栏「图像来源」，指定平台存图的目录；"
+                        + "或在平台流程末尾加「存图」模块并把路径放进报文的 imagePath";
             HasEmptyAction = true;
         }
         else

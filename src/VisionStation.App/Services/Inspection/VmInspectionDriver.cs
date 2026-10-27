@@ -288,7 +288,7 @@ public sealed class VmInspectionDriver : IDisposable
     private static void Publish(InspectionRunResult result)
     {
         WeakReferenceMessenger.Default.Send(new InspectionResultMessage(result));
-        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(result.CameraOnline));
+        WeakReferenceMessenger.Default.Send(new ImageLinkStatusMessage(result.ImageLinkOnline));
     }
 
     /// <summary>回 UI 线程执行；没有 WPF 环境（单测）时直接执行。</summary>

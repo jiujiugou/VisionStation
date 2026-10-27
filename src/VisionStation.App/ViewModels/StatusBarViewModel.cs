@@ -8,11 +8,11 @@ namespace VisionStation.App.ViewModels;
 /// 状态栏 ViewModel
 ///
 /// 职责：
-///   1. 订阅 CameraStatusMessage → 更新相机在线状态
-///   2. 显示 PLC / 相机 / FPS / Cycle / OK / NG / CPU / 内存
+///   1. 订阅 ImageLinkStatusMessage → 更新图像链路在线状态
+///   2. 显示 PLC / 平台 / FPS / Cycle / OK / NG / CPU / 内存
 ///
 /// 数据来源：两条消息。
-///   - <see cref="CameraStatusMessage"/> → <see cref="CameraOnline"/>
+///   - <see cref="ImageLinkStatusMessage"/> → <see cref="ImageLinkOnline"/>
 ///   - <see cref="InspectionResultMessage"/> → 累计 OK/NG、单帧耗时、FPS
 ///
 /// 累计值归本类自己维护（而不是由编排方算好塞进来）：它们是"显示统计"，
@@ -35,14 +35,14 @@ public partial class StatusBarViewModel : ObservableObject
     private bool _plcOnline;
 
     /// <summary>
-    /// 相机是否在线。
-    /// 初始值由 InspectionPageViewModel 构造时发出的 CameraStatusMessage 赋上，
-    /// 之后靠后续消息更新（重连 / 切相机 / 每帧结果都带当前在线状态）。
-    /// 默认 false 只代表"还没确认"，不代表离线 —— 所以启动时必须立刻赋真值，
-    /// 否则相机明明连上了，状态栏会一直显示灰点，直到第一次检测跑完。
+    /// 图像链路是否在线 —— 也就是"平台有没有在推结果"。
+    ///
+    /// 以前这里叫"相机在线"：程序自己采图时它反映相机状态。现在相机归平台独占，
+    /// 本程序只收结果，再挂着"相机"两个字就是骗人；灯亮不亮只说明平台推没推。
+    /// 默认 false 是诚实的：程序刚起来时一帧都还没收到。
     /// </summary>
     [ObservableProperty]
-    private bool _cameraOnline;
+    private bool _imageLinkOnline;
 
     /// <summary>每秒处理帧数（实时吞吐，EMA 平滑，如 "0.5"；无帧时为 "--"）</summary>
     [ObservableProperty]
@@ -68,18 +68,14 @@ public partial class StatusBarViewModel : ObservableObject
     [ObservableProperty]
     private string _memoryUsage = "--";
 
-    /// <summary>图像源描述（FileCamera / Webcam / HikCamera）</summary>
-    [ObservableProperty]
-    private string _imageSource = "FileCamera";
-
     /// <summary>单帧耗时的指数滑动平均，用来平滑 FPS（瞬时值抖动太大，看不出产线节拍）。</summary>
     private double _emaCycleMs;
 
     public StatusBarViewModel()
     {
-        // 相机状态变化 → 更新在线指示
-        WeakReferenceMessenger.Default.Register<StatusBarViewModel, CameraStatusMessage>(this,
-            static (vm, msg) => vm.CameraOnline = msg.Value);
+        // 图像链路状态变化 → 更新在线指示
+        WeakReferenceMessenger.Default.Register<StatusBarViewModel, ImageLinkStatusMessage>(this,
+            static (vm, msg) => vm.ImageLinkOnline = msg.Value);
 
         // 一帧完成 → 记账 + 刷新节拍。消息在 UI 线程上到达，不需要再切线程。
         WeakReferenceMessenger.Default.Register<StatusBarViewModel, InspectionResultMessage>(this,

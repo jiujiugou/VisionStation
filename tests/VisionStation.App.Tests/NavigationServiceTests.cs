@@ -29,10 +29,10 @@ public class NavigationServiceTests
         var changed = new List<string?>();
         service.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
 
-        Assert.True(service.Navigate(NavigationService.CameraRoute));
+        Assert.True(service.Navigate(NavigationService.ImageSourceRoute));
 
         Assert.Same(camera, service.CurrentPage);
-        Assert.Equal(NavigationService.CameraRoute, service.CurrentRoute);
+        Assert.Equal(NavigationService.ImageSourceRoute, service.CurrentRoute);
         Assert.Contains(nameof(NavigationService.CurrentPage), changed);
         Assert.Contains(nameof(NavigationService.CurrentRoute), changed);
     }
@@ -55,7 +55,7 @@ public class NavigationServiceTests
     public void Navigate_SamePageTwice_KeepsInstanceAndDoesNotRaiseDuplicateChange()
     {
         var (service, inspection, _) = CreateService();
-        service.Navigate(NavigationService.CameraRoute);
+        service.Navigate(NavigationService.ImageSourceRoute);
 
         int pageChanges = 0;
         service.PropertyChanged += (_, e) =>
@@ -63,17 +63,17 @@ public class NavigationServiceTests
             if (e.PropertyName == nameof(NavigationService.CurrentPage)) pageChanges++;
         };
 
-        Assert.True(service.Navigate(NavigationService.CameraRoute));
+        Assert.True(service.Navigate(NavigationService.ImageSourceRoute));
 
-        // 已在相机页时重复导航不应触发绑定更新（整页重建 = 面板状态丢失）
+        // 已在图像来源页时重复导航不应触发绑定更新（整页重建 = 面板状态丢失）
         Assert.Equal(0, pageChanges);
         Assert.Same(inspection, service.Navigate(NavigationService.InspectionRoute) ? service.CurrentPage : null);
     }
 
-    private static (NavigationService Service, InspectionPageViewModel Inspection, CameraPageViewModel Camera) CreateService()
+    private static (NavigationService Service, InspectionPageViewModel Inspection, ImageSourcePageViewModel Camera) CreateService()
     {
         var inspection = TestPages.Inspection();
-        var camera = TestPages.Camera();
+        var camera = TestPages.ImageSource();
         var service = new NavigationService(inspection, camera, TestPages.History(),
             new AuditPageViewModel(new FakeAuditService()), NullLogger<NavigationService>.Instance);
         return (service, inspection, camera);

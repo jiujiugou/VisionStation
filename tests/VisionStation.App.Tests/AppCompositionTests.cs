@@ -37,7 +37,7 @@ public class AppCompositionTests
         services.AddViews();
 
         Assert.Contains(services, d => d.ServiceType == typeof(InspectionPageViewModel));
-        Assert.Contains(services, d => d.ServiceType == typeof(CameraPageViewModel));
+        Assert.Contains(services, d => d.ServiceType == typeof(ImageSourcePageViewModel));
         Assert.Contains(services, d => d.ServiceType == typeof(INavigationService));
         Assert.Contains(services, d => d.ServiceType == typeof(ShellViewModel));
     }

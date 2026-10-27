@@ -291,8 +291,6 @@ public class AppHostTests
         new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Camera:Mode"] = "File",
-                ["Camera:ImageFolder"] = Path.Combine(root, "TestImages"),
                 ["Detection:TemplatePath"] = Path.Combine(root, "template.png"),
                 ["Storage:ImageFolder"] = Path.Combine(root, "InspectedImages"),
                 ["Storage:DbPath"] = Path.Combine(root, "visionstation.db"),

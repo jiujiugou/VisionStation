@@ -46,9 +46,9 @@ public partial class TopBarViewModel : ObservableObject
     /// <summary>配方声明的画面尺寸；未声明时如实说明，不显示 0×0</summary>
     public string FrameText { get; }
 
-    /// <summary>相机在线（订阅 <see cref="CameraStatusMessage"/>）</summary>
+    /// <summary>图像链路在线（订阅 <see cref="ImageLinkStatusMessage"/>）：平台有没有在推结果</summary>
     [ObservableProperty]
-    private bool _cameraOnline;
+    private bool _imageLinkOnline;
 
     /// <summary>PLC 在线。仅当触发源是 PLC 时才有意义。</summary>
     [ObservableProperty]
@@ -97,8 +97,8 @@ public partial class TopBarViewModel : ObservableObject
             ? $"{recipe.Sensor.Width}×{recipe.Sensor.Height}"
             : "尺寸未声明";
 
-        WeakReferenceMessenger.Default.Register<TopBarViewModel, CameraStatusMessage>(this,
-            static (vm, msg) => vm.CameraOnline = msg.Value);
+        WeakReferenceMessenger.Default.Register<TopBarViewModel, ImageLinkStatusMessage>(this,
+            static (vm, msg) => vm.ImageLinkOnline = msg.Value);
 
         // 每帧检测完顺手刷一次 PLC 灯：PLC 的连接状态只在收发时才会变，
         // 定时器去轮询它反而是多一次网络 IO。

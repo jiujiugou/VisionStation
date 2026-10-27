@@ -11,8 +11,9 @@ namespace VisionStation.UnitTests;
 ///   - Core 不依赖 Storage / Devices —— Core.csproj 没那个 ProjectReference
 ///   - Core 不引用 System.Windows —— Core 是 net8.0，根本编不过
 ///   - App 不被任何项目引用 —— App 是 net8.0-windows，其他是 net8.0
-///   - 相机/触发源必须可释放 —— ICamera / ITriggerSource 已继承 IDisposable，
+///   - 触发源必须可释放 —— ITriggerSource 已继承 IDisposable，
 ///     类型系统强制，漏写编不过（2026-10-19 从测试下沉到接口）
+///     （相机层 2026-10-26 已删除：相机归视觉平台独占，本程序不采图）
 ///
 /// 曾经写过的两条规则已删除，记在这里防止有人加回来：
 ///   - 「Storage 不许依赖 OpenCvSharp」是错的。存储层要把 Mat 编码成 jpg，

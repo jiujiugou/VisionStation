@@ -12,7 +12,7 @@ namespace VisionStation.App.Tests;
 /// 这么改的直接原因是一个实测出来的缺陷 —— 两个 ListBox 共享一个 SelectedItem 时，
 /// 各自记住自己的选中项、互不清除，于是**同时亮两个图标**，用户判断不出当前页。
 /// 那个缺陷在真 WPF 里可复现（临时探针：绑定两块 ListBox 到同一属性，
-/// 点下半部『相机』后上半部『检测』仍为 SelectedItem），VM 层测不出来，
+/// 点下半部第二个图标后上半部『检测』仍为 SelectedItem），VM 层测不出来，
 /// 所以这里测的是"高亮是否唯一且跟随路由"这个可观察结果。
 ///
 /// 旧的 <c>SelectingUnimplementedPage_RevertsSelectionAndKeepsActivePage</c> 已随
@@ -29,7 +29,7 @@ public class SidebarViewModelTests
 
         Assert.Equal(NavigationService.InspectionRoute, sidebar.ActivePage);
         Assert.True(InspectionItem(sidebar).IsActive);
-        Assert.False(CameraItem(sidebar).IsActive);
+        Assert.False(ImageSourceItem(sidebar).IsActive);
     }
 
     [Fact]
@@ -37,14 +37,14 @@ public class SidebarViewModelTests
     {
         var (sidebar, navigation, camera) = Create();
 
-        sidebar.NavigateCommand.Execute(CameraItem(sidebar));
+        sidebar.NavigateCommand.Execute(ImageSourceItem(sidebar));
 
-        Assert.Contains(NavigationService.CameraRoute, navigation.Attempts);
+        Assert.Contains(NavigationService.ImageSourceRoute, navigation.Attempts);
         Assert.Same(camera, navigation.CurrentPage);
-        Assert.Equal(NavigationService.CameraRoute, sidebar.ActivePage);
+        Assert.Equal(NavigationService.ImageSourceRoute, sidebar.ActivePage);
 
         // 关键断言：同一时刻只能有一个图标是亮的
-        Assert.True(CameraItem(sidebar).IsActive);
+        Assert.True(ImageSourceItem(sidebar).IsActive);
         Assert.False(InspectionItem(sidebar).IsActive);
         Assert.Single(AllItems(sidebar).Where(i => i.IsActive));
     }
@@ -52,17 +52,17 @@ public class SidebarViewModelTests
     [Fact]
     public void NavigateCommand_ToUnroutablePage_KeepsHighlightOnCurrentPage()
     {
-        // 相机页没登记 → 导航失败。高亮必须留在检测上，不能凭空挪走。
+        // 图像来源页没登记 → 导航失败。高亮必须留在检测上，不能凭空挪走。
         var inspection = TestPages.Inspection();
         var navigation = new FakeNavigationService(NavigationService.InspectionRoute, inspection)
             .With(NavigationService.InspectionRoute, inspection);
         var sidebar = new SidebarViewModel(navigation, new FakeSessionService());
 
-        sidebar.NavigateCommand.Execute(CameraItem(sidebar));
+        sidebar.NavigateCommand.Execute(ImageSourceItem(sidebar));
 
         Assert.Equal(NavigationService.InspectionRoute, sidebar.ActivePage);
         Assert.True(InspectionItem(sidebar).IsActive);
-        Assert.False(CameraItem(sidebar).IsActive);
+        Assert.False(ImageSourceItem(sidebar).IsActive);
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public class SidebarViewModelTests
         // 守卫：侧边栏上摆出来的每一个图标，都必须真能点进去。
         // 以前 8 个图标里 6 个点了弹回去，操作员点名骂的就是这个。
         var inspection = TestPages.Inspection();
-        var camera = TestPages.Camera();
+        var camera = TestPages.ImageSource();
         var navigation = new NavigationService(inspection, camera, TestPages.History(),
             new AuditPageViewModel(new FakeAuditService()), NullLogger<NavigationService>.Instance);
         var sidebar = new SidebarViewModel(navigation, new FakeSessionService());
@@ -86,7 +86,7 @@ public class SidebarViewModelTests
     [Fact]
     public void RunMode_HidesEngineerOnlyNavItems()
     {
-        // 运行模式是默认模式。相机参数这类页面对操作员没有意义，
+        // 运行模式是默认模式。图像来源这类配置页对操作员没有意义，
         // 摆在导航里只会让人误点进去、看到一堆看不懂的按钮。
         var (sidebar, _, _) = Create();
 
@@ -101,18 +101,18 @@ public class SidebarViewModelTests
 
         sidebar.ApplyEngineerMode(true);
 
-        Assert.Contains(sidebar.VisibleBottomItems, item => item.Route == NavigationService.CameraRoute);
+        Assert.Contains(sidebar.VisibleBottomItems, item => item.Route == NavigationService.ImageSourceRoute);
     }
 
     [Fact]
     public void SwitchBackToRunMode_WhileOnEngineerPage_FallsBackToInspection()
     {
-        // 悬空状态：切开到运行模式时人正站在相机页上。
+        // 悬空状态：切开到运行模式时人正站在图像来源页上。
         // 不退回的话，导航栏一个高亮都没有，内容区还显示着相机参数。
         var (sidebar, navigation, _) = Create();
         sidebar.ApplyEngineerMode(true);
-        sidebar.NavigateCommand.Execute(CameraItem(sidebar));
-        Assert.Equal(NavigationService.CameraRoute, navigation.CurrentRoute);
+        sidebar.NavigateCommand.Execute(ImageSourceItem(sidebar));
+        Assert.Equal(NavigationService.ImageSourceRoute, navigation.CurrentRoute);
 
         sidebar.ApplyEngineerMode(false);
 
@@ -127,16 +127,16 @@ public class SidebarViewModelTests
     private static NavItem InspectionItem(SidebarViewModel sidebar)
         => sidebar.TopItems.Single(i => i.Route == NavigationService.InspectionRoute);
 
-    private static NavItem CameraItem(SidebarViewModel sidebar)
-        => sidebar.BottomItems.Single(i => i.Route == NavigationService.CameraRoute);
+    private static NavItem ImageSourceItem(SidebarViewModel sidebar)
+        => sidebar.BottomItems.Single(i => i.Route == NavigationService.ImageSourceRoute);
 
-    private static (SidebarViewModel Sidebar, FakeNavigationService Navigation, CameraPageViewModel Camera) Create()
+    private static (SidebarViewModel Sidebar, FakeNavigationService Navigation, ImageSourcePageViewModel Camera) Create()
     {
         var inspection = TestPages.Inspection();
-        var camera = TestPages.Camera();
+        var camera = TestPages.ImageSource();
         var navigation = new FakeNavigationService(NavigationService.InspectionRoute, inspection)
             .With(NavigationService.InspectionRoute, inspection)
-            .With(NavigationService.CameraRoute, camera);
+            .With(NavigationService.ImageSourceRoute, camera);
 
         return (new SidebarViewModel(navigation, new FakeSessionService()), navigation, camera);
     }
@@ -148,7 +148,7 @@ public class SidebarViewModelTests
         var inspection = TestPages.Inspection();
         var navigation = new FakeNavigationService(NavigationService.InspectionRoute, inspection)
             .With(NavigationService.InspectionRoute, inspection)
-            .With(NavigationService.CameraRoute, TestPages.Camera())
+            .With(NavigationService.ImageSourceRoute, TestPages.ImageSource())
             .With(NavigationService.AuditRoute, new object());
 
         var session = new FakeSessionService();

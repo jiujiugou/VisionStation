@@ -17,13 +17,12 @@ namespace VisionStation.App.ViewModels;
 /// 控制面板 ViewModel
 ///
 /// 职责：
-///   1. 直接操控 ITriggerSource（开始/停止/自动/急停）、ICamera（重连）、IInspectionEngine（重载/扫描）
+///   1. 直接操控 ITriggerSource（开始/停止/自动/急停）、IInspectionEngine（重载/扫描）
 ///   2. 不再通过 MainViewModel 中转——按钮点击 → 直接调硬件
 ///   3. 状态变化通过 Messenger 广播（TriggerState、CameraStatus、Log）
 ///
 /// 依赖：
 ///   - ITriggerSource：触发信号源（Manual/Auto/将来PLC）
-///   - ICamera：相机（File/Webcam/将来HikCamera）
 ///   - IInspectionEngine：引擎（调完 .sol 后重载、扫描输出）
 ///
 /// 这个 ViewModel 不订阅任何消息——它是命令的起点，不需要听别人的。
@@ -32,7 +31,6 @@ public partial class ControlPanelViewModel : ObservableObject
 {
     // ── 依赖（由 DI 注入）──
     private readonly ITriggerSource _trigger;
-    private readonly ICamera _camera;
     private readonly IDialogService _dialog;
     private readonly IInspectionEngine _engine;
     private readonly AppPaths _paths;
@@ -60,14 +58,6 @@ public partial class ControlPanelViewModel : ObservableObject
     [ObservableProperty]
     private string _autoButtonText = "自动模式";
 
-    /// <summary>相机是否在线（控制绿点颜色）</summary>
-    [ObservableProperty]
-    private bool _cameraOnline;
-
-    /// <summary>已采集帧数（界面显示用）</summary>
-    [ObservableProperty]
-    private int _frameCount;
-
     /// <summary>
     /// 是否工程师模式。
     ///
@@ -85,11 +75,10 @@ public partial class ControlPanelViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 构造函数（由 DI 注入 Trigger 和 Camera）
+    /// 构造函数（由 DI 注入 Trigger 与 Engine）
     /// </summary>
     public ControlPanelViewModel(
         ITriggerSource trigger,
-        ICamera camera,
         IDialogService dialog,
         IInspectionEngine engine,
         AppPaths paths,
@@ -97,14 +86,11 @@ public partial class ControlPanelViewModel : ObservableObject
         IAuditService audit)
     {
         _trigger = trigger;
-        _camera = camera;
         _dialog = dialog;
         _engine = engine;
         _paths = paths;
         _recipe = recipe;
         _audit = audit;
-        CameraOnline = _camera.IsAvailable; // 初始化：检查相机是否可用
-
         // 维护区的可见性跟着模式走。顶栏切模式时广播，这里被动接收 ——
         // 控制面板不主动问"现在什么模式"，避免和顶栏形成双向依赖。
         WeakReferenceMessenger.Default.Register<ControlPanelViewModel, EngineerModeMessage>(this,
@@ -188,23 +174,6 @@ public partial class ControlPanelViewModel : ObservableObject
         WeakReferenceMessenger.Default.Send(new LogMessage("急停已触发", LogMsgLevel.Error));
         _audit.Record(AuditAction.EStopPressed, RecipeName,
             detail: "急停触发：触发源已停止，自动模式已退出");
-    }
-
-    /// <summary>
-    /// 重新连接相机
-    /// 当前实现：ICamera.Open() 转发给当前相机；FileCamera 重扫目录，HikCamera 重新枚举/打开
-    /// </summary>
-    [RelayCommand]
-    private void Reconnect()
-    {
-        // 必须走 ICamera 契约：DI 注入的是 SwappableCamera，`is FileCamera` 永远为 false。
-        // SwappableCamera.Open() 会转发给当前实现，FileCamera 会重扫目录。
-        _camera.Open();
-        CameraOnline = _camera.IsAvailable;
-        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
-        WeakReferenceMessenger.Default.Send(new LogMessage(
-            _camera.IsAvailable ? "相机已就绪" : "相机无图像",
-            _camera.IsAvailable ? LogMsgLevel.Success : LogMsgLevel.Error));
     }
 
     /// <summary>

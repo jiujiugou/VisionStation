@@ -9,8 +9,6 @@ namespace VisionStation.App.Composition;
 // 全部是纯数据 record：解析与校验集中在 AppOptionsBinder，消费方只读不猜。
 // 键名与 appsettings.json 的段名一一对应；默认值也只在这里出现一次。
 
-public sealed record CameraOptions(string Mode, string ImageFolder, string FileFilter, bool Loop);
-
 public sealed record TriggerOptions(int TimerIntervalMs);
 
 /// <summary>PLC 传输方式。串口（RTU）是现场主流，TCP 保留给走网关/交换机的场合。</summary>
@@ -66,7 +64,6 @@ public sealed record VmLinkOptions(bool Enabled, int Port, string BindAddress, i
 /// </summary>
 public sealed record AppOptions
 {
-    public CameraOptions Camera { get; init; } = new("File", "TestImages", "*.jpg;*.png;*.bmp", true);
     public TriggerOptions Trigger { get; init; } = new(2000);
     public PlcOptions Plc { get; init; } = new(false, "127.0.0.1", 502, 1, "D100", "D101", "D102", 100);
     public StorageOptions Storage { get; init; } = new("All", "InspectedImages", "visionstation.db");
@@ -94,7 +91,7 @@ public sealed record AppOptions
 }
 
 /// <summary>
-/// 配置绑定与校验的唯一入口（W-14 收口：此前 Camera:Mode 被读两次、
+/// 配置绑定与校验的唯一入口（W-14 收口：此前同一键被两处各读一次、
 /// 各处直接 <c>config["..."]</c> 且缺项静默回落）。规则：
 ///
 /// - 数字解析失败 → 报错**带键名**，不是裸 FormatException；
@@ -107,16 +104,6 @@ public static class AppOptionsBinder
     public static AppOptions Bind(IConfiguration config, string? dataRootOverride = null)
     {
         var errors = new List<string>();
-
-        var camera = new CameraOptions(
-            Mode: Read(config, "Camera:Mode", "File"),
-            ImageFolder: Read(config, "Camera:ImageFolder", "TestImages"),
-            FileFilter: Read(config, "Camera:FileFilter", "*.jpg;*.png;*.bmp"),
-            Loop: ReadBool(config, "Camera:Loop", true, errors));
-
-        var allowedCameraModes = new[] { "Webcam", "Hikvision", "File" };
-        if (!allowedCameraModes.Contains(camera.Mode, StringComparer.OrdinalIgnoreCase))
-            errors.Add($"Camera:Mode = \"{camera.Mode}\" 不合法，可选值：{string.Join(", ", allowedCameraModes)}");
 
         var trigger = new TriggerOptions(
             TimerIntervalMs: ReadInt(config, "Trigger:TimerIntervalMs", 2000, errors));
@@ -151,7 +138,6 @@ public static class AppOptionsBinder
 
         return new AppOptions
         {
-            Camera = camera,
             Trigger = trigger,
             Plc = plc,
             Storage = storage,

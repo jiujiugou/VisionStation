@@ -30,7 +30,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
 
     private readonly IInspectionWorkflow _workflow;
     private readonly ITriggerSource _trigger;
-    private readonly ICamera _camera;
     private readonly ShutdownState _shutdown;
     private readonly InFlightWorkMonitor _inFlight;
     private readonly SynchronizationContext? _ui;
@@ -67,7 +66,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         ControlPanelViewModel controlPanel,
         IInspectionWorkflow workflow,
         ITriggerSource trigger,
-        ICamera camera,
         ShutdownState shutdown,
         InFlightWorkMonitor inFlight,
         ILogger<InspectionPageViewModel> logger,
@@ -80,7 +78,6 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
 
         _workflow = workflow;
         _trigger = trigger;
-        _camera = camera;
         _shutdown = shutdown;
         _inFlight = inFlight;
         _logger = logger;
@@ -90,9 +87,9 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
         // 谁拥有这一帧的界面，谁就该拥有这一帧的编排。
         _trigger.Triggered += OnTriggered;
 
-        // 状态栏相机指示灯必须在启动时就反映真实状态，
-        // 否则相机明明连上了，也要等第一帧检测跑完才亮。
-        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(_camera.IsAvailable));
+        // 启动时链路一定是"未连上"：等平台推来第一帧才算通。
+        // 不主动发 true —— 那会点亮一个还不成立的绿灯。
+        WeakReferenceMessenger.Default.Send(new ImageLinkStatusMessage(false));
         WeakReferenceMessenger.Default.Send(new LogMessage("VisionStation 已就绪", LogMsgLevel.Success));
     }
 
@@ -204,7 +201,7 @@ public partial class InspectionPageViewModel : ObservableObject, IDisposable
     private static void Publish(InspectionRunResult result)
     {
         WeakReferenceMessenger.Default.Send(new InspectionResultMessage(result));
-        WeakReferenceMessenger.Default.Send(new CameraStatusMessage(result.CameraOnline));
+        WeakReferenceMessenger.Default.Send(new ImageLinkStatusMessage(result.ImageLinkOnline));
 
         if (result.ImageError is { } error)
         {

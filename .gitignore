@@ -20,6 +20,8 @@ test_visionstation.db-wal
 
 Logs/
 InspectedImages/
+# VM「输出图像」模块的存图目录（VM 侧配置的落盘位置，几百张图几十 MB，不是源码）
+VMOut/
 
 # Crash / diagnostic logs
 crash*.log

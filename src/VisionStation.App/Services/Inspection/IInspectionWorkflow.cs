@@ -53,7 +53,7 @@ public interface IInspectionWorkflow
 /// <param name="ImageSaved">图片是否真的写到了磁盘</param>
 /// <param name="ImageError">存图失败原因；成功或跳过时为 null</param>
 /// <param name="ConsecutiveImageFailures">连续存图失败次数（成功即归零）</param>
-/// <param name="CameraOnline">本帧结束后相机的可用状态</param>
+/// <param name="ImageLinkOnline">本帧结束后图像链路是否在线（VM 模式即平台连接状态）</param>
 /// <param name="ImageUnavailableReason">
 /// 本帧没有可用图像的原因；有图时为 null。
 ///
@@ -69,5 +69,5 @@ public sealed record InspectionRunResult(
     bool ImageSaved,
     string? ImageError,
     int ConsecutiveImageFailures,
-    bool CameraOnline,
+    bool ImageLinkOnline,
     string? ImageUnavailableReason = null);

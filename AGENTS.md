@@ -35,7 +35,7 @@ ONNX 保留为**离线验证工具**（`tools/GoldenSetRunner` 跑黄金样本�
 | `src/VisionStation.Core` | 契约与模型：`IInspectionEngine`、`InspectionReport`、`ToolResult`、`RecipeConfig`（**无 IO、无 WPF、无算法实现**） | 可改 |
 | `src/VisionStation.Engines.Onnx` | YOLO 推理（`YoloDetector` + `OnnxInspectionEngine`）。**App 不引用**，只服务 `tools/GoldenSetRunner` 离线跑批 | 可改 |
 | `src/VisionStation.Engines.Vm` | VM 报文解析（JSON / 分隔符→报告）+ 推驱动占位引擎；**不引用 VM SDK**，任何机器可编译 | 可改 |
-| `src/VisionStation.Devices` | 相机（海康 / 文件 / 网页摄像头）、触发源 | 可改 |
+| `src/VisionStation.Devices` | 触发源（Timer / PLC）、PLC 连接（TCP/RTU）、设备管理器。**相机层已删**（2026-10-26） | 可改 |
 | `src/VisionStation.Storage` | EF Core DbContext、检测仓储、图片存储 | 可改 |
 | `src/VisionStation.Service` | 自检（HealthChecker）、管家（Housekeeping） | 可改 |
 | `src/VisionStation.App` | WPF 组合根、DI 注册、ViewModel | 可改 |

@@ -21,9 +21,9 @@
                            Foreground="{Binding PlcOnline, Converter={StaticResource BoolToOnlineColor}}"
                            FontSize="11" Margin="4,0,0,0" />
 
-                <TextBlock Text="Camera" Foreground="#888" FontSize="11" Margin="14,0,0,0" />
+                <TextBlock Text="平台" Foreground="#888" FontSize="11" Margin="14,0,0,0" />
                 <TextBlock Text="●"
-                           Foreground="{Binding CameraOnline, Converter={StaticResource BoolToOnlineColor}}"
+                           Foreground="{Binding ImageLinkOnline, Converter={StaticResource BoolToOnlineColor}}"
                            FontSize="11" Margin="4,0,0,0" />
 
                 <TextBlock FontSize="11" Margin="14,0,0,0">

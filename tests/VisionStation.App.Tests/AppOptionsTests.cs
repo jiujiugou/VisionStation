@@ -19,7 +19,6 @@ public class AppOptionsTests
     {
         var options = AppOptionsBinder.Bind(Config(new Dictionary<string, string?>()));
 
-        Assert.Equal("File", options.Camera.Mode);
         Assert.Equal("All", options.Storage.Mode);
         Assert.Equal(2000, options.Trigger.TimerIntervalMs);
         Assert.Equal(30, options.Housekeeping.KeepRecordsDays);
@@ -30,27 +29,14 @@ public class AppOptionsTests
     {
         var options = AppOptionsBinder.Bind(Config(new Dictionary<string, string?>
         {
-            ["Camera:Mode"] = "Hikvision",
             ["Trigger:TimerIntervalMs"] = "5000",
             ["Storage:Mode"] = "NGOnly",
             ["Housekeeping:KeepRecordsDays"] = "7",
         }));
 
-        Assert.Equal("Hikvision", options.Camera.Mode);
         Assert.Equal(5000, options.Trigger.TimerIntervalMs);
         Assert.Equal("NGOnly", options.Storage.Mode);
         Assert.Equal(7, options.Housekeeping.KeepRecordsDays);
-    }
-
-    [Fact]
-    public void Bind_相机模式不合法_报错带键名与合法值()
-    {
-        var ex = Assert.Throws<AppOptionsValidationException>(() =>
-            AppOptionsBinder.Bind(Config(new Dictionary<string, string?> { ["Camera:Mode"] = "Basler" })));
-
-        Assert.Contains("Camera:Mode", ex.Message);
-        Assert.Contains("Basler", ex.Message);
-        Assert.Contains("Hikvision", ex.Message);   // 告诉用户合法值有哪些
     }
 
     [Fact]
@@ -95,10 +81,10 @@ public class AppOptionsTests
         var ex = Assert.Throws<AppOptionsValidationException>(() =>
             AppOptionsBinder.Bind(Config(new Dictionary<string, string?>
             {
-                ["Camera:Loop"] = "yes",
+                ["Plc:Enabled"] = "yes",
             })));
 
-        Assert.Contains("Camera:Loop", ex.Message);
+        Assert.Contains("Plc:Enabled", ex.Message);
     }
 
     [Fact]

@@ -6,6 +6,7 @@ using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Infrastructure;
 using VisionStation.App.Services;
 using VisionStation.App.Services.Inspection;
+using VisionStation.App.Services.Imaging;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Engines;
@@ -63,22 +64,10 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    /// <summary>注册 Devices 层：相机、触发源、设备管理器</summary>
+    /// <summary>注册 Devices 层：触发源、设备管理器</summary>
     public static IServiceCollection AddDevices(this IServiceCollection services,
         AppPaths appPaths, AppOptions options)
     {
-        services.AddSingleton<CameraFactory>(sp =>
-            new CameraFactory(appPaths, options.Camera, sp.GetService<ILoggerFactory>()));
-
-        services.AddSingleton<SwappableCamera>(sp =>
-        {
-            var factory = sp.GetRequiredService<CameraFactory>();
-            return new SwappableCamera(factory.Create(),
-            mode => factory.CreateByMode(mode),
-            options.Camera.Mode);   // 初始模式必须显式传入：写死默认值会让 UI 的去重守卫误判
-        });
-        services.AddSingleton<ICamera>(sp => sp.GetRequiredService<SwappableCamera>());
-
         services.AddSingleton<ITriggerSource>(sp =>
         {
             var plc = options.Plc;
@@ -122,7 +111,6 @@ public static class ServiceCollectionExtensions
             // 只注册、不连接（W-01/S2.4）：解析一个对象不该有"打开设备"这种副作用。
             // 连接由 AppHost.InitializeAsync 显式做一次，顺序在自检之前。
             var dm = new DeviceManager();
-            dm.Register(new CameraDevice(sp.GetRequiredService<ICamera>()));
             dm.Register(new TriggerDevice(sp.GetRequiredService<ITriggerSource>()));
             return dm;
         });
@@ -150,14 +138,6 @@ public static class ServiceCollectionExtensions
         // 另外两张是纯追加。
         services.AddSingleton<IUserRepository>(sp =>
             new UserRepository(appPaths.DbPath, sp.GetService<ILogger<UserRepository>>()));
-        services.AddSingleton(sp =>
-        {
-            var s = new ImageStoreService(appPaths.StorageFolder);
-            s.SetMode(options.Storage.Mode switch
-            { "NGOnly" => ImageStoreMode.NGOnly, "Sampling" => ImageStoreMode.Sampling, _ => ImageStoreMode.All });
-            return s;
-        });
-
         return services;
     }
 
@@ -228,6 +208,13 @@ public static class ServiceCollectionExtensions
         // 不必在测试里创建 WPF 窗口。
         services.AddSingleton<ILoginPrompt>(sp => new WpfLoginPrompt(sp));
 
+        // 图像来源设置：界面「图像来源」窗写它，检测链路每帧读它。
+        // 单独一份 JSON 而不是塞进 appsettings —— appsettings 随程序发布、装完就不该动；
+        // 这份是"这台机器的现场设置"，换机器本来就该是另一份。
+        services.AddSingleton(sp => new ImageSourceSettingsStore(
+            appPaths.ImageSourceSettingsPath,
+            sp.GetService<ILogger<ImageSourceSettingsStore>>()));
+
         // 检测链路（采图→检测→标注→存图→存库）从 VM 移到 App 服务层（S4a）。
         // 它不引用任何界面类型，只有位图转换会产出 WPF 的 BitmapSource —— 那属于呈现适配。
         services.AddSingleton<IInspectionWorkflow, InspectionWorkflow>();
@@ -270,7 +257,7 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<InspectionPageViewModel>();
 
-        services.AddSingleton<CameraPageViewModel>();
+        services.AddSingleton<ImageSourcePageViewModel>();
 
         // 审计页：只有管理员能从侧栏进入（NavItem.RequiredPermission = ViewAudit）。
         // 注册为单例是为了让导航服务能直接拿到它，翻页时保留上次的过滤条件与结果。

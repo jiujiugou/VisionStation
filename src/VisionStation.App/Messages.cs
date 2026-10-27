@@ -59,13 +59,17 @@ public sealed class LogMessage : ValueChangedMessage<(string Text, LogMsgLevel L
 }
 
 /// <summary>
-/// 相机状态变化消息
-/// 发送者：ControlPanelVM（重连时）、InspectionPageViewModel（每帧检测后）
-/// 订阅者：StatusBarVM
+/// 图像链路状态消息（平台推送到没到）。
+///
+/// 2026-10-26 从 <c>CameraStatusMessage</c> 改名：程序已经不采图了，
+/// 这个灯反映的是"平台在不在推结果"，再叫"相机"就是骗人。
+///
+/// 发送者：InspectionPageViewModel（每帧检测后）
+/// 订阅者：StatusBarVM / TopBarVM
 /// </summary>
-public sealed class CameraStatusMessage : ValueChangedMessage<bool>
+public sealed class ImageLinkStatusMessage : ValueChangedMessage<bool>
 {
-    public CameraStatusMessage(bool isAvailable) : base(isAvailable) { }
+    public ImageLinkStatusMessage(bool isOnline) : base(isOnline) { }
 }
 
 /// <summary>

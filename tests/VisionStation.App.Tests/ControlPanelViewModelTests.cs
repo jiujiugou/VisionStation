@@ -22,7 +22,7 @@ public class ControlPanelViewModelTests
     {
         var trigger = new FakeTrigger();
         var dialog = new FakeDialog { ConfirmResult = false };
-        var vm = new ControlPanelViewModel(trigger, new FakeCamera(), dialog,
+        var vm = new ControlPanelViewModel(trigger, dialog,
             new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
         {
             IsAutoMode = true
@@ -44,7 +44,7 @@ public class ControlPanelViewModelTests
     {
         var trigger = new FakeTrigger();
         var dialog = new FakeDialog { ConfirmResult = true };
-        var vm = new ControlPanelViewModel(trigger, new FakeCamera(), dialog,
+        var vm = new ControlPanelViewModel(trigger, dialog,
             new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
         {
             IsAutoMode = true
@@ -58,24 +58,6 @@ public class ControlPanelViewModelTests
     }
 
     /// <summary>
-    /// 重连必须调用 ICamera.Open()，不能判断具体相机类型。
-    /// DI 注入的是 SwappableCamera，`is FileCamera` 永远为 false；
-    /// Open() 会转发给当前实现，FileCamera 才真正重扫目录。
-    /// </summary>
-    [Fact]
-    public void Reconnect_CallsCameraOpenAndUpdatesOnlineState()
-    {
-        var camera = new FakeCamera { IsAvailable = false, NextOpenSucceeds = true };
-        var vm = new ControlPanelViewModel(new FakeTrigger(), camera, new FakeDialog(),
-            new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
-
-        vm.ReconnectCommand.Execute(null);
-
-        Assert.Equal(1, camera.OpenCount);
-        Assert.True(vm.CameraOnline);
-    }
-
-    /// <summary>
     /// 重载必须先停触发、再退出自动模式。
     /// 重载期间进来的帧在引擎里会拿到 NG，但"正在自动运行"这个状态如果不变，
     /// 操作员会以为产线还在跑。
@@ -85,7 +67,7 @@ public class ControlPanelViewModelTests
     {
         var trigger = new FakeTrigger();
         var engine = new FakeEngine();
-        var vm = new ControlPanelViewModel(trigger, new FakeCamera(), new FakeDialog(),
+        var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
             engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService())
         {
             IsAutoMode = true
@@ -103,7 +85,7 @@ public class ControlPanelViewModelTests
     public void ReloadEngine_WhenFailed_StillCallsEngineAndDoesNotThrow()
     {
         var engine = new FakeEngine { ReloadProblem = "方案里没有名为「流程1」的流程" };
-        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeCamera(), new FakeDialog(),
+        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
             engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ReloadEngineCommand.Execute(null);   // 不抛异常即为通过
@@ -118,7 +100,7 @@ public class ControlPanelViewModelTests
     [Fact]
     public void ScanOutputs_WhenEngineCannotScan_DoesNotThrow()
     {
-        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeCamera(), new FakeDialog(),
+        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
             new FakeEngine(), TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ScanOutputsCommand.Execute(null);
@@ -164,7 +146,7 @@ public class ControlPanelViewModelTests
                 new ScannedModule("圆查找1", new[] { new ScannedOutput("Radius", "VmIOCircle") })
             }, null)
         };
-        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeCamera(), new FakeDialog(),
+        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
             engine, TestPaths.Create(), TestPaths.Recipe(), new FakeAuditService());
 
         vm.ScanOutputsCommand.Execute(null);
@@ -187,27 +169,6 @@ public class ControlPanelViewModelTests
         }
 
         public void Fire() => Triggered?.Invoke(TriggerOrigin.Manual);
-
-        public void Dispose() { }
-    }
-
-    private sealed class FakeCamera : ICamera
-    {
-        public string? LastError => null;
-        public bool IsAvailable { get; set; }
-        public bool NextOpenSucceeds { get; set; }
-        public int OpenCount { get; private set; }
-        public int FrameCount => 0;
-
-        public void Open()
-        {
-            OpenCount++;
-            IsAvailable = NextOpenSucceeds;
-        }
-
-        public void Close() => IsAvailable = false;
-
-        public CameraFrame? Capture() => null;
 
         public void Dispose() { }
     }

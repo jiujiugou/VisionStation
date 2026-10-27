@@ -22,9 +22,6 @@ public sealed class AppPaths
     /// <summary>可写数据根（由 AppOptions 解析好的绝对路径）</summary>
     public string DataRoot { get; }
 
-    /// <summary>File 相机读取的图像目录</summary>
-    public string ImageFolder { get; }
-
     /// <summary>
     /// 检测引擎资源（.sol 流程文件、ONNX 模型）的解析基准目录。
     ///
@@ -46,6 +43,14 @@ public sealed class AppPaths
     public string RecipePath { get; }
 
     /// <summary>
+    /// 图像来源设置（界面上「图像来源」窗口写的那份）。
+    ///
+    /// 放在可写数据根下、不进资源目录：它是**这台机器的现场设置**，
+    /// 不是随程序发布的只读资源 —— 换一台工控机就该是另一份。
+    /// </summary>
+    public string ImageSourceSettingsPath { get; }
+
+    /// <summary>
     /// 配方目录（S7：同一目录下的多个 json 就是多份配方，靠 .active 指针切换）。
     /// 由 RecipePath 推导，配置里仍然只写一个文件路径 —— 不新增配置键。
     /// </summary>
@@ -54,25 +59,13 @@ public sealed class AppPaths
     public AppPaths(AppOptions options)
     {
         DataRoot      = options.DataRoot;
-        ImageFolder   = ResolveInput(options.Camera.ImageFolder, "TestImages");
         AssetRoot     = AppContext.BaseDirectory;
         StorageFolder = ResolveOutput(options.Storage.ImageFolder, "InspectedImages");
         DbPath        = ResolveOutput(options.Storage.DbPath, "visionstation.db");
         LogFolder     = ResolveOutput(options.Logging.LogFolder, "Logs");
         RecipePath    = ResolveRecipe(options.Recipe.Path);
-    }
 
-    /// <summary>解析只读资源：exe 目录优先（部署即带），找不到回退 cwd（开发期 dotnet run）</summary>
-    private string ResolveInput(string value, string defaultRel)
-    {
-        var rel = string.IsNullOrWhiteSpace(value) ? defaultRel : value;
-        if (Path.IsPathRooted(rel)) return rel;
-
-        var basePath = GetFullPath(AppContext.BaseDirectory, rel);
-        if (File.Exists(basePath) || Directory.Exists(basePath))
-            return basePath;
-
-        return GetFullPath(Environment.CurrentDirectory, rel);
+        ImageSourceSettingsPath = ResolveOutput(string.Empty, @"Config\image-source.json");
     }
 
     /// <summary>解析可写数据：只认 DataRoot，目录不存在时由消费方创建</summary>

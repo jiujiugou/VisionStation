@@ -74,7 +74,18 @@ public sealed class VmResultListener : IDisposable
     private readonly int _port;
     private readonly Action<string> _onLine;
     private readonly ILogger? _logger;
-    private readonly CancellationTokenSource _cts = new();
+    /// <summary>
+    /// 当前这一轮的取消源。**每次 <see cref="Start"/> 都会换一个新的**（F-62）。
+    ///
+    /// <para>
+    /// <b>为什么不能是 readonly 单次创建</b>：<see cref="CancellationTokenSource.Cancel"/>
+    /// 不可撤销。Stop 之后若继续沿用同一个源，第二次 Start 里
+    /// <c>Task.Run(action, token)</c> 收到已取消的 token 会直接返回一个 Canceled 任务、
+    /// <b>委托一次都不执行</b>（BCL 约定），而端口已经绑上 ——
+    /// 表现为"IsListening 为 true、连接能建立、数据全丢、无异常无日志"。
+    /// </para>
+    /// </summary>
+    private CancellationTokenSource _cts = new();
 
     private TcpListener? _listener;
     private Task? _acceptTask;
@@ -186,12 +197,9 @@ public sealed class VmResultListener : IDisposable
     /// </para>
     ///
     /// <para>
-    /// ⚠ <b>幂等判断有一个已知漏洞</b>：<c>_listener</c> 在 <c>Start()</c> **之前**就被赋值了。
-    /// 如果绑定失败（端口被占）抛出，字段留在非 null 状态；此时如果调用方 catch 住再调一次
-    /// <see cref="Start"/>，会被幂等分支直接返回 —— 结果是"没在监听，但 <see cref="IsListening"/> 为 true"，
-    /// 链路监控会一直显示"等待 VisionMaster 连接"（而不是"未监听"），骗得比直接崩掉更狠。
-    /// 现阶段之所以没出事：绑定失败会一路冒到启动流程，进程根本起不来，没有人会重试它。
-    /// 谁要加"启动失败自动重试"，必须先把这里的赋值顺序改掉。
+    /// <b>可重复启停</b>（F-62 修）：每次启动重建取消源、先绑定成功再发布字段，
+    /// 所以 Stop → Start 能真正重新收数；绑定失败也不会留下"IsListening 为 true 但没在听"的假状态。
+    /// 前提是调用方在 Stop 之后才 Start —— 并发 Start/Start 仍由 <c>_listener</c> 幂等分支兜住。
     /// </para>
     /// </summary>
     public void Start()
@@ -201,10 +209,24 @@ public sealed class VmResultListener : IDisposable
         if (_listener is not null) return;
 
         var address = IPAddress.Parse(_bindAddress);
-        _listener = new TcpListener(address, _port);
-        _listener.Start();
 
-        _acceptTask = Task.Run(() => AcceptLoopAsync(_cts.Token), _cts.Token);
+        // 先绑到局部变量，成功后再发布到字段（F-62 的同源缺陷）：
+        // 绑定失败时字段必须保持 null，否则幂等分支会把"根本没在监听"挡回去，
+        // IsListening 变成假绿，链路监控一直显示"等待 VisionMaster 连接"。
+        var listener = new TcpListener(address, _port);
+        listener.Start();
+
+        // 每次启动换一个新令牌（F-62）：Stop 会把当前令牌 Cancel 且不可撤销，
+        // 沿用旧令牌的后果见 _cts 字段说明。
+        var cts = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _cts, cts);
+        try { previous.Cancel(); }
+        catch (ObjectDisposedException) { /* 已在 Dispose 里释放 */ }
+        try { previous.Dispose(); }
+        catch (ObjectDisposedException) { /* 重复释放 */ }
+
+        _listener = listener;
+        _acceptTask = Task.Run(() => AcceptLoopAsync(cts.Token), cts.Token);
         _logger?.LogInformation("[VM链路] 已监听 {Endpoint}，等待 VisionMaster 推送结果", Endpoint);
     }
 
@@ -428,7 +450,7 @@ public sealed class VmResultListener : IDisposable
     /// <para>
     /// <see cref="_disposed"/> 一旦为 true 本实例即报废：<see cref="Start"/> 抛
     /// <see cref="ObjectDisposedException"/>、<see cref="Stop"/> 变成空操作。
-    /// 这是既有契约（<see cref="_cts"/> 是 readonly 单次创建，没有"Dispose 后复活"这条路）。
+    /// 这是既有契约：Dispose 之后再 Start 没有意义（取消源已释放），不做"Dispose 后复活"。
     /// 并发调用 Dispose 最坏是重复跑一遍 Stop —— <c>Cancel()</c> / <c>TcpListener.Stop()</c> /
     /// <c>Wait</c> 都是可重入且不抛的，<c>_cts.Dispose()</c> 也由下方的 catch 兜住。
     /// </para>

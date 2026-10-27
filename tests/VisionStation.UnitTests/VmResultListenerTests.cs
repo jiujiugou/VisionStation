@@ -158,16 +158,70 @@ public class VmResultListenerTests
     }
 
     [Fact]
-    public void 停止后再启动_可以重新监听()
+    public async Task 停止后再启动_仍然能收到结果()
     {
-        using var listener = new VmResultListener("127.0.0.1", 0, _ => { });
+        // F-62 回归：Stop 会取消当前令牌且不可撤销。曾经 Start 沿用同一个 _cts，
+        // 第二次启动时 Task.Run 拿到已取消的 token，接受循环的委托根本不执行 ——
+        // 端口绑着、IsListening 为 true、数据全丢、无异常无日志。
+        //
+        // 这条必须**真的推一帧**：旧版本只断言了 IsListening，正好被那个假绿骗过去
+        // （名字叫"可以重新监听"，实际从没重启过）。
+        var first = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        using var listener = new VmResultListener("127.0.0.1", 0, line =>
+        {
+            if (line == "first") first.TrySetResult(line);
+            else if (line == "second") second.TrySetResult(line);
+        });
+
+        // 第一轮
         listener.Start();
-        var port = listener.Port;
-        Assert.True(port > 0);
+        var firstPort = listener.Port;
+        Assert.True(firstPort > 0);
+        await SendAsync(firstPort, "first");
+        await first.Task.WaitAsync(Timeout);
 
+        // 停 → 再启动
         listener.Stop();
         Assert.False(listener.IsListening);
+
+        listener.Start();
+        Assert.True(listener.IsListening);
+        var secondPort = listener.Port;
+        Assert.True(secondPort > 0);
+
+        // 核心断言：第二轮必须真收到，而不是"看起来在监听"
+        await SendAsync(secondPort, "second");
+        await second.Task.WaitAsync(Timeout);
+    }
+
+    [Fact]
+    public void 绑定失败后_释放端口再启动能成功()
+    {
+        // 同源缺陷（F-62）：_listener 曾经在 Bind 之前就赋值，失败后字段留在非 null，
+        // 再调 Start 会被幂等分支直接返回 —— "没在监听，但 IsListening 为 true"。
+        var blocker = new TcpListener(IPAddress.Loopback, 0);
+        blocker.Start();
+        var busyPort = ((IPEndPoint)blocker.LocalEndpoint).Port;
+
+        using var listener = new VmResultListener("127.0.0.1", busyPort, _ => { });
+
+        try
+        {
+            Assert.Throws<SocketException>(() => listener.Start());
+            // 失败后不能留下假的监听状态，否则重试会被幂等分支挡回去
+            Assert.False(listener.IsListening);
+        }
+        finally
+        {
+            blocker.Stop();
+        }
+
+        // 端口放开之后，同一个实例必须能重试成功
+        listener.Start();
+        Assert.True(listener.IsListening);
+        Assert.Equal(busyPort, listener.Port);
     }
 
     [Fact]

@@ -8,14 +8,11 @@
     "solutionPath": "Config\\solutions\\washer.sol",
     "password": "",
     "procedure": "流程1",
-    "imageSourceModule": "图像源1",
     "outputs": [
       {
         "module": "BLOB分析1",
         "label": "螺丝1",
         "role": "Defect",
-        "io": "ModuStatus",
-        "ioKind": "Bool",
         "metric": "Screw1",
         "unit": ""
       },
@@ -23,8 +20,6 @@
         "module": "BLOB分析2",
         "label": "螺丝2",
         "role": "Defect",
-        "io": "ModuStatus",
-        "ioKind": "Bool",
         "metric": "Screw2",
         "unit": ""
       },
@@ -32,8 +27,6 @@
         "module": "BLOB分析3",
         "label": "螺丝3",
         "role": "Defect",
-        "io": "ModuStatus",
-        "ioKind": "Bool",
         "metric": "Screw3",
         "unit": ""
       },
@@ -41,8 +34,6 @@
         "module": "BLOB分析4",
         "label": "螺丝4",
         "role": "Defect",
-        "io": "ModuStatus",
-        "ioKind": "Bool",
         "metric": "Screw4",
         "unit": ""
       },
@@ -50,8 +41,6 @@
         "module": "BLOB分析5",
         "label": "螺丝5",
         "role": "Defect",
-        "io": "ModuStatus",
-        "ioKind": "Bool",
         "metric": "Screw5",
         "unit": ""
       }

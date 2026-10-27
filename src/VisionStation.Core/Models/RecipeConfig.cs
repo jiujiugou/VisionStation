@@ -176,10 +176,6 @@ public class RecipeConfig
                 problems.Add("Vm 引擎未指定流程文件（vm.solution）");
             if (string.IsNullOrWhiteSpace(Vm.Procedure))
                 problems.Add("Vm 引擎未指定流程名（vm.procedure）");
-            // 注意：TCP 中转模式下本程序不再往 VM 喂图，这一项对运行已无实际作用，
-            // 但配方文件仍按老结构要求它 —— 属于结构遗留，删字段要连带改这个校验。
-            if (string.IsNullOrWhiteSpace(Vm.ImageSourceModule))
-                problems.Add("Vm 引擎未指定图像源模块名（vm.imageSourceModule）");
             if (Vm.Outputs.Count == 0)
                 problems.Add("Vm 引擎未配置任何输出映射（vm.outputs），检测将没有任何结果项");
 
@@ -339,15 +335,10 @@ public class VmRecipeData
     /// <summary>要运行的流程名，如 "流程1"（运行时同样不再使用，只作自述）</summary>
     public string Procedure { get; set; } = "流程1";
 
-    /// <summary>
-    /// 流程里图像源模块的名字。
-    ///
-    /// <b>已过期的作用</b>：原注释写的是"C# 通过它把帧喂进去"，那是相机层还在、
-    /// 本程序调 SDK 跑流程时的用法。现在相机归 VM 独占、图由 VM 自己采，
-    /// 本程序没有任何地方拿这个名字去喂图。它仍在 <see cref="RecipeConfig.Validate"/> 的必填项里，
-    /// 属于结构遗留 —— 删它要连带改校验，别只删字段。
-    /// </summary>
-    public string ImageSourceModule { get; set; } = "图像源1";
+    // 已删除（2026-10-27）：原来这里有个 ImageSourceModule 字段，用于"本程序调 SDK 时把帧喂进哪个模块"。
+    // 相机归 VM 独占、图由 VM 自己采之后，本程序没有任何地方读它，它却仍是配方必填项 ——
+    // 填了没用、不填启动报错，属于纯粹的结构遗留，已连同 Validate 里的必填校验一起移除。
+    // 老配方 JSON 里残留的 "imageSourceModule" 键不影响加载：反序列化默认忽略未知成员。
 
     /// <summary>
     /// 输出映射表：.sol 里的模块 → 报告里的结果项。
@@ -383,10 +374,11 @@ public class VmRecipeData
 /// <para>
 /// <b>现状</b>：运行时真正被读取的只有 <see cref="Label"/>、<see cref="Role"/>、
 /// <see cref="Metric"/>、<see cref="Unit"/> 四个字段。
-/// <see cref="Module"/> 只剩"给人看 / 将来扫描核对"的作用；
-/// <see cref="Io"/> 与 <see cref="IoKind"/> <b>当前没有任何消费者</b> ——
-/// 它们是 SDK 时代"按输出名取浮点/圆半径"的遗留（那段代码已随 SDK 一起删除）。
-/// 改这两个字段不会有任何运行时效果。
+/// <see cref="Module"/> 只剩"给人看 / 将来扫描核对"的作用。
+/// </para>
+/// <para>
+/// <b>2026-10-27 删掉了 <c>Io</c> 与 <c>IoKind</c></b>：它们是 SDK 时代"按输出名取浮点/圆半径"
+/// 的遗留（那段代码已随 SDK 一起删除），两个字段零消费者却在每份配方里占位，只会误导调试。
 /// </para>
 /// </summary>
 public class VmOutputMapping
@@ -414,18 +406,10 @@ public class VmOutputMapping
     /// </summary>
     public string Role { get; set; } = "";
 
-    /// <summary>
-    /// 该模块的输出名（如 "Radius"）。留空 = 只看模块判定，不取数值。
-    /// <b>当前没有消费者</b>：取值逻辑随 SDK 一起删除，报文里的值是按段位来的，不按名字查。
-    /// </summary>
-    public string Io { get; set; } = "";
-
-    /// <summary>
-    /// 输出类型：<c>Float</c>（默认，取浮点数组首个值）或 <c>Circle</c>（取圆半径）。
-    /// <b>当前没有消费者</b>，同 <see cref="Io"/>：现在报文直接给数值，不需要类型转换。
-    /// 需要别的类型时在这里扩展，不要在解析器里加特判。
-    /// </summary>
-    public string IoKind { get; set; } = "Float";
+    // 已删除（2026-10-27）：原来这里有两个字段 Io（输出名，如 "Radius"）和 IoKind（Float/Circle）。
+    // 它们是 SDK 时代"按输出名去模块里取浮点或圆半径"的用法，那段代码随 SDK 一起删掉了。
+    // 现在报文直接给数值、按数组下标对位，两个字段零消费者 —— 留着只会让人以为"填了有用"。
+    // 老配方 JSON 里残留的 "io"/"ioKind" 键不影响加载：反序列化默认忽略未知成员。
 
     /// <summary>
     /// 写进 <c>Metrics</c> 的键名，留空用 <see cref="Label"/>。

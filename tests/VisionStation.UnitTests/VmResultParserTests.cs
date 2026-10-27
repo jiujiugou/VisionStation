@@ -170,7 +170,7 @@ public class VmResultParserTests
 
     private static List<VmOutputMapping> 单输出() => new()
     {
-        new VmOutputMapping { Module = "圆查找1", Label = "外径", Role = "Measure", Io = "Radius", Metric = "外径", Unit = "px" },
+        new VmOutputMapping { Module = "圆查找1", Label = "外径", Role = "Measure", Metric = "外径", Unit = "px" },
     };
 
     [Fact]

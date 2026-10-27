@@ -8,13 +8,12 @@
     "solutionPath": "Config\\solutions\\washer-2448.sol",
     "password": "",
     "procedure": "流程1",
-    "imageSourceModule": "图像源1",
     "outputs": [
-      { "module": "BLOB分析1", "label": "螺丝1", "role": "Defect", "io": "ModuStatus" },
-      { "module": "BLOB分析2", "label": "螺丝2", "role": "Defect", "io": "ModuStatus" },
-      { "module": "BLOB分析3", "label": "螺丝3", "role": "Defect", "io": "ModuStatus" },
-      { "module": "BLOB分析4", "label": "螺丝4", "role": "Defect", "io": "ModuStatus" },
-      { "module": "BLOB分析5", "label": "螺丝5", "role": "Defect", "io": "ModuStatus" }
+      { "module": "BLOB分析1", "label": "螺丝1", "role": "Defect" },
+      { "module": "BLOB分析2", "label": "螺丝2", "role": "Defect" },
+      { "module": "BLOB分析3", "label": "螺丝3", "role": "Defect" },
+      { "module": "BLOB分析4", "label": "螺丝4", "role": "Defect" },
+      { "module": "BLOB分析5", "label": "螺丝5", "role": "Defect" }
     ]
   }
 }

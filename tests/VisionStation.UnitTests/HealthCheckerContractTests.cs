@@ -58,13 +58,13 @@ public class RecipeValidationTests
     [Fact]
     public void R101_ValidRecipe_MustPass()
     {
-        // VM 配方的四项必填：流程文件、流程名、图像源模块、至少一条输出映射。
+        // VM 配方的三项必填：流程文件、流程名、至少一条输出映射。
         // 少任何一项都会被 R101_VmWithoutOutputs_MustFail 那一类用例拦下，
         // 所以这条"正例"必须把它们都配齐，否则它测的是反例。
+        // 注：原来的第四项 imageSourceModule 已于 2026-10-27 删除（本程序不再喂图）。
         var recipe = new RecipeConfig { Name = "正常配方", Engine = EngineNames.Vm };
         recipe.Vm.SolutionPath = @"Config\recipes\default.json";
         recipe.Vm.Procedure = "流程1";
-        recipe.Vm.ImageSourceModule = "图像源1";
         recipe.Vm.Outputs.Add(new VmOutputMapping { Module = "模块1", Label = "值1" });
 
         var r = Check(recipe);
@@ -139,7 +139,6 @@ public class EngineAssetTests
         {
             SolutionPath = solutionPath,
             Procedure = "流程1",
-            ImageSourceModule = "图像源1",
             Outputs = { new VmOutputMapping { Module = "圆查找1", Label = "外径" } }
         }
     };

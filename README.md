@@ -95,6 +95,7 @@ VmResultListener → VmResultParser（分隔符 / JSON 两种格式 → Inspecti
 - **VM 走 TCP 中转，不加载 SDK**：VisionMaster 独立跑流程，用「发送数据」模块把结果推到本程序
   的监听端口（`VmLink:Port`，默认 9100）。所以**任何机器 clone 下来都能 build**，不需要装 VM、不需要授权。
   联调时用 `tools/VmSimulator` 造几帧结果即可验证整条链。细节见 `docs/引擎集成-说明.md`。
+  端到端实机走查按 [docs/闭环测试清单.md](docs/闭环测试清单.md) 的 10 个场景过。
 
 ## 运行
 

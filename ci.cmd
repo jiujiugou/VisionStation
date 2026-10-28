@@ -47,6 +47,15 @@ if errorlevel 1 (
 )
 if errorlevel 1 goto fail
 
+echo == 4.5/5 parameter registry gate ==
+where python >nul 2>nul
+if errorlevel 1 (
+    py -3 scripts\param_gate.py
+) else (
+    python scripts\param_gate.py
+)
+if errorlevel 1 goto fail
+
 echo == 5/5 test ==
 dotnet test tests\VisionStation.UnitTests --nologo --no-build
 if errorlevel 1 goto fail

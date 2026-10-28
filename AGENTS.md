@@ -45,7 +45,7 @@ WPF 金属零件视觉检测上位机。VisionMaster 跑流程出判定 → TCP 
 | `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 414 项：238 + 176，实测） | **只准加，不准改断言** |
 | `tools/VmSimulator` | VM 报文模拟/抓包（**不在** `.slnx` 里，ci.cmd 不构建它） | 可改 |
 | `scripts/rtu_slave.py` + `tools/RtuProbe` | Modbus RTU 从站模拟器 + 验证探针（需 com0com 虚拟串口对 COM3↔COM4，**不进 ci**，跑法见 `docs/产线闭环-说明.md` §8） | 可改 |
-| `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md` | 可改 |
+| `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md`；**参数底册见 `参数与策略.md`**（机器对账，改参数必须同步，硬规则 13/14） | 可改 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |
 | `Logs/` `InspectedImages/` `TestImages/` `*.db` | 运行期数据 | **禁止编辑**，也不要加入示例代码 |
 
@@ -97,4 +97,6 @@ ci.cmd    :: 全量重建 src + 两个测试工程 → 分析器棘轮 → 414 �
 10. **导航是控制流，不是消息**。用 `INavigationService`，禁止 `NavigateMessage + Visibility` 拼页面。
 11. **配置只在组合根读一次**。VM/Service 不得直接依赖 `IConfiguration`；业务参数仍按第 2 条问人。
 12. **UI 变更必须实际启动走查**。build/test 绿不算完成；按 `docs/WPF开发规范.md` §13 走查并记录结果。
+13. **发现即落档**：审查/会话中发现的问题、拍板、参数口径，**无论修不修**，当次收工前必须落到 `docs/功能-实现-验证.md`（状态与缺口）或 `docs/参数与策略.md`（参数值与策略决定）——禁止只留在对话里。
+14. **参数改动必须同步底册**：改任何 `const`/`static readonly` 参数值或 `appsettings` 键值，必须同步 `docs/参数与策略.md`；`scripts/param_gate.py` 在 ci 里双向对账，登记的必须存在、存在的必须登记、白名单必须带理由。
 

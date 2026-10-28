@@ -18,8 +18,16 @@
   </PropertyGroup>
 
   <!-- Sonar 只在生产代码上跑。测试代码的断言、命名、方法长度会淹没真信号。 -->
-  <ItemGroup Condition="'$(MSBuildProjectName)' != 'VisionStation.UnitTests' AND '$(MSBuildProjectName)' != 'VisionStation.App.Tests' AND '$(MSBuildProjectName)' != 'VisionStation.Test' AND '$(MSBuildProjectName)' != 'Repro'">
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'VisionStation.UnitTests' AND '$(MSBuildProjectName)' != 'VisionStation.App.Tests' AND '$(MSBuildProjectName)' != 'VisionStation.UiTests' AND '$(MSBuildProjectName)' != 'VisionStation.Test' AND '$(MSBuildProjectName)' != 'Repro'">
     <PackageReference Include="SonarAnalyzer.CSharp" Version="10.35.0.4138">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- 并发写法分析器（VSTHRD 系列）：同步等异步 / async void / 未 await 的 Task 等
+         模式级错误在编译期报警。进 analyzer_gate 棘轮——存量进基线，新增即红。
+         2026-10-28 并发梳理的产出之一；它抓"写法可疑"，抓不到运行期竞态（那归测试与现场）。 -->
+    <PackageReference Include="Microsoft.VisualStudio.Threading.Analyzers" Version="18.12.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>

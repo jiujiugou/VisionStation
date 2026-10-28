@@ -1,6 +1,8 @@
 using System.IO;
+using System.IO.Compression;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using VisionStation.App;
 using VisionStation.App.Composition;
@@ -41,18 +43,42 @@ public class HealthRuntimeProbeTests
         return dir;
     }
 
-    /// <summary>一份合法到能过"文件存在 / 非空"两道判据的 VM 配方（才能走到运行时那一段）</summary>
+    /// <summary>
+    /// 一份合法到能走到"运行时"那一段的 VM 配方。
+    ///
+    /// <para>
+    /// F-68（2026-10-28）起第 4 项多了一道契约校验：要读 .sol 的 ZIP 名册核对
+    /// <c>vm.outputs[].module</c>。所以夹具不能再是"随便几个字节的非空文件"——
+    /// 那样会先被"方案无法解析"拦下，这几条用例就再也测不到运行时那一段了
+    /// （错的绿灯变红，但红的原因不对）。
+    /// </para>
+    /// </summary>
     private static RecipeConfig VmRecipe(string root)
     {
-        var sol = Path.Combine(root, "flow.sol");
-        File.WriteAllBytes(sol, new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+        var sol = WriteSolution(Path.Combine(root, "flow.sol"), "圆查找1");
 
-        return new RecipeConfig
+        var recipe = new RecipeConfig
         {
             Name = "VM 配方",
             Engine = EngineNames.Vm,
             Vm = new VmRecipeData { SolutionPath = sol }
         };
+        recipe.Vm.Outputs.Add(new VmOutputMapping { Module = "圆查找1", Label = "外径", Role = "Measure" });
+        return recipe;
+    }
+
+    /// <summary>最小可解析的 .sol：ZIP + <c>SolutionFile/VmServer.xml</c>（结构同 <c>SolFixture</c>）。</summary>
+    private static string WriteSolution(string path, string moduleDisplayName)
+    {
+        var xml = "<Solution SolutionName=\"测试方案\"><Procedure DisplayName=\"流程1\" />" +
+                  "<Module Name=\"CircleFind\" DisplayName=\"" + moduleDisplayName + "\" Index=\"0\" /></Solution>";
+
+        using var stream = new FileStream(path, FileMode.Create);
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Create);
+        using var entry = zip.CreateEntry("SolutionFile/VmServer.xml").Open();
+        var bytes = Encoding.UTF8.GetBytes(xml);
+        entry.Write(bytes, 0, bytes.Length);
+        return path;
     }
 
     /// <summary>走组合根建容器，只取第 4 项「检测引擎」的结果</summary>

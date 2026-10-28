@@ -1,4 +1,7 @@
 using System.IO;
+using VisionStation.App.Abstractions;
+using VisionStation.App.Services.Recipes;
+using VisionStation.App.Services.Restart;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Models;
 using VisionStation.Core.Users;
@@ -35,7 +38,7 @@ public class RecipePageViewModelTests
         store.Summaries.Add(Summary("垫圈 A", "a.json", engine: "Vm", outputs: 3));
         store.Summaries.Add(Summary("垫圈 B", "b.json", engine: "Vm", outputs: 1));
 
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), new FakeAuditService());
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), new FakeAuditService(), Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
 
@@ -64,7 +67,7 @@ public class RecipePageViewModelTests
         var store = new FakeRecipeStore { ActiveName = "bare.json" };
         store.Summaries.Add(Summary("裸配方", "bare.json", engine: "", outputs: 0, width: 0, height: 0));
 
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), new FakeAuditService());
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), new FakeAuditService(), Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
 
@@ -84,7 +87,7 @@ public class RecipePageViewModelTests
     public async Task Refresh_WhenDirectoryUnreadable_ShowsWarningAndClearsRows()
     {
         var store = new FakeRecipeStore { ListError = new UnauthorizedAccessException("拒绝访问") };
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), new FakeAuditService());
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), new FakeAuditService(), Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
 
@@ -109,7 +112,7 @@ public class RecipePageViewModelTests
         store.Summaries.Add(Summary("垫圈 B", "b.json"));
 
         var audit = new FakeAuditService();
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit);
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit, Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.SelectedRow = vm.Rows.Single(r => r.FileName == "b.json");
@@ -150,7 +153,7 @@ public class RecipePageViewModelTests
 
         var audit = new FakeAuditService();
         // 未登录 → HasPermission(SwitchRecipe) 为 false（操作员也不够，切配方是技术员的权限）
-        var vm = new RecipePageViewModel(store, new FakeSessionService(), audit);
+        var vm = new RecipePageViewModel(store, new FakeSessionService(), audit, Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.SelectedRow = vm.Rows.Single(r => r.FileName == "b.json");
@@ -184,7 +187,7 @@ public class RecipePageViewModelTests
         store.Summaries.Add(Summary("垫圈 B", "b.json"));
 
         var audit = new FakeAuditService();
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Engineer), audit);
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Engineer), audit, Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.SelectedRow = vm.Rows.Single(r => r.FileName == "b.json");
@@ -222,7 +225,7 @@ public class RecipePageViewModelTests
         store.Summaries.Add(Summary("垫圈 B", "b.json"));
 
         var audit = new FakeAuditService();
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit);
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit, Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.SelectedRow = vm.Rows.Single(r => r.FileName == "b.json");
@@ -253,7 +256,7 @@ public class RecipePageViewModelTests
         store.Summaries.Add(Summary("垫圈 A", "a.json"));
 
         var audit = new FakeAuditService();
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit);
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit, Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
 
@@ -274,7 +277,7 @@ public class RecipePageViewModelTests
     {
         var store = new FakeRecipeStore { ActiveName = null };
         var audit = new FakeAuditService();
-        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit);
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit, Solutions(), new FakeRestarter(), new FakeRecipeDialog());
 
         await vm.RefreshCommand.ExecuteAsync(null);
 
@@ -285,6 +288,242 @@ public class RecipePageViewModelTests
         Assert.True(vm.StatusIsWarning);
         Assert.Contains("先", vm.StatusText);
     }
+
+    // ══════════════════ F-68 切换契约闸 ══════════════════
+
+    /// <summary>
+    /// 目标配方引用的模块在方案名册里不存在 → 不写激活指针、留 Failed 流水、给人话原因。
+    /// 这是空壳方案案（default-2448 → 无检测模块的 .sol）的防回归用例。
+    /// </summary>
+    [Fact]
+    public async Task Switch_ContractBroken_BlocksPointerAndAuditsFailure()
+    {
+        var store = new FakeRecipeStore { ActiveName = "a.json" };
+        store.Summaries.Add(Summary("A", "a.json"));
+        store.Summaries.Add(Summary("C", "c.json"));
+        var audit = new FakeAuditService();
+
+        var catalog = Solutions();
+        catalog.ContractResult = _ => ["输出引用的模块在方案里不存在：BLOB分析1"];
+
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit, catalog,
+            new FakeRestarter(), new FakeRecipeDialog());
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.SelectedRow = vm.Rows.First(r => r.FileName == "c.json");
+
+        await vm.SwitchCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.SetActiveCalls);
+        Assert.Equal("a.json", store.ActiveName);
+        Assert.Contains(audit.Entries, e => e.Action == AuditAction.RecipeSwitch && e.Result == AuditResult.Failed);
+        Assert.True(vm.StatusIsWarning);
+        Assert.Contains("对不上", vm.StatusText);
+        Assert.Contains("BLOB分析1", vm.StatusText);
+    }
+
+    // ══════════════════ F-67 从方案导入 ══════════════════
+
+    /// <summary>解析：基础设施剔除、存图模块摘出、逻辑汇总提前、metric 预填（v1 CLI 漏过它）。</summary>
+    [Fact]
+    public async Task ParseSolution_BuildsPreviewWithLogicFirstAndStripsInfra()
+    {
+        var (vm, catalog, _, _, _, _) = ImportVm();
+        catalog.Files.Add("a.sol");
+        catalog.Manifests["a.sol"] = TestManifest();
+        vm.SelectedSolution = "a.sol";
+
+        vm.ParseSolutionCommand.Execute(null);
+
+        Assert.Equal(2, vm.ImportRows.Count);
+        Assert.Equal("逻辑1", vm.ImportRows[0].ModuleName);   // 逻辑汇总提前
+        Assert.Equal("BLOB分析1", vm.ImportRows[1].ModuleName);
+        Assert.All(vm.ImportRows, r => Assert.Equal(r.Label, r.Metric)); // metric 预填
+        Assert.Equal("测试方案", vm.ImportName);
+        Assert.False(vm.ImportStatusIsWarning);
+        Assert.Contains("核对", vm.ImportStatusText);         // 顺序待人工核对必须写明
+    }
+
+    /// <summary>保存：写入目录（不激活）、字段按预览、note 记顺序、留导入流水。</summary>
+    [Fact]
+    public async Task SaveImport_WritesNewRecipeAndAudits()
+    {
+        var (vm, catalog, store, audit, _, _) = ImportVm();
+        catalog.Files.Add("a.sol");
+        catalog.Manifests["a.sol"] = TestManifest();
+        store.ActiveName = "old.json";
+        store.Summaries.Add(Summary("旧", "old.json"));
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.SelectedSolution = "a.sol";
+        vm.ImportName = "垫圈A";
+        vm.ImportWidthText = "2448";
+        vm.ImportHeightText = "2048";
+        vm.ParseSolutionCommand.Execute(null);
+
+        await vm.SaveImportCommand.ExecuteAsync(null);
+
+        Assert.Single(store.NewSaves);
+        var (fileName, config) = store.NewSaves[0];
+        Assert.Equal("垫圈A.json", fileName);
+        Assert.Equal("Config\\solutions\\a.sol", config.Vm.SolutionPath);
+        Assert.Equal("垫圈A", config.Name);
+        Assert.Equal(2448, config.Sensor.Width);
+        Assert.Equal(2048, config.Sensor.Height);
+        Assert.Equal(2, config.Vm.Outputs.Count);
+        Assert.Equal("逻辑1", config.Vm.Outputs[0].Module);
+        Assert.Equal("Defect", config.Vm.Outputs[0].Role);
+        Assert.Contains("第1段=逻辑1", config.Note);
+        Assert.Contains(audit.Entries, e => e.Action == AuditAction.RecipeImport);
+        Assert.False(vm.RequiresRestart); // 导入不激活——激活要走"切换"
+    }
+
+    /// <summary>无权限：一个字节都不写，留 Denied 流水。</summary>
+    [Fact]
+    public async Task SaveImport_WithoutPermission_DeniesAndWritesNothing()
+    {
+        var (vm, _, store, audit, _, _) = ImportVm(signedIn: false);
+        vm.SelectedSolution = "a.sol";
+        vm.ImportRows.Add(new ImportOutputRow { ModuleName = "BLOB分析1", Label = "螺丝1" });
+
+        await vm.SaveImportCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.NewSaves);
+        Assert.Contains(audit.Entries, e => e.Action == AuditAction.RecipeImport && e.Result == AuditResult.Denied);
+        Assert.True(vm.ImportStatusIsWarning);
+    }
+
+    /// <summary>label 重名会被互相覆盖（Validate 的既有规则）——导入时就要拦住。</summary>
+    [Fact]
+    public async Task SaveImport_DuplicateLabel_Blocks()
+    {
+        var (vm, catalog, store, _, _, _) = ImportVm();
+        catalog.Files.Add("a.sol");
+        catalog.Manifests["a.sol"] = TestManifest();
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.SelectedSolution = "a.sol";
+        vm.ImportName = "垫圈A";
+        vm.ParseSolutionCommand.Execute(null);
+        vm.ImportRows[0].Label = "同名";
+        vm.ImportRows[1].Label = "同名";
+
+        await vm.SaveImportCommand.ExecuteAsync(null);
+
+        Assert.Empty(store.NewSaves);
+        Assert.Contains("同名", vm.ImportStatusText);
+    }
+
+    // ══════════════════ F-69 一键重启 ══════════════════
+
+    /// <summary>切换成功 → 「重启生效」亮起；确认后走重启（计数 1）并留流水。</summary>
+    [Fact]
+    public async Task RestartNow_AfterSwitchAndConfirmed_Restarts()
+    {
+        var store = new FakeRecipeStore { ActiveName = "a.json" };
+        store.Summaries.Add(Summary("A", "a.json"));
+        store.Summaries.Add(Summary("B", "b.json"));
+        var audit = new FakeAuditService();
+        var restarter = new FakeRestarter();
+        var dialog = new FakeRecipeDialog();
+        var vm = new RecipePageViewModel(store, SignedIn(UserRole.Technician), audit,
+            Solutions(), restarter, dialog);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        vm.SelectedRow = vm.Rows.First(r => r.FileName == "b.json");
+
+        await vm.SwitchCommand.ExecuteAsync(null);
+        Assert.True(vm.RequiresRestart); // 切换成功才亮按钮
+
+        await vm.RestartNowCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, dialog.ConfirmCount);
+        Assert.Equal(1, restarter.Count);
+        Assert.Contains(audit.Entries, e => e.Action == AuditAction.RecipeSwitch);
+    }
+
+    /// <summary>确认框选"否"：不重启。重启会结束本次运行，必须问一句。</summary>
+    [Fact]
+    public async Task RestartNow_Declined_DoesNotRestart()
+    {
+        var (vm, _, _, _, restarter, dialog) = RestartableVm();
+        vm.RequiresRestart = true;
+
+        dialog.ConfirmResult = false;
+        await vm.RestartNowCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, dialog.ConfirmCount);
+        Assert.Equal(0, restarter.Count);
+    }
+
+    /// <summary>没换过配方（RequiresRestart=false）时命令是空操作——重启不是随便按的按钮。</summary>
+    [Fact]
+    public async Task RestartNow_WithoutPendingSwitch_DoesNothing()
+    {
+        var (vm, _, _, _, restarter, dialog) = ImportVm(); // 未点亮 RequiresRestart
+
+        await vm.RestartNowCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, dialog.ConfirmCount);
+        Assert.Equal(0, restarter.Count);
+    }
+
+    /// <summary>无权限：不确认、不重启，留 Denied 流水。</summary>
+    [Fact]
+    public async Task RestartNow_WithoutPermission_DoesNotRestart()
+    {
+        var store = new FakeRecipeStore { ActiveName = "a.json" };
+        var audit = new FakeAuditService();
+        var restarter = new FakeRestarter();
+        var dialog = new FakeRecipeDialog();
+        var vm = new RecipePageViewModel(store, new FakeSessionService(), audit,
+            Solutions(), restarter, dialog);
+        vm.RequiresRestart = true;
+
+        await vm.RestartNowCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, dialog.ConfirmCount);
+        Assert.Equal(0, restarter.Count);
+        Assert.Contains(audit.Entries, e => e.Result == AuditResult.Denied);
+    }
+
+    // ══════════════════ 导入/重启共用构造助手 ══════════════════
+
+    /// <summary>带导入区的 VM（已登录技术员）。返回各替身供断言。</summary>
+    private (RecipePageViewModel Vm, FakeSolutionCatalog Catalog, FakeRecipeStore Store,
+        FakeAuditService Audit, FakeRestarter Restarter, FakeRecipeDialog Dialog)
+        ImportVm(bool signedIn = true)
+    {
+        var store = new FakeRecipeStore();
+        var audit = new FakeAuditService();
+        var catalog = Solutions();
+        var restarter = new FakeRestarter();
+        var dialog = new FakeRecipeDialog();
+        var vm = new RecipePageViewModel(store, signedIn ? SignedIn(UserRole.Technician) : new FakeSessionService(),
+            audit, catalog, restarter, dialog);
+        return (vm, catalog, store, audit, restarter, dialog);
+    }
+
+    /// <summary>RequiresRestart 已点亮的 VM（重启用例用）。</summary>
+    private (RecipePageViewModel Vm, FakeSolutionCatalog Catalog, FakeRecipeStore Store,
+        FakeAuditService Audit, FakeRestarter Restarter, FakeRecipeDialog Dialog)
+        RestartableVm()
+    {
+        var tuple = ImportVm();
+        tuple.Vm.RequiresRestart = true;
+        return tuple;
+    }
+
+    /// <summary>
+    /// 方案名册样例：图像源（基础设施）+ BLOB（检测项）+ 存图（应摘出）+ 逻辑汇总（应提前）。
+    /// 与真方案 4.0_V4.2.0.sol 的名册同构。
+    /// </summary>
+    private static SolutionManifest TestManifest() => new(
+        "测试方案",
+        ["流程1"],
+        new List<SolutionModule>
+        {
+            new("ImageSourceModule", "图像源1"),
+            new("BLOBAnalysis", "BLOB分析1"),
+            new("SaveImage", "输出图像1"),
+            new("AndModule", "逻辑1"),
+        });
 
     // ══════════════════ 替身与构造助手 ══════════════════
 
@@ -337,7 +576,13 @@ public class RecipePageViewModelTests
         }
 
         public Task<RecipeConfig?> LoadAsync(string fileName, CancellationToken ct = default)
-            => Task.FromResult<RecipeConfig?>(null);
+            // F-68 契约闸会真的读配方：返回一份最小合法配置（名字取自文件名），
+            // 让"读得到"是常态，个别用例再覆写 Catalog 的契约结果。
+            => Task.FromResult<RecipeConfig?>(new RecipeConfig
+            {
+                Name = Path.GetFileNameWithoutExtension(fileName),
+                Vm = { SolutionPath = @"Config\solutions\fake.sol" },
+            });
 
         public Task SetActiveAsync(string fileName, CancellationToken ct = default)
         {
@@ -348,6 +593,31 @@ public class RecipePageViewModelTests
 
             return Task.CompletedTask;
         }
+
+        /// <summary>SaveNewAsync 的入参序列（F-67 导入落盘的记录）。</summary>
+        public List<(string FileName, RecipeConfig Config)> NewSaves { get; } = new();
+
+        /// <summary>非空时 SaveNewAsync 抛它（同名冲突、目录只读这类）。</summary>
+        public Exception? SaveNewError { get; set; }
+
+        public Task<string> SaveNewAsync(string fileName, RecipeConfig recipe, CancellationToken ct = default)
+        {
+            if (SaveNewError is not null) throw SaveNewError;
+
+            var safe = Path.GetFileName(fileName.Trim());
+            if (!safe.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                safe += ".json";
+
+            NewSaves.Add((safe, recipe));
+            Summaries.Add(new RecipeSummary(
+                recipe.Name, safe, recipe.Sensor.Width, recipe.Sensor.Height,
+                DateTimeOffset.Now, recipe.Engine, IsActive: false)
+            {
+                OutputCount = recipe.Vm.Outputs.Count,
+            });
+
+            return Task.FromResult(Path.Combine(Folder, safe));
+        }
     }
 
     /// <summary>已经登录成某角色的会话（真实权限矩阵走 <see cref="RolePermissions"/>）。</summary>
@@ -356,6 +626,60 @@ public class RecipePageViewModelTests
         var session = new FakeSessionService();
         session.SignIn(role);
         return session;
+    }
+
+    /// <summary>空目录的方案门面。默认契约校验通过（个别用例覆写 <see cref="FakeSolutionCatalog.ContractResult"/>）。</summary>
+    private static FakeSolutionCatalog Solutions() => new();
+
+    /// <summary>
+    /// 方案目录替身。名册直接给 <see cref="SolutionManifest"/> 对象（不造 zip）——
+    /// VM 只消费名册，zip 解析的正确性由 UnitTests 的 <c>SolutionManifestTests</c> 用真 fixture 钉。
+    /// </summary>
+    private sealed class FakeSolutionCatalog : ISolutionCatalog
+    {
+        public string Folder => @"C:\fake\solutions";
+
+        public List<string> Files { get; } = new();
+
+        public Dictionary<string, SolutionManifest> Manifests { get; } = new();
+
+        /// <summary>非空时 CheckContract 返回它（模拟契约断裂）；默认空清单 = 通过。</summary>
+        public Func<RecipeConfig, IReadOnlyList<string>>? ContractResult { get; set; }
+
+        public IReadOnlyList<string> ListSolutionFiles() => Files;
+
+        public SolutionManifest ReadManifest(string fileName)
+            => Manifests.TryGetValue(fileName, out var manifest)
+                ? manifest
+                : throw new FileNotFoundException($"方案不存在：{fileName}");
+
+        public IReadOnlyList<string> CheckContract(RecipeConfig recipe)
+            => ContractResult?.Invoke(recipe) ?? Array.Empty<string>();
+    }
+
+    /// <summary>重启动作替身：只数次数。</summary>
+    private sealed class FakeRestarter : IAppRestarter
+    {
+        public int Count { get; private set; }
+        public void Restart() => Count++;
+    }
+
+    /// <summary>对话框替身：记录确认次数，<see cref="ConfirmResult"/> 决定答复。</summary>
+    private sealed class FakeRecipeDialog : IDialogService
+    {
+        public bool ConfirmResult { get; set; } = true;
+
+        public int ConfirmCount { get; private set; }
+
+        public Task<bool> ConfirmAsync(string title, string message)
+        {
+            ConfirmCount++;
+            return Task.FromResult(ConfirmResult);
+        }
+
+        public Task ShowInfoAsync(string title, string message) => Task.CompletedTask;
+
+        public Task ShowErrorAsync(string title, string message) => Task.CompletedTask;
     }
 
     /// <summary>

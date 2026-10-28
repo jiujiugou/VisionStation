@@ -118,6 +118,14 @@ public class RecipeConfig
     public VmRecipeData Vm { get; set; } = new();
 
     /// <summary>
+    /// 给人读的备注（运行时零消费）。主要承载「报文段顺序」的记载——
+    /// 订阅顺序不存在于 .sol 名册里（二进制），也不存在代码里，配方文件是它唯一的家。
+    /// 2026-10-28 起补上这个属性：此前 <c>tools/RecipeGen</c> 写的 note 在加载时被
+    /// 反序列化静默丢弃（未知成员忽略），顺序记载只活在 JSON 文本里，经程序保存一轮就没了。
+    /// </summary>
+    public string Note { get; set; } = "";
+
+    /// <summary>
     /// 校验本配方能否用于当前画面。返回 null = 通过；否则返回可直接展示给操作员的原因。
     /// 纯函数、无 IO，便于单测。
     ///

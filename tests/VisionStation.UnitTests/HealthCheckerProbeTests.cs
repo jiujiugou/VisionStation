@@ -46,11 +46,14 @@ public class HealthCheckerProbeTests
     public void R103_RealSolutionFile_MustPass()
     {
         var dir = NewRoot();
-        var sol = Path.Combine(dir, "flow.sol");
-        File.WriteAllBytes(sol, new byte[] { 0x50, 0x4B, 0x03, 0x04 });   // 非空文件（自检只看存在与长度）
+
+        // 夹具必须是结构真实的 .sol（ZIP + 名册）：F-68 起自检第 4 项要读名册核对契约，
+        // 随便几个字节的文件不再代表"真的可用"。
+        var sol = SolFixture.WriteCircleFind(Path.Combine(dir, "flow.sol"));
 
         var recipe = new RecipeConfig { Name = "VM 配方", Engine = EngineNames.Vm };
         recipe.Vm.SolutionPath = sol;
+        recipe.Vm.Outputs.Add(new VmOutputMapping { Module = "圆查找1", Label = "外径" });
 
         var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, recipe, dir);
         var r = hc.RunAll().First(x => x.Item == "检测引擎");

@@ -177,7 +177,11 @@ public class PlcIntegrationTests
 
         Assert.False(source.IsConnected);
         Assert.Equal("PLC离线", device.Status);
-        await WaitUntilAsync(() => device.LastError is not null);   // 等首次连接尝试完成
+        // 等首次连接尝试完成。**别用 3 秒默认值**：首次 PollOnce 是 Task.Run 到线程池上的，
+        // 而 ModbusTcpPlc 自己就有 ConnectTimeOut=2 秒（端口不通时不是快速失败），
+        // 2026-10-28 实测整类全跑时线程池被别的用例占着，2 秒 + 排队会顶穿 3 秒——
+        // 表现为"单跑绿、全跑红"的假 flake。这里要钉的是"离线会如实上报"，不是"3 秒内上报"。
+        await WaitUntilAsync(() => device.LastError is not null, timeoutMs: 10000);
         Assert.Contains("PLC 连接失败", device.LastError);
         // 轮询期间重连尝试不抛异常、不终止 —— Start/Stop 正常收场
         source.Stop();

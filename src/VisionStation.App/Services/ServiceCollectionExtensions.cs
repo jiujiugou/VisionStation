@@ -10,6 +10,8 @@ using VisionStation.App.Services;
 using VisionStation.App.Services.Inspection;
 using VisionStation.App.Services.Interlock;
 using VisionStation.App.Services.Imaging;
+using VisionStation.App.Services.Recipes;
+using VisionStation.App.Services.Restart;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Engines;
@@ -289,6 +291,17 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IRecipeStore>(sp => new JsonRecipeStore(
             appPaths.RecipeFolder,
             sp.GetService<ILogger<JsonRecipeStore>>()));
+
+        // 方案目录门面（F-67/F-68）：导入区读名册、切换前契约校验的唯一访问口。
+        services.AddSingleton<ISolutionCatalog>(new SolutionCatalog(appPaths.AssetRoot));
+
+        // 一键重启（F-69）：意图存放在独立单例（OnExit 读），动作 = 标记 + 正常关闭。
+        // 关闭走 Application.Current.Shutdown() —— 触发主窗口 Closing → 收尾协调器全流程，
+        // 资源释放/看门狗信号一样不少；绝不 Kill。
+        services.AddSingleton<RestartRequest>();
+        services.AddSingleton<IAppRestarter>(sp => new AppRestarter(
+            sp.GetRequiredService<RestartRequest>(),
+            () => System.Windows.Application.Current?.Shutdown()));
 
         return services;
     }

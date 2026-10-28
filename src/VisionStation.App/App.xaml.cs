@@ -7,6 +7,7 @@ using Serilog;
 using VisionStation.App.Composition;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services;
+using VisionStation.App.Services.Restart;
 using VisionStation.App.ViewModels;
 using VisionStation.Service;
 
@@ -50,6 +51,11 @@ public partial class App : Application
 
     /// <summary>启动是否走完 —— 只有走完的正常关闭才算 clean，启动失败要留给看门狗重试</summary>
     private static bool _startupCompleted;
+
+    /// <summary>
+    /// 一键重启意图（F-69）。StartAsync 时从容取，OnExit 收尾完成后读它决定要不要拉起后继实例。
+    /// </summary>
+    private static RestartRequest? _restartRequest;
 
     /// <summary>
     /// 解析 <c>--data-root=路径</c>（或 <c>--data-root 路径</c>）启动参数（W-15 便携模式）。
@@ -130,6 +136,7 @@ public partial class App : Application
             host.Configure(ParseDataRoot(Environment.GetCommandLineArgs()));
             _paths = host.Paths;
             Services = host.Services;
+            _restartRequest = host.Services.GetService<RestartRequest>();
 
             // W-20：建库不再在 UI 线程上同步等待。原来 .GetAwaiter().GetResult()
             // 会把 Dispatcher 卡死整个冷启动，异常路径还有死锁风险；改 await 后
@@ -283,6 +290,17 @@ public partial class App : Application
         if (_startupCompleted)
         {
             try { _shutdownSignal?.Set(); } catch { }
+
+            // F-69 一键重启：信号发完（旧看门狗随即收工）才拉起后继实例。
+            // 此时容器/端口/设备都已释放——顺序错了新实例会绑不上 9100。
+            // 参数原样重放（与看门狗参数重放同一规矩）：不带原始命令行，
+            // --data-root 会在"重启后"悄悄丢失，数据根回落成 exe 目录。
+            if (_restartRequest?.IsRequested == true && Environment.ProcessPath is { } exePath)
+            {
+                var psi = RestartLauncher.BuildStartInfo(exePath, Environment.GetCommandLineArgs()[1..]);
+                if (!RestartLauncher.Launch(psi))
+                    Log.Error("一键重启：后继进程拉起失败。正常退出已完成，需人工启动程序。");
+            }
         }
 
         base.OnExit(e);

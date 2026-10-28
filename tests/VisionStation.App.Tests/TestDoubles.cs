@@ -181,6 +181,9 @@ internal sealed class NoopRecipeStore : IRecipeStore
     public Task<string> SaveAsync(RecipeConfig recipe, CancellationToken ct = default)
         => Task.FromResult(@"C:/recipes/test.json");
 
+    public Task<string> SaveNewAsync(string fileName, RecipeConfig recipe, CancellationToken ct = default)
+        => Task.FromResult(System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName));
+
     public Task<IReadOnlyList<RecipeSummary>> ListAsync(CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<RecipeSummary>>(Array.Empty<RecipeSummary>());
 

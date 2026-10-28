@@ -68,6 +68,9 @@ public enum AuditAction
     /// <summary>修改参数</summary>
     ParameterChange = 23,
 
+    /// <summary>从方案导入生成新配方（F-67，2026-10-28）</summary>
+    RecipeImport = 24,
+
     /// <summary>登录成功</summary>
     Login = 30,
 

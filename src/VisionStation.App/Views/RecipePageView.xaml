@@ -4,6 +4,7 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:VisionStation.App.ViewModels"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance vm:RecipePageViewModel, IsDesignTimeCreatable=False}">
 
@@ -19,6 +20,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- ═══ 生效时机说明（常驻，不是提示条） ═══ -->
@@ -41,6 +43,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -67,6 +70,26 @@
                         Command="{Binding SwitchCommand}"
                         IsEnabled="{Binding IsIdle}"
                         ToolTip="把选中的配方写成 .active 指针；重启程序后生效。需要技术员及以上权限" />
+
+                <!--
+                    重启生效（F-69）：只在切换成功后出现（RequiresRestart）。
+                    走正常关闭路径（收尾→看门狗信号→OnExit 拉起后继），不是 Kill 也不是裸 Process.Start。
+                -->
+                <Button Grid.Column="4" Content="重启生效" Width="84" Height="26"
+                        Margin="8,0,0,0" FontSize="11"
+                        Command="{Binding RestartNowCommand}"
+                        ToolTip="结束本次运行并自动拉起新实例，加载激活配方。需要技术员及以上权限">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource MinorButton}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RequiresRestart}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </Grid>
         </Border>
 
@@ -256,6 +279,141 @@
                     </TextBlock>
                 </Border>
             </Grid>
+        </Border>
+        <!-- ═══ 从方案导入（F-67）：解析 .sol 名册 → 三个业务决定（挑/排/角色）→ 落成 JSON ═══ -->
+        <Border Grid.Row="3" Style="{StaticResource PanelCard}" Padding="12,9" Margin="0,8,0,0">
+            <Expander Header="从方案导入（解析 .sol，不必手写 JSON）" FontSize="11.5"
+                      Foreground="{StaticResource TextSecondary}" IsExpanded="False">
+                <StackPanel Margin="0,8,0,0">
+
+                    <!-- 步骤 1：选方案 → 解析名册 -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="240" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="方案文件" VerticalAlignment="Center"
+                                   FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <ComboBox Grid.Column="1" Margin="8,0,0,0" Height="24" FontSize="11"
+                                  ItemsSource="{Binding AvailableSolutions}"
+                                  SelectedItem="{Binding SelectedSolution}"
+                                  ToolTip="{Binding Folder}" />
+                        <Button Grid.Column="2" Content="解析名册" Width="76" Height="24"
+                                Margin="8,0,0,0" FontSize="11"
+                                Style="{StaticResource MinorButton}"
+                                Command="{Binding ParseSolutionCommand}"
+                                IsEnabled="{Binding IsIdle}"
+                                ToolTip="读出方案里的模块名册，预填输出项草稿" />
+                        <TextBlock Grid.Column="3" Margin="12,0,0,0" VerticalAlignment="Center"
+                                   FontSize="10.5" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextMuted}"
+                                   Text="顺序/角色/名称是预填草稿——机器拿不到订阅顺序，保存前必须逐项核对。" />
+                    </Grid>
+
+                    <!-- 步骤 2：输出项编辑表（集合顺序 = 报文段顺序，↑↓ 调整） -->
+                    <ItemsControl ItemsSource="{Binding ImportRows}" Margin="0,8,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="26" />
+                                        <ColumnDefinition Width="110" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="86" />
+                                        <ColumnDefinition Width="120" />
+                                        <ColumnDefinition Width="64" />
+                                        <ColumnDefinition Width="56" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}"
+                                              VerticalAlignment="Center"
+                                              ToolTip="勾选 = 纳入输出映射" />
+                                    <TextBlock Grid.Column="1" Text="{Binding ModuleName}"
+                                               VerticalAlignment="Center" FontSize="11" FontFamily="Consolas"
+                                               Foreground="{StaticResource TextSecondary}"
+                                               TextTrimming="CharacterEllipsis"
+                                               ToolTip="方案里的模块显示名（契约面，不可改）" />
+                                    <TextBox Grid.Column="2" Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}"
+                                             Height="22" FontSize="11" Margin="4,0"
+                                             ToolTip="结果业务名（结果键），必须唯一" />
+                                    <ComboBox Grid.Column="3" SelectedItem="{Binding Role}"
+                                              Height="22" FontSize="11" Margin="0,0,4,0">
+                                        <sys:String>Locate</sys:String>
+                                        <sys:String>Measure</sys:String>
+                                        <sys:String>Defect</sys:String>
+                                    </ComboBox>
+                                    <TextBox Grid.Column="4" Text="{Binding Metric, UpdateSourceTrigger=PropertyChanged}"
+                                             Height="22" FontSize="11" Margin="0,0,4,0"
+                                             ToolTip="Metrics 字典的键名；会被存储层当列名用" />
+                                    <TextBox Grid.Column="5" Text="{Binding Unit, UpdateSourceTrigger=PropertyChanged}"
+                                             Height="22" FontSize="11" Margin="0,0,4,0"
+                                             ToolTip="物理单位，如 mm" />
+                                    <StackPanel Grid.Column="6" Orientation="Horizontal">
+                                        <Button Content="↑" Width="24" Height="22" FontSize="10"
+                                                Style="{StaticResource MinorButton}"
+                                                Command="{Binding DataContext.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}" />
+                                        <Button Content="↓" Width="24" Height="22" FontSize="10" Margin="4,0,0,0"
+                                                Style="{StaticResource MinorButton}"
+                                                Command="{Binding DataContext.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- 步骤 3：命名 + 尺寸 + 保存 -->
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="56" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="56" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="配方名称" VerticalAlignment="Center"
+                                   FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBox Grid.Column="1" Text="{Binding ImportName, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="24" FontSize="11" Margin="8,0,0,0"
+                                 ToolTip="同时决定文件名（如 垫圈A.json）" />
+                        <TextBlock Grid.Column="2" Text="画面宽" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBox Grid.Column="3" Text="{Binding ImportWidthText, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="24" FontSize="11" Margin="6,0,0,0" />
+                        <TextBlock Grid.Column="4" Text="高" VerticalAlignment="Center" Margin="12,0,0,0"
+                                   FontSize="11" Foreground="{StaticResource TextMuted}" />
+                        <TextBox Grid.Column="5" Text="{Binding ImportHeightText, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="24" FontSize="11" Margin="6,0,0,0" />
+                        <Button Grid.Column="6" Content="保存为新配方" Width="96" Height="24"
+                                Margin="12,0,0,0" FontSize="11"
+                                Style="{StaticResource MinorButton}"
+                                Command="{Binding SaveImportCommand}"
+                                IsEnabled="{Binding IsIdle}"
+                                ToolTip="写入配方目录（不激活）。需要技术员及以上权限" />
+                    </Grid>
+
+                    <!-- 导入区状态行 -->
+                    <TextBlock Text="{Binding ImportStatusText}" Margin="0,6,0,0"
+                               FontSize="11" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ImportStatusIsWarning}" Value="True">
+                                        <Setter Property="Foreground" Value="{StaticResource Ng}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </StackPanel>
+            </Expander>
         </Border>
     </Grid>
 </UserControl>

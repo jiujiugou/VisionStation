@@ -5,7 +5,7 @@
   "sensor": { "width": 1280, "height": 1024 },
   "engine": "Vm",
   "vm": {
-    "solutionPath": "Config\\solutions\\washer.sol",
+    "solutionPath": "Config\\solutions\\4.0_V4.2.0.sol",
     "password": "",
     "procedure": "流程1",
     "outputs": [

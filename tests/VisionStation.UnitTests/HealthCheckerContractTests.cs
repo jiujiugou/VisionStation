@@ -172,9 +172,9 @@ public class EngineAssetTests
     [Fact]
     public void R103_PresentSolution_MustPass()
     {
+        // 夹具要能过 F-68 契约：名册里有 圆查找1，配方也引用了它。
         var dir = Tmp();
-        var sol = Path.Combine(dir, "washer.sol");
-        File.WriteAllBytes(sol, new byte[] { 1, 2, 3, 4 });
+        var sol = SolFixture.WriteCircleFind(Path.Combine(dir, "washer.sol"));
 
         var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, VmRecipe(sol), dir);
 
@@ -185,13 +185,29 @@ public class EngineAssetTests
     }
 
     [Fact]
+    public void R103_CorruptSolution_MustFail()
+    {
+        // F-68 的另一面：文件在、也不空，但解不出名册（拷贝中断/手工改坏/不是 VM 4.x 方案）。
+        // 这条以前会漏过去——旧判据只看"存在 + 非空"，坏文件一路绿灯到产线上。
+        var dir = Tmp();
+        var sol = Path.Combine(dir, "broken.sol");
+        File.WriteAllText(sol, "这不是 zip");
+
+        var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir, VmRecipe(sol), dir);
+
+        var r = hc.RunAll().First(x => x.Item == "检测引擎");
+
+        Assert.False(r.OK, "解不出名册的 .sol 必须 FAIL");
+        Assert.Contains("无法解析", r.Error);
+    }
+
+    [Fact]
     public void R103_EngineRuntimeMissing_MustFail()
     {
         // 文件齐了但运行时没有（本机没装 VM）：这条必须报出来，
         // 否则会出现"自检全绿、第一帧才发现引擎是替身"的最坏情况。
         var dir = Tmp();
-        var sol = Path.Combine(dir, "washer.sol");
-        File.WriteAllBytes(sol, new byte[] { 1, 2, 3, 4 });
+        var sol = SolFixture.WriteCircleFind(Path.Combine(dir, "washer.sol"));
 
         var hc = new HealthChecker(new DeviceManager(), Path.Combine(dir, "a.db"), dir,
             VmRecipe(sol), dir, engineRuntimeProblem: "本机未安装 VisionMaster SDK");

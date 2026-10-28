@@ -85,4 +85,13 @@ public interface IRecipeStore
 
     /// <summary>把某份配方设为当前配方（写 .active 指针）。文件不存在时抛异常。</summary>
     Task SetActiveAsync(string fileName, CancellationToken ct = default);
+
+    /// <summary>
+    /// 把一份<b>新</b>配方写入目录（F-67 导入），返回写入的绝对路径。
+    /// 与 <see cref="SaveAsync"/> 的两点不同：目标文件由 <paramref name="fileName"/> 指定
+    /// （不是当前激活的那份）；**不写激活指针**——导入的配方不该悄悄变成当前配方。
+    /// 同名文件已存在时抛 <see cref="InvalidOperationException"/>：覆盖会毁掉现场改好的
+    /// label/顺序且没有撤销，导入永远走"新建"。
+    /// </summary>
+    Task<string> SaveNewAsync(string fileName, RecipeConfig recipe, CancellationToken ct = default);
 }

@@ -26,6 +26,7 @@ internal static class AuditActionText
         AuditAction.EngineReload => "重载引擎",
         AuditAction.RecipeSwitch => "切换配方",
         AuditAction.ParameterChange => "修改参数",
+        AuditAction.RecipeImport => "导入配方",
         AuditAction.Login => "登录",
         AuditAction.Logout => "登出",
         AuditAction.LoginFailed => "登录失败",

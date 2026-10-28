@@ -1,6 +1,7 @@
 using System.IO;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
+using VisionStation.Service.Recipes;
 
 namespace VisionStation.Service;
 
@@ -341,6 +342,15 @@ public class HealthChecker : IHealthChecker
         {
             return new HealthResult("检测引擎", false, $"{_recipe.Engine} · {path}", $"文件无法读取（{ex.GetType().Name}）");
         }
+
+        // F-68 契约校验（2026-10-28）：配方按名字引用的模块必须真的在方案名册里。
+        // 放在"文件存在"之后、"运行时"之前——文件都没有时谈名册没有意义；
+        // 而契约断了比运行时缺失更隐蔽：运行时缺了会没结果，契约断了会**错结果**。
+        // 失败不阻止程序启动（还能进界面修配置），但联锁会凭这条自检失败拦住自动运行。
+        var contractProblems = RecipeContractValidator.Validate(_recipe, path);
+        if (contractProblems.Count > 0)
+            return new HealthResult("检测引擎", false, $"{_recipe.Engine} · {Path.GetFileName(path)}",
+                string.Join("；", contractProblems));
 
         // 运行时缺失优先报：此时即使文件齐了也跑不起来，先说最致命的那条
         if (_engineRuntimeProblem is { } problem)

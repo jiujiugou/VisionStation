@@ -316,6 +316,56 @@ public sealed class JsonRecipeStore : IRecipeStore
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc cref="IRecipeStore.SaveNewAsync"/>
+    public async Task<string> SaveNewAsync(string fileName, RecipeConfig recipe, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(recipe);
+
+        // 只认文件名：带目录成分的输入取末段（Path.GetFileName）——
+        // 既不炸（用户复制了完整路径进来照样能用），也绝不可能写出配方目录之外。
+        var safe = Path.GetFileName(fileName.Trim());
+        if (safe.Length == 0)
+            throw new ArgumentException("配方文件名不能为空", nameof(fileName));
+        if (!safe.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            safe += ".json";
+
+        var path = Path.Combine(_folder, safe);
+        if (File.Exists(path))
+            throw new InvalidOperationException($"同名配方已存在：{safe}。导入不覆盖——先删掉旧文件或换个名字。");
+
+        Directory.CreateDirectory(_folder);
+
+        // 保存时刻由存储层盖章（与 SaveAsync 同一规矩：调用方不维护时间戳）。
+        recipe.UpdatedAt = DateTimeOffset.Now;
+
+        // 原子写：临时文件 + 完整序列化成功后才落位（与 SaveAsync 同一套路）。
+        var tempPath = Path.Combine(_folder, Path.GetRandomFileName() + ".tmp");
+        try
+        {
+            await using (var stream = new FileStream(
+                tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                bufferSize: 4096, FileOptions.Asynchronous))
+            {
+                await JsonSerializer.SerializeAsync(stream, recipe, Options, ct)
+                    .ConfigureAwait(false);
+            }
+
+            ct.ThrowIfCancellationRequested();
+            File.Move(tempPath, path, overwrite: false);
+            return path;
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); }
+                catch (IOException ex) { _logger?.LogDebug(ex, "清理配方临时文件失败: {Path}", tempPath); }
+                catch (UnauthorizedAccessException ex) { _logger?.LogDebug(ex, "清理配方临时文件失败: {Path}", tempPath); }
+            }
+        }
+    }
+
     // ══════════════════ 内部 ══════════════════
 
     /// <summary>目录下所有配方文件（按文件名排序，保证"第一份"是稳定的）</summary>

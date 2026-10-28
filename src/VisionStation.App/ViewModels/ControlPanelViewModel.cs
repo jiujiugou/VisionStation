@@ -1,3 +1,4 @@
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
@@ -8,6 +9,7 @@ using VisionStation.Core.Models;
 using VisionStation.Devices;
 using VisionStation.Devices.Vm;
 using VisionStation.Service.Audit;
+using VisionStation.Service.Security;
 
 namespace VisionStation.App.ViewModels;
 
@@ -55,6 +57,13 @@ public partial class ControlPanelViewModel : ObservableObject
 
     /// <summary>启动自检结果快照（F-49 跑、F-47 读）。联锁看的是"启动时的事实"，不重跑。</summary>
     private readonly HealthSnapshot _health;
+
+    /// <summary>
+    /// 会话。<b>未登录 = 检测页所有操作按钮禁用（急停除外）</b>——2026-10-28 拍板。
+    /// 两层防线：<see cref="CanOperate"/> 让按钮变灰（UI），各命令方法体开头复核（防绕过 UI）。
+    /// 急停是唯一例外：安全动作没有门槛，与登录状态无关。
+    /// </summary>
+    private readonly ISessionService _session;
 
     /// <summary>
     /// 触发源是否为 PLC。构造时定死（触发源由组合根按配置选定，运行期不变）——
@@ -106,13 +115,15 @@ public partial class ControlPanelViewModel : ObservableObject
         IDialogService dialog,
         RecipeConfig recipe,
         IAuditService audit,
-        HealthSnapshot health)
+        HealthSnapshot health,
+        ISessionService session)
     {
         _trigger = trigger;
         _dialog = dialog;
         _recipe = recipe;
         _audit = audit;
         _health = health;
+        _session = session;
         _plcRequired = trigger is PlcTriggerSource;
 
         // 订阅 VM 链路状态（驱动每秒评估、只在翻面时广播）。
@@ -122,7 +133,41 @@ public partial class ControlPanelViewModel : ObservableObject
             r._linkKnown = true;
             r._lastLinkState = m.Value.State;
         });
+
+        // 登录/登出 → 刷新全部操作按钮的可用状态（灰/亮）。
+        // CanExecute 不挂 CommandManager.RequerySuggested，必须自己通知 —— 靠事件驱动，不靠轮询。
+        // Changed 可能从非 UI 线程来（会话超时是 Timer 线程），刷命令前回 UI 线程。
+        _session.Changed += (_, _) => SendToUi(NotifyAllCommandsChanged);
     }
+
+    /// <summary>回 UI 线程执行；没有 WPF 环境（单测）时直接执行。与驱动的 SendToUi 同一招式。</summary>
+    private static void SendToUi(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+
+        dispatcher.BeginInvoke(action);
+    }
+
+    /// <summary>登录状态变了 → 所有带 CanExecute 的命令重新评估（急停无 CanExecute，不受影响）。</summary>
+    private void NotifyAllCommandsChanged()
+    {
+        StartDetectionCommand.NotifyCanExecuteChanged();
+        StopCommand.NotifyCanExecuteChanged();
+        ToggleAutoModeCommand.NotifyCanExecuteChanged();
+        ResetEStopCommand.NotifyCanExecuteChanged();
+        ClearAllCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// 操作闸门：未登录一律 false（按钮灰）。急停命令<b>不接</b>这个判定 —— 安全动作没有门槛。
+    /// 方法体里的复核（各命令开头）是第二道防线：按钮变灰挡的是正常点击，挡不住程序化调用。
+    /// </summary>
+    private bool CanOperate() => _session.IsAuthenticated;
 
     // ═══════════════════════════════════════════════════════════
     //  命令 —— 每个按钮一个方法，直接操控硬件，发消息通知其他 VM
@@ -141,9 +186,11 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 结论对、理由不对，所以标记已删除，这里改成直接说事实。
     /// </para>
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOperate))]
     private void StartDetection()
     {
+        if (!_session.IsAuthenticated) return;   // 第二道防线：UI 灰挡不住程序化调用
+
         WeakReferenceMessenger.Default.Send(new LogMessage(
             "检测由 VisionMaster 执行：本程序不采图、不发起检测，等待平台推送结果",
             LogMsgLevel.Warning));
@@ -153,9 +200,11 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 停止检测（完成当前帧后停止）
     /// 关闭自动运行、发消息通知侧边栏恢复亮色、记录日志
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOperate))]
     private void Stop()
     {
+        if (!_session.IsAuthenticated) return;
+
         _trigger.Stop();
         IsAutoMode = false;
         WeakReferenceMessenger.Default.Send(new TriggerStateMessage(false));
@@ -168,9 +217,11 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 自动模式：<b>先过启动联锁（F-47）</b> → Start 触发源 → 发消息暗化侧边栏
     /// 手动模式：Stop 触发源 → 发消息恢复侧边栏
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOperate))]
     private void ToggleAutoMode()
     {
+        if (!_session.IsAuthenticated) return;
+
         if (!IsAutoMode)
         {
             // 联锁只拦"进入"，不拦"退出"。每条失败原因单独一条日志：
@@ -209,9 +260,11 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 异常是否已处理只能由人判断。把复位藏进下一次启动，等于让"想跑"替代"确认安全"。
     /// </para>
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOperate))]
     private void ResetEStop()
     {
+        if (!_session.IsAuthenticated) return;
+
         _estopLatched = false;
         HasPendingEStop = false;
         WeakReferenceMessenger.Default.Send(new LogMessage("急停已复位，可以重新进入自动运行", LogMsgLevel.Info));
@@ -269,9 +322,11 @@ public partial class ControlPanelViewModel : ObservableObject
     /// 清的是"眼前看到的东西"，不是账。要删记录走历史页的保留期，那是另一条路。
     /// </para>
     /// </summary>
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanOperate))]
     private void ClearAll()
     {
+        if (!_session.IsAuthenticated) return;
+
         WeakReferenceMessenger.Default.Send(new ClearAllMessage());
         WeakReferenceMessenger.Default.Send(new LogMessage("显示已清空（记录不受影响）", LogMsgLevel.Info));
     }

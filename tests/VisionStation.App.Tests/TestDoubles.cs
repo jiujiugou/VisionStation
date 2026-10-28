@@ -346,7 +346,8 @@ internal static class TestPages
             new LogPanelViewModel(),
             // 控制面板 2026-10-27 起不再依赖引擎（F-10：单引擎，不再按"推驱动"分流）
             new ControlPanelViewModel(trigger, new NoopDialog(),
-                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot()),
+                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(),
+                new FakeSessionService()),
             workflow ?? new FakeWorkflow(),
             trigger,
             shutdown ?? new ShutdownState(),

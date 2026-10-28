@@ -4,6 +4,7 @@ using VisionStation.App.Services.Interlock;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
+using VisionStation.Core.Users;
 using VisionStation.Devices;
 using VisionStation.Devices.Vm;
 using VisionStation.Service;
@@ -29,7 +30,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = false };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            TestPaths.Recipe(), audit, new HealthSnapshot())
+            TestPaths.Recipe(), audit, new HealthSnapshot(), new FakeSessionService())
         {
             IsAutoMode = true
         };
@@ -60,7 +61,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = true };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            TestPaths.Recipe(), audit, new HealthSnapshot())
+            TestPaths.Recipe(), audit, new HealthSnapshot(), new FakeSessionService())
         {
             IsAutoMode = true
         };
@@ -97,7 +98,7 @@ public class ControlPanelViewModelTests
         try
         {
             var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
-                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot());
+                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(), SignedIn());
 
             vm.ClearAllCommand.Execute(null);
 
@@ -127,7 +128,7 @@ public class ControlPanelViewModelTests
         try
         {
             var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
-                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot());
+                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(), SignedIn());
 
             vm.StartDetectionCommand.Execute(null);
 
@@ -161,7 +162,7 @@ public class ControlPanelViewModelTests
         {
             // 什么都不配：链路状态未知 + 自检快照没跑 → 至少两项失败
             var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
-                TestPaths.Recipe(), audit, new HealthSnapshot());
+                TestPaths.Recipe(), audit, new HealthSnapshot(), SignedIn());
 
             vm.ToggleAutoModeCommand.Execute(null);
 
@@ -188,7 +189,7 @@ public class ControlPanelViewModelTests
         var trigger = new FakeTrigger();
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
-            TestPaths.Recipe(), audit, PassingHealth());
+            TestPaths.Recipe(), audit, PassingHealth(), SignedIn());
 
         try
         {
@@ -220,7 +221,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = true };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            TestPaths.Recipe(), audit, PassingHealth());
+            TestPaths.Recipe(), audit, PassingHealth(), SignedIn());
 
         try
         {
@@ -245,6 +246,99 @@ public class ControlPanelViewModelTests
             Assert.Contains(audit.Entries, e => e.Action == AuditAction.EStopPressed);
             Assert.Contains(audit.Entries, e => e.Action == AuditAction.EStopReset);
             Assert.Contains(audit.Entries, e => e.Action == AuditAction.Start);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(this);
+        }
+    }
+
+    /// <summary>已登录的会话替身（操作类命令的 CanExecute / 方法体复核都要它）。</summary>
+    private static FakeSessionService SignedIn()
+    {
+        var session = new FakeSessionService();
+        session.SignIn(UserRole.Operator);
+        return session;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  登录闸（2026-10-28）：未登录 = 只读观察，急停是唯一例外
+    // ═══════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 未登录：操作按钮必须全部不可执行（CanExecute false → WPF 自动变灰），
+    /// 急停是唯一例外 —— 安全动作没有门槛，这是 F-42 拍过的板。
+    /// </summary>
+    [Fact]
+    public void 未登录_操作命令全部不可执行_急停例外()
+    {
+        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
+            TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(),
+            new FakeSessionService());
+
+        Assert.False(vm.StartDetectionCommand.CanExecute(null));
+        Assert.False(vm.StopCommand.CanExecute(null));
+        Assert.False(vm.ToggleAutoModeCommand.CanExecute(null));
+        Assert.False(vm.ResetEStopCommand.CanExecute(null));
+        Assert.False(vm.ClearAllCommand.CanExecute(null));
+        Assert.True(vm.EmergencyStopCommand.CanExecute(null));   // 急停例外
+    }
+
+    /// <summary>登录后操作全部解锁。</summary>
+    [Fact]
+    public void 登录后_操作命令全部可执行()
+    {
+        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
+            TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(), SignedIn());
+
+        Assert.True(vm.StartDetectionCommand.CanExecute(null));
+        Assert.True(vm.StopCommand.CanExecute(null));
+        Assert.True(vm.ToggleAutoModeCommand.CanExecute(null));
+        Assert.True(vm.ResetEStopCommand.CanExecute(null));
+        Assert.True(vm.ClearAllCommand.CanExecute(null));
+        Assert.True(vm.EmergencyStopCommand.CanExecute(null));
+    }
+
+    /// <summary>
+    /// 登录/登出必须实时刷新按钮状态：登录前灰、登录后亮 —— 命令的
+    /// CanExecuteChanged 必须被触发，否则按钮停在旧状态（灰着但已登录）。
+    /// </summary>
+    [Fact]
+    public void 登录状态变化_命令实时刷新()
+    {
+        var session = new FakeSessionService();
+        var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
+            TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(), session);
+
+        var changed = 0;
+        vm.ToggleAutoModeCommand.CanExecuteChanged += (_, _) => changed++;
+
+        session.SignIn(UserRole.Operator);      // 登录 → 刷新
+        session.Logout("测试登出");              // 登出 → 再刷新
+
+        Assert.True(changed >= 2, $"登录+登出至少刷新 2 次，实际 {changed}");
+        Assert.False(vm.ToggleAutoModeCommand.CanExecute(null));   // 登出后回到灰
+    }
+
+    /// <summary>
+    /// 方法体复核是第二道防线：未登录时就算有人绕过 CanExecute 直接 Execute，
+    /// 也不能产生任何副作用（这里用 ClearAll 验证：消息不许发出去）。
+    /// </summary>
+    [Fact]
+    public void 未登录_绕过CanExecute直接执行_无副作用()
+    {
+        var received = 0;
+        WeakReferenceMessenger.Default.Register<ClearAllMessage>(this, (_, _) => received++);
+
+        try
+        {
+            var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
+                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot(),
+                new FakeSessionService());
+
+            vm.ClearAllCommand.Execute(null);   // 程序化调用，CanExecute 不拦
+
+            Assert.Equal(0, received);          // 方法体复核拦住了
         }
         finally
         {

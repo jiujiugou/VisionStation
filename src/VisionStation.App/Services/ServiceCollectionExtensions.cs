@@ -143,7 +143,7 @@ public static class ServiceCollectionExtensions
         {
             // 只注册、不连接（W-01/S2.4）：解析一个对象不该有"打开设备"这种副作用。
             // 连接由 AppHost.InitializeAsync 显式做一次，顺序在自检之前。
-            var dm = new DeviceManager();
+            var dm = new DeviceManager(sp.GetService<ILogger<DeviceManager>>());
             dm.Register(new TriggerDevice(sp.GetRequiredService<ITriggerSource>()));
             return dm;
         });

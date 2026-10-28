@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace VisionStation.Devices;
 
 /// <summary>
@@ -23,12 +25,17 @@ namespace VisionStation.Devices;
 ///
 /// <para>
 /// <b>失败行为</b>：<see cref="ConnectAll"/> 不抛，把每台设备的失败原因收集成字符串返回；
-/// <see cref="DisconnectAll"/> 逐个吞掉异常。设计前提是"一台设备缺席不该让产线看不见界面"。
+/// <see cref="DisconnectAll"/> 逐个吞掉异常但**记 Warning 留痕**。
+/// 设计前提是"一台设备缺席不该让产线看不见界面"。
 /// </para>
 /// </summary>
 public class DeviceManager
 {
     private readonly List<IDevice> _devices = new();
+    private readonly ILogger? _logger;
+
+    /// <summary>logger 可选：不传也能工作（测试与无日志场景），收尾留痕只在有 logger 时发生。</summary>
+    public DeviceManager(ILogger? logger = null) => _logger = logger;
 
     /// <summary>所有已注册设备。**返回的是内部列表本身**（只读视图），调用方按约定不要长时间持有。</summary>
     public IReadOnlyList<IDevice> Devices => _devices;
@@ -123,6 +130,8 @@ public class DeviceManager
     /// </para>
     /// <para>
     /// 逐个吞异常：收尾路径上一个设备关不掉，不能让后面的设备留在打开状态。
+    /// 吞但不哑：每台失败设备记一条 Warning（2026-10-28 审查 S2486/S108 时补——
+    /// 以前连日志都没有，现场收尾时哪台关不上、为什么，事后查不到）。
     /// </para>
     /// </summary>
     public void DisconnectAll()
@@ -130,7 +139,11 @@ public class DeviceManager
         foreach (var d in _devices)
         {
             try { d.Disconnect(); }
-            catch { }
+            catch (Exception ex)
+            {
+                // 留痕但不抛：一个设备关不掉不许挡住其余设备的收尾
+                _logger?.LogWarning(ex, "[设备] {Device} 断开失败（收尾路径，继续处理其余设备）", d.Name);
+            }
         }
     }
 }

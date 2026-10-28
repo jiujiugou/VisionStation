@@ -36,7 +36,7 @@ F_ID = re.compile(r"F-(\d+)")
 
 # 文档故意记录"已删除"事实的标识符 -> 理由。加条目必须写明出处 F 编号。
 ALLOWED_MISSING = {
-    "IPushDrivenEngine": "F-10/F-15：2026-10-27 已删除，主表记录的是删除事实本身",
+    "IPushDrivenEngine": "F-10：2026-10-27 已删除，主表记录的是删除事实本身",
     "EngineGuardTests": "F-09：随 ONNX 删除，主表留名以说明该条现为 0 测试",
     "Io": "F-11：2026-10-27 删除的零消费配方字段",
     "IoKind": "F-11：2026-10-27 删除的零消费配方字段",
@@ -123,11 +123,16 @@ def main():
             if not re.search(rf"\b{re.escape(tok)}\b", corpus):
                 failures.append((fid, tok))
 
-    # F 编号覆盖：主表内不许重号、不许缺号
+    # F 编号覆盖：主表内不许重号、不许缺号。
+    # 已删除的 F 编号（行被删、编号永久退役，不补位不重用）——加条目必须写明去处。
+    DELETED_FIDS = {
+        15: "2026-10-28 删除：与 F-10 是同一行为（「开始检测」只提示不检测），"
+            "旧行实现描述（判 IPushDrivenEngine）随接口删除已失效，口径以 F-10 为准",
+    }
     dupes = sorted({i for i in main_ids if main_ids.count(i) > 1})
     if dupes:
         failures.append(("主表", f"F 编号重复: " + ", ".join(f"F-{i}" for i in dupes)))
-    missing = [i for i in range(1, 67) if i not in main_ids]
+    missing = [i for i in range(1, 72) if i not in main_ids and i not in DELETED_FIDS]
     if missing:
         failures.append(("主表", "F 编号缺号: " + ", ".join(f"F-{i}" for i in missing)))
 

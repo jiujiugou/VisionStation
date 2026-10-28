@@ -40,8 +40,13 @@ public sealed class VmInspectionDriver : IDisposable
     /// <summary>上一次广播出去的状态。只在定时器线程读写。</summary>
     private VmLinkState _lastState = VmLinkState.NotListening;
 
-    /// <summary>1 = 正在处理一帧。VM 推得快时靠它串行化，避免并发写库。</summary>
-    private int _busy;
+    /// <summary>
+    /// 单飞闸门：同一时刻最多一帧在处理（避免并发写同一个 SQLite 连接），后面的帧直接丢弃并计数。
+    /// 用 <see cref="SemaphoreSlim.Wait(int)"/> 传 0（标准库的"原子试占"）而不是手写标志位：
+    /// 检查与占用是同一个原子动作，没有 check-then-set 缝隙 ——
+    /// 2026-10-28 并发梳理修掉的正是手写 _busy 标志的 TOCTOU（两帧同时到可双双过闸）。
+    /// </summary>
+    private readonly SemaphoreSlim _frameGate = new(initialCount: 1, maxCount: 1);
 
     /// <summary>累计丢弃帧数。UI 通过 <see cref="DroppedTotal"/> 读，驱动内部只增不减。</summary>
     private int _droppedTotal;
@@ -94,7 +99,7 @@ public sealed class VmInspectionDriver : IDisposable
     /// <summary>累计收到的帧数</summary>
     public int ReceivedTotal => Volatile.Read(ref _receivedTotal);
 
-    /// <summary>累计丢弃的帧数（上一帧还没处理完）</summary>
+    /// <summary>累计丢弃的帧数（被闸门挡下的、或处理失败没入库的 —— 口径是"到达但没入账"）</summary>
     public int DroppedTotal => Volatile.Read(ref _droppedTotal);
 
     /// <summary>
@@ -296,18 +301,19 @@ public sealed class VmInspectionDriver : IDisposable
     private static void SendLog(string text, LogMsgLevel level) =>
         SendToUi(() => WeakReferenceMessenger.Default.Send(new LogMessage(text, level)));
 
-    /// <summary>一条结果到达（IO 线程）。</summary>
-    private void OnLine(string line)
+    /// <summary>一条结果到达（IO 线程）。internal：闸门行为（丢帧/异常计数）在测试里直接驱动。</summary>
+    internal void OnLine(string line)
     {
         // 先记"到达"、再判"处理得过来"：ReceivedTotal 的口径是"VM 推了多少"（见字段注释），
         // 被丢弃的帧同样到达过。原来这句放在 busy 判断之后，等于把丢掉的帧从分母里也删了 ——
         // 界面上的"收 100 / 丢 3"会读成 3‰，实际是 3%。
         Interlocked.Increment(ref _receivedTotal);
 
-        if (Volatile.Read(ref _busy) == 1)
+        // Wait(0) = 原子"试占"：占上了 = 前面没人；占不上 = 上一帧还在写库。
+        // 宁可丢弃并计数，也不要并发写同一个 SQLite 连接 ——
+        // 但**必须计数并说出来**：产线上漏掉一件比判一件不良严重得多。
+        if (!_frameGate.Wait(0))
         {
-            // 上一帧还在写库。宁可丢弃并计数，也不要并发写同一个 SQLite 连接 ——
-            // 但**必须计数并说出来**：产线上漏掉一件比判一件不良严重得多。
             var total = Interlocked.Increment(ref _droppedTotal);
             _logger.LogWarning("[VM链路] 上一帧尚未处理完，丢弃本帧（累计丢弃 {Total} 次）", total);
 
@@ -321,7 +327,6 @@ public sealed class VmInspectionDriver : IDisposable
             return;
         }
 
-        Interlocked.Exchange(ref _busy, 1);
         try
         {
             // 解析失败也返回一份 NG 报告（带原因），所以这里不会因为格式问题静默丢帧
@@ -334,15 +339,18 @@ public sealed class VmInspectionDriver : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // 正在停机
+            // 正在停机。停机不计丢弃：框架关闭是预期行为，不是产线丢件。
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[VM链路] 处理结果失败");
+            // 处理失败的帧同样没进库 —— 和"被闸门挡下"的帧一样是"到达但没入账"，
+            // 必须进同一个计数，否则"收 N / 丢 M"的 M 会少报。
+            var total = Interlocked.Increment(ref _droppedTotal);
+            _logger.LogError(ex, "[VM链路] 处理结果失败（累计丢弃 {Total} 次）", total);
         }
         finally
         {
-            Interlocked.Exchange(ref _busy, 0);
+            _frameGate.Release();
         }
     }
 

@@ -1,9 +1,12 @@
 ﻿using CommunityToolkit.Mvvm.Messaging;
 using VisionStation.App.Abstractions;
+using VisionStation.App.Services.Interlock;
 using VisionStation.App.ViewModels;
 using VisionStation.Core.Engines;
 using VisionStation.Core.Models;
 using VisionStation.Devices;
+using VisionStation.Devices.Vm;
+using VisionStation.Service;
 
 namespace VisionStation.App.Tests;
 
@@ -26,7 +29,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = false };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            TestPaths.Recipe(), audit)
+            TestPaths.Recipe(), audit, new HealthSnapshot())
         {
             IsAutoMode = true
         };
@@ -57,7 +60,7 @@ public class ControlPanelViewModelTests
         var dialog = new FakeDialog { ConfirmResult = true };
         var audit = new FakeAuditService();
         var vm = new ControlPanelViewModel(trigger, dialog,
-            TestPaths.Recipe(), audit)
+            TestPaths.Recipe(), audit, new HealthSnapshot())
         {
             IsAutoMode = true
         };
@@ -94,7 +97,7 @@ public class ControlPanelViewModelTests
         try
         {
             var vm = new ControlPanelViewModel(new FakeTrigger(), new FakeDialog(),
-                TestPaths.Recipe(), new FakeAuditService());
+                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot());
 
             vm.ClearAllCommand.Execute(null);
 
@@ -124,7 +127,7 @@ public class ControlPanelViewModelTests
         try
         {
             var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
-                TestPaths.Recipe(), new FakeAuditService());
+                TestPaths.Recipe(), new FakeAuditService(), new HealthSnapshot());
 
             vm.StartDetectionCommand.Execute(null);
 
@@ -141,6 +144,122 @@ public class ControlPanelViewModelTests
         }
     }
 
+    /// <summary>
+    /// F-47：联锁不通过时，「进入自动运行」必须被真拦 —— 触发源一次都不许 Start、
+    /// IsAutoMode 保持 false、不留 Start 流水，并且把每条失败原因单独写进日志
+    /// （操作员要的是"哪几件事没就绪"，不是一句"未就绪"）。
+    /// </summary>
+    [Fact]
+    public void ToggleAutoMode_联锁未通过_不Start不进自动_且逐条给原因()
+    {
+        var trigger = new FakeTrigger();
+        var audit = new FakeAuditService();
+        var logs = new List<LogMessage>();
+        WeakReferenceMessenger.Default.Register<LogMessage>(this, (_, msg) => logs.Add(msg));
+
+        try
+        {
+            // 什么都不配：链路状态未知 + 自检快照没跑 → 至少两项失败
+            var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
+                TestPaths.Recipe(), audit, new HealthSnapshot());
+
+            vm.ToggleAutoModeCommand.Execute(null);
+
+            Assert.False(vm.IsAutoMode);
+            Assert.Equal(0, trigger.StartCount);
+            Assert.Empty(audit.Entries);   // 被拦的启动不是启动，不能留 Start 流水
+
+            Assert.Contains(logs, m => m.Value.Level == LogMsgLevel.Warning && m.Value.Text.Contains("启动联锁未通过"));
+            Assert.Contains(logs, m => m.Value.Text.Contains("VM 链路状态未知"));
+            Assert.Contains(logs, m => m.Value.Text.Contains("启动自检尚未运行"));
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(this);
+        }
+    }
+
+    /// <summary>
+    /// F-47：联锁全过时「进入自动运行」放行 —— Start 一次、进自动、留 Start 流水。
+    /// </summary>
+    [Fact]
+    public void ToggleAutoMode_联锁通过_进入自动并Start一次()
+    {
+        var trigger = new FakeTrigger();
+        var audit = new FakeAuditService();
+        var vm = new ControlPanelViewModel(trigger, new FakeDialog(),
+            TestPaths.Recipe(), audit, PassingHealth());
+
+        try
+        {
+            WeakReferenceMessenger.Default.Send(new VmLinkStatusMessage(
+                new VmLinkStatus(VmLinkState.Healthy, "127.0.0.1:9100", null, null,
+                    TimeSpan.FromSeconds(10), true)));
+
+            vm.ToggleAutoModeCommand.Execute(null);
+
+            Assert.True(vm.IsAutoMode);
+            Assert.Equal(1, trigger.StartCount);
+            Assert.Contains(audit.Entries, e => e.Action == AuditAction.Start);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(this);
+        }
+    }
+
+    /// <summary>
+    /// F-47 主场景：急停按下 → 闩锁（复位按钮出现）→ 联锁拦自动运行 →
+    /// 人工复位 → 放行。审计里 EStopPressed / EStopReset / Start 各一条，
+    /// EStopReset 这个预留枚举值自此有了对应的真实动作。
+    /// </summary>
+    [Fact]
+    public async Task 急停后_联锁拦自动_复位后才放行()
+    {
+        var trigger = new FakeTrigger();
+        var dialog = new FakeDialog { ConfirmResult = true };
+        var audit = new FakeAuditService();
+        var vm = new ControlPanelViewModel(trigger, dialog,
+            TestPaths.Recipe(), audit, PassingHealth());
+
+        try
+        {
+            await vm.EmergencyStopCommand.ExecuteAsync(null);
+            Assert.True(vm.HasPendingEStop);   // 复位按钮此刻才出现
+
+            // 其余条件全齐，但急停未复位 → 拦
+            WeakReferenceMessenger.Default.Send(new VmLinkStatusMessage(
+                new VmLinkStatus(VmLinkState.Healthy, "127.0.0.1:9100", null, null,
+                    TimeSpan.FromSeconds(10), true)));
+            vm.ToggleAutoModeCommand.Execute(null);
+            Assert.False(vm.IsAutoMode);
+            Assert.Equal(0, trigger.StartCount);
+
+            // 人工复位 → 放行
+            vm.ResetEStopCommand.Execute(null);
+            Assert.False(vm.HasPendingEStop);
+            vm.ToggleAutoModeCommand.Execute(null);
+            Assert.True(vm.IsAutoMode);
+            Assert.Equal(1, trigger.StartCount);
+
+            Assert.Contains(audit.Entries, e => e.Action == AuditAction.EStopPressed);
+            Assert.Contains(audit.Entries, e => e.Action == AuditAction.EStopReset);
+            Assert.Contains(audit.Entries, e => e.Action == AuditAction.Start);
+        }
+        finally
+        {
+            WeakReferenceMessenger.Default.UnregisterAll(this);
+        }
+    }
+
+    /// <summary>全过的自检快照：HasRun = true、无失败项。</summary>
+    private static HealthSnapshot PassingHealth()
+    {
+        var snapshot = new HealthSnapshot();
+        snapshot.Update(new[] { new HealthResult("存储", true, "可写") });
+        return snapshot;
+    }
+
     private sealed class FakeTrigger : ITriggerSource
     {
         public int StopCount { get; private set; }
@@ -148,10 +267,17 @@ public class ControlPanelViewModelTests
         /// <summary>Fire 次数。F-10 的验收点：手动"开始检测"一次都不许推触发源。</summary>
         public int FireCount { get; private set; }
 
+        /// <summary>Start 次数。F-47 的验收点：联锁不通过时一次都不许 Start。</summary>
+        public int StartCount { get; private set; }
+
         public bool IsRunning { get; private set; }
         public event Action<TriggerOrigin>? Triggered;
 
-        public void Start() => IsRunning = true;
+        public void Start()
+        {
+            StartCount++;
+            IsRunning = true;
+        }
 
         public void Stop()
         {

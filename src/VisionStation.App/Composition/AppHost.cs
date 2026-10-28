@@ -10,6 +10,7 @@ using Serilog;
 using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Services;
 using VisionStation.App.Services.Inspection;
+using VisionStation.App.Services.Interlock;
 using VisionStation.App.ViewModels;
 using VisionStation.Core;
 using VisionStation.Core.Models;
@@ -261,6 +262,9 @@ public sealed class AppHost : IAsyncDisposable
         }
 
         HealthResults = results;
+
+        // 快照给启动联锁（F-47）用：控制面板运行期读它，不重跑自检
+        services.GetRequiredService<HealthSnapshot>().Update(results);
 
         services.GetRequiredService<IHousekeepingService>();
 

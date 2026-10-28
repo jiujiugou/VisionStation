@@ -15,10 +15,11 @@ namespace VisionStation.Core.Models;
 /// </para>
 ///
 /// <para>
-/// <b>注意 <see cref="EStopReset"/> 的注释与实现对不上</b>：这里的注释写"只有管理员能做"，
-/// 但 <c>RolePermissions.RequiresPermission</c> 里根本没有这一项（走 default → null），
-/// 而且当前界面也没有复位急停的动作。它是一个"只在枚举里存在"的预留值，
-/// 别据此以为复位急停受管理员权限保护。
+/// <b><see cref="EStopReset"/> 的现状（2026-10-28 F-47 起）</b>：控制面板有了真实的
+/// 「复位急停」动作（<c>ControlPanelViewModel.ResetEStop</c>），每次复位记一条本值。
+/// 它仍<b>不受权限位保护</b>（<c>RolePermissions.RequiresPermission</c> 走 default → null）——
+/// 刻意的：复位是恢复生产的安全动作，权限门槛越高，被锁在场外的时间越长；
+/// 门槛由"必须人工按一次"这个物理动作承担，不由账号承担。
 /// </para>
 /// </summary>
 public enum AuditAction

@@ -8,6 +8,7 @@ using VisionStation.App.Composition.Lifecycle;
 using VisionStation.App.Infrastructure;
 using VisionStation.App.Services;
 using VisionStation.App.Services.Inspection;
+using VisionStation.App.Services.Interlock;
 using VisionStation.App.Services.Imaging;
 using VisionStation.App.Services.Navigation;
 using VisionStation.App.ViewModels;
@@ -374,6 +375,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ImagePanelViewModel>();
         services.AddSingleton<ResultPanelViewModel>();
         services.AddSingleton<LogPanelViewModel>();
+
+        // 启动自检结果快照（F-49 跑、F-47 联锁读）：AppHost 启动时 Update，控制面板构造时注入。
+        services.AddSingleton<HealthSnapshot>();
+
         services.AddSingleton<ControlPanelViewModel>();
         services.AddSingleton<StatusBarViewModel>();
         services.AddSingleton<TopBarViewModel>();

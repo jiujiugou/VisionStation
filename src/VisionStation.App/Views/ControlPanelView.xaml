@@ -15,10 +15,10 @@
         而它真正高频的只有四个：开始、停止、自动、急停。
         现在把高频的摊平在图像下面（视线不离图就能按），
         低频的四个维护动作收进「维护」折叠区 —— 不删，但要主动点开才占地方。
-
-        急停的规矩不变：永远是红的、独立一块、和"停止"拉开距离。
-        误把停止当急停，和找不到急停，都是产线上会出事的错。
     -->
+
+        <!-- 急停的规矩不变：永远是红的、独立一块、和"停止"拉开距离。
+             2026-10-28（F-47）：急停后出现「复位急停」——联锁拦自动运行，人工复位才放行。 -->
     <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource CardBorder}"
             BorderThickness="1" CornerRadius="4" Padding="8,6">
         <Grid>
@@ -57,12 +57,22 @@
                     </Button>
                 </StackPanel>
 
-                <!-- 右：急停。独立、红色、贴着右边缘，和停止拉开距离 -->
-                <Button Grid.Column="1" Content="急 停"
-                        Command="{Binding EmergencyStopCommand}"
-                        Style="{StaticResource EStopButton}"
-                        Height="32" MinWidth="76" Padding="10,0"
-                        BorderThickness="2" />
+                <!-- 右：急停复位 + 急停。复位只在急停待复位时出现（联锁 F-47 拦着自动运行，
+                     必须人工复位才能再启动）；平时不占地方，急停永远是红的、贴着右边缘 -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="复位急停"
+                            Command="{Binding ResetEStopCommand}"
+                            Visibility="{Binding HasPendingEStop, Converter={StaticResource BoolToVis}}"
+                            Style="{StaticResource PrimaryButton}"
+                            Height="32" MinWidth="76" Margin="0,0,4,0"
+                            AutomationProperties.Name="复位急停"
+                            ToolTip="急停已触发；复位后才能重新进入自动运行" />
+                    <Button Content="急 停"
+                            Command="{Binding EmergencyStopCommand}"
+                            Style="{StaticResource EStopButton}"
+                            Height="32" MinWidth="76" Padding="10,0"
+                            BorderThickness="2" />
+                </StackPanel>
             </Grid>
 
             <!-- ═══ 维护区（默认收起）═══

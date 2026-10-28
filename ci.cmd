@@ -5,7 +5,7 @@ cd /d "%~dp0"
 if not exist artifacts\ci mkdir artifacts\ci
 set LOG=artifacts\ci\build.log
 
-echo == 1/4 build: src (analyzers on) ==
+echo == 1/5 build: src (analyzers on) ==
 dotnet build src\VisionStation.App -v q --nologo --no-incremental > "%LOG%" 2>&1
 if errorlevel 1 (
     echo BUILD FAILED - src
@@ -13,7 +13,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo == 2/4 build: tests ==
+echo == 2/5 build: tests ==
 dotnet build tests\VisionStation.UnitTests -v q --nologo --no-incremental >> "%LOG%" 2>&1
 if errorlevel 1 (
     echo BUILD FAILED - tests
@@ -29,7 +29,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo == 3/4 analyzer ratchet ==
+echo == 3/5 analyzer ratchet ==
 where python >nul 2>nul
 if errorlevel 1 (
     py -3 scripts\analyzer_gate.py --log "%LOG%"
@@ -38,7 +38,16 @@ if errorlevel 1 (
 )
 if errorlevel 1 goto fail
 
-echo == 4/4 test ==
+echo == 4/5 doc-code consistency gate ==
+where python >nul 2>nul
+if errorlevel 1 (
+    py -3 scripts\doc_consistency_gate.py
+) else (
+    python scripts\doc_consistency_gate.py
+)
+if errorlevel 1 goto fail
+
+echo == 5/5 test ==
 dotnet test tests\VisionStation.UnitTests --nologo --no-build
 if errorlevel 1 goto fail
 

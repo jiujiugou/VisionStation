@@ -44,6 +44,7 @@ WPF 金属零件视觉检测上位机。VisionMaster 跑流程出判定 → TCP 
 | `src/VisionStation.Watchdog` | 独立进程守护 | 可改 |
 | `tests/VisionStation.UnitTests` + `tests/VisionStation.App.Tests` | 全部测试（当前 414 项：238 + 176，实测） | **只准加，不准改断言** |
 | `tools/VmSimulator` | VM 报文模拟/抓包（**不在** `.slnx` 里，ci.cmd 不构建它） | 可改 |
+| `tools/RecipeGen` | 配方生成器：解析 .sol 名册 → 生成配方 JSON 草稿（顺序预填须人工对照 VM 订阅；**不在** `.slnx` 里） | 可改 |
 | `scripts/rtu_slave.py` + `tools/RtuProbe` | Modbus RTU 从站模拟器 + 验证探针（需 com0com 虚拟串口对 COM3↔COM4，**不进 ci**，跑法见 `docs/产线闭环-说明.md` §8） | 可改 |
 | `docs/` | 设计文档与规范；WPF 规则见 `WPF开发规范.md`，现状见 `WPF规范落地记录.md`；**参数底册见 `参数与策略.md`**（机器对账，改参数必须同步，硬规则 13/14） | 可改 |
 | `bin/` `obj/` `publish/` | 构建产物 | **禁止编辑** |

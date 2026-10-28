@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    配方生成器（RecipeGen）。
+
+    干什么：解析 VisionMaster 的 .sol 方案包，自动生成上位机配方 JSON 的草稿，
+            把"手抄模块名"变成"机器提取 + 人工点选"。
+
+    为什么可行（2026-10-28 拆解 4.0_V4.2.0.sol 的实证结论）：
+      · .sol 是 ZIP 包，VmServer.xml 里有权威模块名册（Name + DisplayName），明文可读；
+      · 但报文订阅顺序在二进制参数里（明文搜不到）、role 是上位机语义 —— 
+        所以只能生成"草稿"：顺序按模块清单序预填、必须人工对照 VM「发送数据」订阅确认。
+      · 不能提取的字段绝不瞎编：sensor 留 0 占位、role 全部默认 Defect 并在输出里点名请人确认。
+
+    它不做的事：不加载 VM、不碰 SDK（崩溃史，见 docs/引擎集成-说明.md）、不做热重载。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>VisionStation.RecipeGen</RootNamespace>
+    <AssemblyName>RecipeGen</AssemblyName>
+    <!-- S6966（要求 Console 异步写）对一次性 CLI 是噪音；ci 不构建 tools/，此告警不进棘轮，就地豁免 -->
+    <NoWarn>$(NoWarn);S6966</NoWarn>
+  </PropertyGroup>
+
+</Project>

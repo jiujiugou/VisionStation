@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Text.Json;
+using VisionStation.Watchdog;
 
 // VisionStation 看门狗 —— 常驻单实例守护主进程，崩了自动拉起。
 // 由 VisionStation.App 启动时创建，操作员无感知。
@@ -54,9 +54,9 @@ const string singletonMutexName = "VisionStation.Watchdog";
 var parentPid = args.Length > 0 ? int.Parse(args[0]) : 0;
 var exePath = args.Length > 1 ? args[1] : "VisionStation.App.exe";
 
-// 主程序自己的参数（argv[2..]）。只解析一次、之后每轮重启都用同一份 ——
+// 主程序自己的参数（argv[2..]，切分规则见 WatchdogArgs）。只解析一次、之后每轮重启都用同一份 ——
 // 重放的是"主程序当初被怎么启动的"，不是"看门狗现在想怎么启动它"。
-var mainArgs = TakeMainArgs(args);
+var mainArgs = WatchdogArgs.TakeMainArgs(args);
 
 // 没带 PID：说明不是主程序拉起来的（可能是有人双击了看门狗 exe）。
 // 直接退出，不猜、不抱怨 —— 看门狗没有"独立运行"这种用法。
@@ -91,7 +91,9 @@ var cfg = WatchdogConfig.Load();
 // 崩溃循环时一轮几行（那正是要看的内容）。不会自动清理 ——
 // 增长足够慢，不值得为它引入轮转；真要归档，人工把文件挪走即可。
 var logPath = Path.Combine(AppContext.BaseDirectory, "watchdog.log");
-var history = new Queue<DateTime>();
+
+// 崩溃循环保护 + 退避的记账员（策略逻辑与测试见 RestartPolicy）。
+var policy = new RestartPolicy(cfg);
 
 // 拿主进程句柄。已经退出时 GetProcessById 抛 ArgumentException —— 这里当作"崩溃"继续往下走，
 // 目的是让"主程序刚起来就崩"也能被拉起一次（而不是看门狗自己静默退出）。
@@ -112,26 +114,23 @@ while (true)
     }
     Log("主进程异常终止");
 
-    // 崩溃循环保护：只统计窗口期内的重启次数
-    var now = DateTime.Now;
-    history.Enqueue(now);
-    while (history.Count > 0 && (now - history.Peek()).TotalMinutes > cfg.WindowMinutes)
-        history.Dequeue();
+    // 崩溃循环保护：只统计窗口期内的重启次数（记账时顺手清窗口外旧账）
+    policy.Register(DateTime.Now);
 
     // 达到上限 → 停止尝试，留 CRITICAL 给人看。
     // 这一步是"确定性崩溃"（配方损坏、端口被占、依赖缺失）的唯一刹车：
     // 没有它，一台无人值守的机器会整夜"拉起 → 崩溃 → 拉起"，
     // 日志被刷满、磁盘被写满，第二天来看不出最初那条错误。
-    if (history.Count >= cfg.MaxRestarts)
+    if (policy.ShouldStop)
     {
-        Log($"CRITICAL: {cfg.WindowMinutes} 分钟内已重启 {history.Count} 次，停止自动拉起，需人工介入");
+        Log($"CRITICAL: {cfg.WindowMinutes} 分钟内已重启 {policy.WindowCount} 次，停止自动拉起，需人工介入");
         return;
     }
 
     // 指数退避：2s → 4s → 8s …（封顶），给瞬时故障自愈的机会，又不至于疯狂刷屏
     // 底数是配置里的 RestartDelaySeconds，指数是"窗口内第几次"（第 1 次 2^0=1 倍），
     // 封顶 BackoffMaxSeconds —— 没有封顶的话，第 6 次就是 64 秒、第 10 次接近 17 分钟。
-    var delay = (int)Math.Min(cfg.RestartDelaySeconds * Math.Pow(2, history.Count - 1), cfg.BackoffMaxSeconds);
+    var delay = policy.NextDelaySeconds;
     Log($"{delay} 秒后重启...");
 
     // 用同步 Sleep 而不是定时器：看门狗整个进程是单线程的，这期间没有别的事要做。
@@ -207,33 +206,6 @@ static bool WaitForExit(Process? parent, EventWaitHandle? shutdown)
     }
 }
 
-// 从本进程的 argv 里切出"属于主程序、重启时要原样重放"的那一段。
-//
-// 归属判断依据（只依据本文件与 App.StartWatchdog 的实现，不靠名字猜）：
-//   argv[0] = 被守护进程的 PID    → 看门狗自己的。绝不转交：主程序拿到一个裸数字没有意义，
-//                                   而且它会被当成第一个位置参数，可能顶掉真正的参数。
-//   argv[1] = 主程序 exe 全路径   → 看门狗自己的。重启时由 exePath 单独消费（ProcessStartInfo.FileName），
-//                                   再当参数传一遍就成了"主程序收到自己的路径"。
-//   argv[2..]                     → 主程序原始命令行，原样转交。
-// 看门狗自身**没有任何具名开关**（没有 --watch / --verbose / --log 之类），所以不存在
-// "看着像主程序参数、其实是看门狗自己的"这种歧义 —— 这就是可以简单地按位置切分的前提。
-// 将来若要给看门狗加开关：加在 argv[0..1] 之后、并且**必须**用 "--" 与主程序参数隔开，
-// 同时把下面的 watchdogOwnArgCount 一并改掉；"--" 的存在就是为了让"新增开关时不会
-// 悄悄漏给主程序"这件事有一个显式的落点。
-//
-// 纯函数（不看全局、不碰 IO），日后加测试工程可以直接喂 argv 断言输出。
-static string[] TakeMainArgs(string[] args)
-{
-    const int watchdogOwnArgCount = 2;   // PID + exe 路径
-    if (args.Length <= watchdogOwnArgCount) return Array.Empty<string>();
-
-    var rest = args[watchdogOwnArgCount..];
-
-    // "--" 之后的才是主程序参数，分隔符本身不转交（与常规 CLI 约定一致）。
-    // 没有 "--" 时全部照转：兼容主程序侧直接追加参数的写法。
-    return rest.Length > 0 && rest[0] == "--" ? rest[1..] : rest;
-}
-
 // 写一行日志（追加）。
 // 吞掉所有异常是刻意的：日志写不了（目录只读、磁盘满、文件被占用）时，
 // 看门狗仍必须继续守护 —— 不能因为"记不下来"就变成"不干活"。
@@ -242,50 +214,4 @@ void Log(string msg)
 {
     try { File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {msg}\n"); }
     catch { /* 日志写不了不能反过来把看门狗搞崩 */ }
-}
-
-/// <summary>看门狗策略：从 exe 同目录的 appsettings.json 的 Watchdog 节读取，缺失用默认值</summary>
-/// <param name="MaxRestarts">窗口期内最多拉起几次；达到即停止并留 CRITICAL（默认 3）</param>
-/// <param name="WindowMinutes">滑动窗口长度，单位分钟（默认 10）。窗口外的重启记录会被丢掉</param>
-/// <param name="RestartDelaySeconds">第一次退避的基准秒数（默认 2），之后按 2 的幂增长</param>
-/// <param name="BackoffMaxSeconds">单次退避上限（默认 60）。防止指数增长把恢复时间拖到不可接受</param>
-sealed record WatchdogConfig(int MaxRestarts, double WindowMinutes, int RestartDelaySeconds, int BackoffMaxSeconds)
-{
-    /// <summary>
-    /// 读配置。**任何异常都回落到默认值**，这与主程序的策略相反
-    /// （<c>AppOptionsBinder</c> 是"配置非法就启动失败"）—— 因为这里的角色不同：
-    /// 看门狗是最后一道保险，配置写坏了它也必须照样守护，不能跟着主程序一起不启动。
-    /// </summary>
-    public static WatchdogConfig Load()
-    {
-        try
-        {
-            var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-            if (File.Exists(path))
-            {
-                using var doc = JsonDocument.Parse(File.ReadAllText(path));
-                if (doc.RootElement.TryGetProperty("Watchdog", out var w))
-                {
-                    return new WatchdogConfig(
-                        GetInt(w, "MaxRestarts", 3),
-                        GetInt(w, "WindowMinutes", 10),
-                        GetInt(w, "RestartDelaySeconds", 2),
-                        GetInt(w, "BackoffMaxSeconds", 60));
-                }
-            }
-        }
-        catch { /* 配置坏了走默认策略 */ }
-
-        // 兜底值与 appsettings.json 里的 Watchdog 段保持一致：
-        // 现场看到"行为和配置对不上"时，先确认这两个地方有没有被改歪。
-        return new WatchdogConfig(3, 10, 2, 60);
-    }
-
-    /// <summary>
-    /// 读一个整数键，缺键/类型不对/解析失败都回落到 <paramref name="def"/>。
-    /// 与主程序"数值解析失败要带着键名报错"不同：看门狗宁可带着默认值工作，
-    /// 也不要因为一个错字而不守护（它存在的意义就是"别的东西出错时它还在"）。
-    /// </summary>
-    private static int GetInt(JsonElement e, string name, int def)
-        => e.TryGetProperty(name, out var v) && v.TryGetInt32(out var i) ? i : def;
 }

@@ -30,6 +30,8 @@
     <ProjectReference Include="..\..\src\VisionStation.Service\VisionStation.Service.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Engines.Vm\VisionStation.Engines.Vm.csproj" />
     <ProjectReference Include="..\..\src\VisionStation.Devices\VisionStation.Devices.csproj" />
+    <!-- 看门狗的纯逻辑（参数重放/崩溃窗口/退避/配置兜底）在这里测 -->
+    <ProjectReference Include="..\..\src\VisionStation.Watchdog\VisionStation.Watchdog.csproj" />
   </ItemGroup>
 
 </Project>
